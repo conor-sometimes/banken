@@ -39,17 +39,17 @@ func TestCursorOpenAtSeeksAndHandlesRotation(t *testing.T) {
 	}
 	c := &Cursor{Offsets: map[string]int64{logPath: 6}} // after "line1\n"
 
-	f, newOffset, err := c.OpenAt(logPath)
+	ch, err := c.OpenAt(logPath)
 	if err != nil {
 		t.Fatalf("OpenAt: %v", err)
 	}
-	data, _ := io.ReadAll(f)
-	_ = f.Close()
+	data, _ := io.ReadAll(ch)
+	_ = ch.Close()
 	if string(data) != "line2\n" {
 		t.Errorf("read from offset = %q, want %q", data, "line2\n")
 	}
-	if newOffset != 12 {
-		t.Errorf("newOffset = %d, want 12", newOffset)
+	if ch.NextOffset() != 12 {
+		t.Errorf("NextOffset = %d, want 12", ch.NextOffset())
 	}
 
 	// Rotation: stored offset beyond the (now shorter) file -> reread from 0.
@@ -57,17 +57,69 @@ func TestCursorOpenAtSeeksAndHandlesRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Offsets[logPath] = 999
-	f, newOffset, err = c.OpenAt(logPath)
+	ch, err = c.OpenAt(logPath)
 	if err != nil {
 		t.Fatalf("OpenAt after rotation: %v", err)
 	}
-	data, _ = io.ReadAll(f)
-	_ = f.Close()
+	data, _ = io.ReadAll(ch)
+	_ = ch.Close()
 	if string(data) != "new\n" {
 		t.Errorf("after rotation read = %q, want %q", data, "new\n")
 	}
-	if newOffset != 4 {
-		t.Errorf("after rotation newOffset = %d, want 4", newOffset)
+	if ch.NextOffset() != 4 {
+		t.Errorf("after rotation NextOffset = %d, want 4", ch.NextOffset())
+	}
+}
+
+// TestChunkAdvancesToLastNewline is the A2 regression: the cursor must advance
+// to the end of the last COMPLETE line, not to the stat size. OLD behavior
+// returned the stat size (here 11), consuming the partial trailing "partial"
+// and losing it next run; the fix leaves it at 4 (after "a\nb\n").
+func TestChunkAdvancesToLastNewline(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "log")
+	if err := os.WriteFile(p, []byte("a\nb\npartial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := &Cursor{Offsets: map[string]int64{}}
+	ch, err := c.OpenAt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.ReadAll(ch)
+	_ = ch.Close()
+	if ch.NextOffset() != 4 {
+		t.Errorf("NextOffset = %d, want 4 (end of last complete line, not the stat size 11)", ch.NextOffset())
+	}
+}
+
+// TestChunkDoesNotReadPastSize is the A2 regression for duplicate alerts: the
+// Chunk reads only the bytes present when it was opened, so data appended
+// during the scan is neither read now (OLD code read to EOF) nor skipped next
+// run (OLD code advanced to the old stat size and re-read the appendage).
+func TestChunkDoesNotReadPastSize(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "log")
+	if err := os.WriteFile(p, []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := &Cursor{Offsets: map[string]int64{}}
+	ch, err := c.OpenAt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Append after opening: this must not appear in the read.
+	f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0o600)
+	_, _ = f.WriteString("three\n")
+	_ = f.Close()
+
+	data, _ := io.ReadAll(ch)
+	_ = ch.Close()
+	if string(data) != "one\ntwo\n" {
+		t.Errorf("read %q, want %q (must not read bytes appended after open)", data, "one\ntwo\n")
+	}
+	if ch.NextOffset() != 8 {
+		t.Errorf("NextOffset = %d, want 8 (the appendage is picked up next run, not duplicated)", ch.NextOffset())
 	}
 }
 

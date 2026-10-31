@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"io"
 	"strconv"
 	"strings"
@@ -44,26 +43,22 @@ type pathItem struct {
 // first-seen order), then folds each group into one event. An I/O error
 // reading r is returned; malformed lines are skipped.
 func (p Auditd) Parse(r io.Reader) ([]event.Event, error) {
-	sc := bufio.NewScanner(r)
-	// Audit lines can be long (a big argv or a hex proctitle); give the
-	// scanner room so a long-but-valid line is parsed, not silently split.
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-
 	order := []string{}
 	groups := map[string][]record{}
 
-	for sc.Scan() {
-		line := sc.Text()
-		rec, ok := parseAuditLine(line)
+	// scanLines gives us each line defensively: an over-long line is skipped,
+	// not failed, and only a real read error is returned.
+	err := scanLines(r, func(line []byte) {
+		rec, ok := parseAuditLine(string(line))
 		if !ok {
-			continue // unparseable line -- skip, keep going
+			return // unparseable line -- skip, keep going
 		}
 		if _, seen := groups[rec.id]; !seen {
 			order = append(order, rec.id)
 		}
 		groups[rec.id] = append(groups[rec.id], rec)
-	}
-	if err := sc.Err(); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 

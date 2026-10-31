@@ -155,23 +155,24 @@ func scanOnce(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 			logf(stderr, "banken: unknown source type %q (%s), skipping\n", src.Type, src.Path)
 			continue
 		}
-		file, newOffset, err := cursor.OpenAt(src.Path)
+		ch, err := cursor.OpenAt(src.Path)
 		if err != nil {
 			logf(stderr, "banken: open %s: %v\n", src.Path, err)
 			continue
 		}
-		res := eng.Process(p, file)
-		_ = file.Close()
+		res := eng.Process(p, ch)
+		_ = ch.Close()
 		for _, e := range res.Errors {
 			logln(stderr, "banken:", e)
 		}
 		totalAlerts += res.Alerts
 		// Advance the cursor only if the source parsed cleanly; a parse/read
 		// failure leaves the offset so the next run re-reads those bytes.
-		// Bad content a parser merely skipped (not an error) still counts as
-		// consumed.
+		// NextOffset is the end of the last complete line, so bad content a
+		// parser merely skipped still counts as consumed, but a partial
+		// trailing line does not.
 		if res.ParseErr == nil {
-			cursor.Offsets[src.Path] = newOffset
+			cursor.Offsets[src.Path] = ch.NextOffset()
 		}
 		logf(stderr, "banken: %s %s: %d events, %d alerts\n", src.Type, src.Path, res.Events, res.Alerts)
 	}

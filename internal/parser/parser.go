@@ -13,6 +13,8 @@
 package parser
 
 import (
+	"bufio"
+	"errors"
 	"io"
 
 	"github.com/conor-sometimes/banken/internal/event"
@@ -30,6 +32,58 @@ type Parser interface {
 	// an error, so a caller always gets every event that was parseable
 	// even when some of the input was garbage.
 	Parse(r io.Reader) ([]event.Event, error)
+}
+
+// maxLineBytes caps one log line. A real auditd record or Laurel event is a
+// few KB; 1 MiB is far above any legitimate line, so a longer one is junk (or
+// an attempt to choke the parser) and is skipped -- never buffered unboundedly
+// and never turned into an error that would fail the batch.
+const maxLineBytes = 1 << 20
+
+// scanLines calls emit once per newline-delimited line of r, with the
+// trailing CR/LF stripped and empty lines dropped. It is the heart of the
+// parser contract: it NEVER fails on content -- a line longer than
+// maxLineBytes is skipped (drained to the next newline), not buffered and not
+// surfaced as an error -- and returns a non-nil error ONLY for a genuine read
+// failure of r. A final line with no trailing newline is still emitted.
+//
+// The []byte handed to emit is valid only for that call; a parser must read it
+// (parse/copy), never retain it, because the backing array is reused.
+func scanLines(r io.Reader, emit func([]byte)) error {
+	br := bufio.NewReaderSize(r, 64*1024)
+	var line []byte
+	skip := false // the current line already blew the cap: drain and drop it
+	for {
+		chunk, err := br.ReadSlice('\n')
+		switch {
+		case err == nil, errors.Is(err, io.EOF):
+			if !skip && len(line)+len(chunk) <= maxLineBytes {
+				line = append(line, chunk...)
+				if t := trimLineEnd(line); len(t) > 0 {
+					emit(t)
+				}
+			}
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			line, skip = line[:0], false
+		case errors.Is(err, bufio.ErrBufferFull): // line spans the buffer; keep reading it
+			if skip || len(line)+len(chunk) > maxLineBytes {
+				line, skip = line[:0], true
+			} else {
+				line = append(line, chunk...)
+			}
+		default:
+			return err // a real I/O error -- the stream is unreadable
+		}
+	}
+}
+
+func trimLineEnd(b []byte) []byte {
+	for len(b) > 0 && (b[len(b)-1] == '\n' || b[len(b)-1] == '\r') {
+		b = b[:len(b)-1]
+	}
+	return b
 }
 
 // Registry maps a source name to the parser that handles it.

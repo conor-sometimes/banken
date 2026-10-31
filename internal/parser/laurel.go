@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"encoding/json"
 	"io"
 	"strconv"
@@ -38,27 +37,18 @@ type Laurel struct{}
 func (Laurel) Name() string { return laurelName }
 
 // Parse implements Parser. Each non-empty line is one JSON event; a line
-// that is not valid JSON, or is JSON of the wrong shape, is skipped.
+// that is not valid JSON, or is JSON of the wrong shape, is skipped. An
+// over-long line is skipped by scanLines, never failing the batch.
 func (p Laurel) Parse(r io.Reader) ([]event.Event, error) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-
 	var events []event.Event
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
-		}
+	err := scanLines(r, func(line []byte) {
 		var obj map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(line), &obj); err != nil {
-			continue
+		if json.Unmarshal(line, &obj) != nil {
+			return // not valid JSON -- skip, keep going
 		}
 		events = append(events, laurelEvent(obj))
-	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
-	return events, nil
+	})
+	return events, err
 }
 
 func laurelEvent(obj map[string]json.RawMessage) event.Event {

@@ -61,21 +61,54 @@ func (c *Cursor) Save(path string) error {
 	return nil
 }
 
-// OpenAt opens path and seeks to the stored offset for it, returning a
-// reader over the new bytes and the new end offset to store after a
-// successful read. If the file is shorter than the stored offset (it was
-// rotated or truncated), it starts from 0 so no events are missed.
-//
-// The caller is responsible for closing the returned file.
-func (c *Cursor) OpenAt(path string) (f *os.File, newOffset int64, err error) {
-	f, err = os.Open(path) //nolint:gosec // operator-supplied input path
+// Chunk is a bounded, line-counting view of the new bytes in a source file.
+// It reads exactly [start, size) -- the bytes present when the file was
+// opened -- so bytes appended during the scan are not read now and
+// double-read next run. As it is read it remembers the offset just past the
+// last newline, so the cursor advances only to a complete line and never
+// seeks into the middle of a record. Close it when done.
+type Chunk struct {
+	f      *os.File
+	r      io.Reader // io.LimitReader(f, size-start)
+	start  int64
+	read   int64 // bytes read so far from r
+	lastNL int64 // bytes read up to and including the last '\n' seen
+}
+
+// Read implements io.Reader, tracking the position of the last newline.
+func (ch *Chunk) Read(p []byte) (int, error) {
+	n, err := ch.r.Read(p)
+	for i := 0; i < n; i++ {
+		if p[i] == '\n' {
+			ch.lastNL = ch.read + int64(i) + 1
+		}
+	}
+	ch.read += int64(n)
+	return n, err
+}
+
+// NextOffset is the file offset the cursor should advance to after a
+// successful read: start plus the bytes up to and including the last complete
+// line. A partial trailing line (anything after the last newline) is left
+// unconsumed, so the next run re-reads it once it is complete -- never a
+// mid-record seek, never a dropped fragment.
+func (ch *Chunk) NextOffset() int64 { return ch.start + ch.lastNL }
+
+// Close closes the underlying file.
+func (ch *Chunk) Close() error { return ch.f.Close() }
+
+// OpenAt opens path, seeks to the stored offset, and returns a Chunk over the
+// new bytes. If the file is shorter than the stored offset (rotated or
+// truncated) it starts from 0 so no events are missed.
+func (c *Cursor) OpenAt(path string) (*Chunk, error) {
+	f, err := os.Open(path) //nolint:gosec // operator-supplied input path
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	info, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
-		return nil, 0, err
+		return nil, err
 	}
 	size := info.Size()
 	start := c.Offsets[path]
@@ -84,7 +117,7 @@ func (c *Cursor) OpenAt(path string) (f *os.File, newOffset int64, err error) {
 	}
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
 		_ = f.Close()
-		return nil, 0, err
+		return nil, err
 	}
-	return f, size, nil
+	return &Chunk{f: f, r: io.LimitReader(f, size-start), start: start}, nil
 }
