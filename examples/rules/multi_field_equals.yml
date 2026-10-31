@@ -1,0 +1,10 @@
+# Showcase: several fields in one selection are AND'd, and a bare value is an
+# (case-insensitive) equality match. Fires only on root running id.
+title: root running id
+id: example-root-id
+level: low
+detection:
+  sel:
+    Image|endswith: /id
+    User: root            # bare value = equals (case-insensitive)
+  condition: sel

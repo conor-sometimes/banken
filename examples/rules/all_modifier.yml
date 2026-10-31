@@ -1,0 +1,12 @@
+# Showcase: the |all modifier — EVERY value must be present, not just one.
+# A classic "decode a blob and pipe it to a shell" one-liner.
+title: Encoded payload piped to a shell
+id: example-decode-pipe-shell
+level: high
+detection:
+  sel:
+    CommandLine|contains|all:   # all three substrings must appear
+      - base64
+      - ' -d'
+      - '| sh'
+  condition: sel

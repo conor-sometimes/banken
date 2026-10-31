@@ -1,0 +1,13 @@
+# Showcase: the "N of them" quantifier — fire when several weak signals occur
+# together, even if no single one is conclusive.
+title: Download, make executable, and run
+id: example-dl-chmod-run
+level: medium
+detection:
+  dl:
+    CommandLine|contains: wget
+  mkexec:
+    CommandLine|contains: chmod
+  run:
+    CommandLine|contains: '+x'
+  condition: 2 of them

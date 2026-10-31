@@ -1,0 +1,8 @@
+# Showcase: a bulk IOC feed. One indicator per line; '#' and blank lines are
+# comments. banken classifies each by shape:
+#   - an IPv4 literal   -> token match
+#   - a dotted hostname -> exact or dot-suffix match (c2.evil.test matches too)
+#   - anything else     -> filename/path substring (include a / to be safe)
+192.0.2.44
+c2.evil.test
+/usr/share/.cache/.miner

@@ -1,0 +1,9 @@
+# Showcase: the |re modifier (RE2 regexp). Catches a literal IPv4 URL on the
+# command line, which plain substrings can't express.
+title: Command line contains an IP-address URL
+id: example-ip-url
+level: medium
+detection:
+  sel:
+    CommandLine|re: 'https?://(\d{1,3}\.){3}\d{1,3}(:\d+)?/'
+  condition: sel

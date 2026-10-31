@@ -1,0 +1,14 @@
+# Showcase: a list value is OR; two named selections are AND'd together.
+# Fires when a download tool writes into /tmp (both selections must match).
+title: Download tool writing to /tmp
+id: example-download-to-tmp
+level: medium
+description: A curl/wget invocation whose command line also touches /tmp.
+detection:
+  tool:
+    Image|endswith:        # a YAML list = match ANY of these (OR)
+      - /curl
+      - /wget
+  tmp:
+    CommandLine|contains: /tmp/
+  condition: tool and tmp   # both selections required (AND)
