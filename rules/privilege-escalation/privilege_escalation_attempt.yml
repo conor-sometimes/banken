@@ -1,12 +1,11 @@
-title: Contained agent tries to escalate privileges
+title: Privilege-escalation attempt
 id: 66c956f8-8c2b-4e7e-98c1-f68a49419ead
 status: experimental
 description: >
-  A contained agent ran sudo, su, doas, pkexec or run0. The agent is never in wheel and has no
-  password, so every attempt fails; the attempt itself is the signal: either a task went wrong in a
-  way worth reading, or the agent is probing for a way out. (The exec rule records it under the
-  agent's own exec key: auditd tags an event with the first matching rule, so the sudo watch only
-  covers other users.)
+  A program ran sudo, su, doas, pkexec or run0. On a host where a given account has no business
+  escalating, the attempt itself is the signal: either something went wrong in a way worth reading,
+  or a process is probing for a way up. Scope this to the users that should never escalate; for
+  those that legitimately do, the command line shows what they ran.
 references:
   - https://github.com/conor-sometimes/nixos-agent-containment
 author: nixos-agent-containment

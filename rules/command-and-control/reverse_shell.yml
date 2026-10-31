@@ -1,11 +1,11 @@
-title: Contained agent spawns a reverse shell
+title: Reverse shell spawned
 id: 0c9b10de-25ea-4ad5-8e07-d33508386857
 status: experimental
 description: >
-  A contained agent invoked a classic reverse-shell one-liner - bash's /dev/tcp, a Python/Perl/Ruby
-  socket shell, or nc with an exec. The kernel egress wall drops the outbound connection, so this
-  will fail, but the attempt is unambiguous: nothing in a decomp workflow opens an interactive
-  shell back to a remote host.
+  A program invoked a classic reverse-shell one-liner - bash's /dev/tcp, a Python/Perl/Ruby socket
+  shell, or nc with an exec. Opening an interactive shell back to a remote host is almost never
+  legitimate automation; the attempt is unambiguous whether or not the outbound connection
+  succeeds.
 references:
   - https://github.com/conor-sometimes/nixos-agent-containment
 author: nixos-agent-containment
@@ -37,7 +37,7 @@ detection:
       - 'TCPSocket.open'
   condition: bash_devtcp or python_socket or nc_exec or perl_ruby
 falsepositives:
-  - Rare; a legitimate network-probe script using /dev/tcp. On a contained agent, review it.
+  - Rare; a legitimate network-probe or health-check script using /dev/tcp. Review it.
   - "(fixed 2026-10-24) an apt postinstall byte-compiling Python's stdlib in a container; its argv
     named socket.py, connection.py and subprocess.py. Now matched on syntax, not words."
 level: critical

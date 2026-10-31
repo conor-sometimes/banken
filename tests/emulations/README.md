@@ -32,3 +32,16 @@ are not. If a script can't stay inside this contract, it doesn't belong here.
 | Script | Imitates | Expected rules |
 | --- | --- | --- |
 | `amos.sh` | AMOS / Atomic Stealer — harvest creds + wallets, stage, curl to C2 | credential_file_read, download_ip_to_tmp |
+| `xmrig.sh` | XMRig / coin-miner dropper — fetch miner by IP into scratch, curl \| sh install | download_ip_to_tmp, pipe_to_shell |
+| `revshell.sh` | Generic reverse-shell one-liners — bash /dev/tcp, python socket, nc -e | reverse_shell |
+| `persist.sh` | Generic persistence — systemd user unit, shell rc edit (all in scratch) | persistence |
+| `sudo_probe.sh` | Privilege-escalation probing — non-interactive sudo/doas | privilege_escalation_attempt |
+| `tamper.sh` | T1562 Impair Defenses — stop/kill/remove banken, flush auditd (all harmless) | tamper_banken |
+
+Note: a few TTPs are unsafe to run live even in analogue (installing a real crontab, flushing audit
+rules as root, stopping the real banken unit), so the scripts avoid them and the corresponding
+selections are exercised by the checked-in `tests/fixtures/*.json` events instead. `tamper.sh` runs
+`auditctl -D` only when unprivileged, where it cannot actually flush anything.
+
+A benign baseline, `benign.sh` is not provided as a script (it would just be ordinary activity); the
+`*.expect-none.json` fixtures stand in for it, asserting everyday commands fire nothing.

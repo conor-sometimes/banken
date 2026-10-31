@@ -1,0 +1,36 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/bin/cat",
+    "commandLine": "cat /etc/hostname",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/curl",
+    "commandLine": "curl -s https://api.github.com/repos/conor-sometimes/banken -o /home/u/out.json",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/git",
+    "commandLine": "git commit -m update",
+    "user": "1000",
+    "currentDirectory": "/home/u/repo"
+  },
+  {
+    "source": "auditd",
+    "image": "/run/current-system/sw/bin/systemctl",
+    "commandLine": "systemctl status sshd",
+    "user": "0"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/cp",
+    "commandLine": "cp /home/u/a.txt /home/u/b.txt",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  }
+]

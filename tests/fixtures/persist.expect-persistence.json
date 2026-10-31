@@ -1,0 +1,16 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/bin/cp",
+    "commandLine": "cp /home/u/scratch/emul.service /home/u/scratch/.config/systemd/user/emul.service",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/tee",
+    "commandLine": "tee /home/u/scratch/.bashrc",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  }
+]

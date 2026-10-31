@@ -1,0 +1,21 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/bin/apt-get",
+    "commandLine": "apt-get install -y curl",
+    "user": "0"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/python3",
+    "commandLine": "python3 -m py_compile /usr/lib/python3.11/socket.py /usr/lib/python3.11/multiprocessing/connection.py /usr/lib/python3.11/subprocess.py",
+    "user": "0",
+    "currentDirectory": "/"
+  },
+  {
+    "source": "auditd",
+    "image": "/run/current-system/sw/bin/systemctl",
+    "commandLine": "systemctl restart nginx",
+    "user": "0"
+  }
+]

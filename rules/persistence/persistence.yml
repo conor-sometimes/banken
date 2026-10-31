@@ -1,10 +1,10 @@
-title: Contained agent establishes persistence
+title: Persistence established
 id: 27872ea4-de7d-486f-8813-02ca2926a255
 status: experimental
 description: >
-  A contained agent tried to persist across sessions - installing a crontab, writing a systemd user
-  unit or timer, or editing a shell rc / profile / ssh rc. A task-scoped agent has no reason to
-  arrange to run again later; this is how a compromised one would survive a rebuild.
+  A program tried to persist across sessions - installing a crontab, writing a systemd user unit or
+  timer, or editing a shell rc / profile / ssh rc. Arranging to run again later, outside of a
+  package manager or a config-management run, is how a compromised process survives a reboot.
 references:
   - https://github.com/conor-sometimes/nixos-agent-containment
 author: nixos-agent-containment
@@ -36,5 +36,5 @@ detection:
       - '/.config/autostart/'
   condition: crontab or systemd_user_unit or shell_rc
 falsepositives:
-  - An agent legitimately managing its own long-running job via a user unit; confirm against the task.
+  - A user or tool legitimately managing its own long-running job via a user unit; confirm against the host's expected activity.
 level: high

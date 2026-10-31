@@ -1,0 +1,9 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/bin/sudo",
+    "commandLine": "sudo -n true",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  }
+]

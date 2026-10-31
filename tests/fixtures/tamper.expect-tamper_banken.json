@@ -1,0 +1,38 @@
+[
+  {
+    "source": "auditd",
+    "image": "/run/current-system/sw/bin/systemctl",
+    "commandLine": "systemctl stop banken-emul-dummy.service",
+    "user": "1000"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/pkill",
+    "commandLine": "pkill -f banken-emul-dummy-process",
+    "user": "1000"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/rm",
+    "commandLine": "rm -f /home/u/scratch/banken.service",
+    "user": "1000"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/sbin/auditctl",
+    "commandLine": "auditctl -D",
+    "user": "1000"
+  },
+  {
+    "source": "auditd",
+    "image": "/run/current-system/sw/bin/systemctl",
+    "commandLine": "systemctl stop auditd",
+    "user": "0"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/sbin/service",
+    "commandLine": "service banken stop",
+    "user": "0"
+  }
+]
