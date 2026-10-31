@@ -19,11 +19,12 @@ banken -rules examples/rules -source laurel:/path/to/audit.log
 | `not_allowlist.yml` | `and not` allow-list carve-out (the standard FP tune-out) |
 | `quantifier.yml` | `N of them` — combine several weak signals |
 | `multi_field_equals.yml` | several fields AND'd in one selection; bare value = equals |
+| `wildcard.yml` | Sigma `*`/`?` wildcards in an unmodified value |
 | `rules/ioc/sample-indicators.txt` | a bulk IOC feed (IP / domain / path), one value per line |
 
 A compile test (`examples_test.go`) loads this whole tree on every `go test`, so an example that
 stops compiling fails CI — the showcase can't drift from what the engine accepts.
 
-> Honesty note: these use only features banken actually implements today. In particular they avoid
-> Sigma `*`/`?` wildcards, which banken does not yet interpret (it would match them literally) — see
-> the roadmap.
+Sigma `*`/`?` wildcards work in an unmodified value (`CommandLine: '*whoami*'`), matched
+case-insensitively against the whole field; `\*` / `\?` are literal. A `Field: null` is rejected at
+load (it would never match) rather than silently doing nothing.

@@ -278,7 +278,8 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 	}
 	fm.values = values
 
-	if fm.op == opRegexp {
+	switch {
+	case fm.op == opRegexp:
 		fm.res = make([]*regexp.Regexp, len(values))
 		for i, v := range values {
 			re, err := regexp.Compile(v)
@@ -287,8 +288,67 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 			}
 			fm.res[i] = re
 		}
+	case fm.op == opEquals && needsGlobCompile(values):
+		// A plain (unmodified) value containing a Sigma wildcard (* or ?) or a
+		// backslash escape is a glob, not a plain literal -- matching it
+		// literally would silently never fire (or keep the backslash), so
+		// compile the whole field to anchored, case-insensitive regexps that
+		// resolve the escapes. A value with no metacharacters in the same list
+		// becomes an exact-match regexp, preserving its equality semantics.
+		fm.op = opRegexp
+		fm.res = make([]*regexp.Regexp, len(values))
+		for i, v := range values {
+			re, err := regexp.Compile(sigmaGlobToRegexp(v))
+			if err != nil {
+				return fieldMatch{}, fmt.Errorf("field %q: bad wildcard pattern %q: %w", fm.field, v, err)
+			}
+			fm.res[i] = re
+		}
 	}
 	return fm, nil
+}
+
+// needsGlobCompile reports whether any value carries a Sigma wildcard (* or ?)
+// or a backslash escape, meaning the field must be compiled as a pattern
+// rather than matched as a plain literal.
+func needsGlobCompile(values []string) bool {
+	for _, v := range values {
+		if strings.ContainsAny(v, `*?\`) {
+			return true
+		}
+	}
+	return false
+}
+
+// sigmaGlobToRegexp compiles a Sigma value into an anchored, case-insensitive
+// regexp pattern: `*` -> `.*`, `?` -> `.`, `\x` -> literal x, every other
+// character quoted. A value with no wildcards becomes an exact (anchored)
+// match, so equality still means equality. Matching the whole field (anchored)
+// is Sigma's wildcard semantics.
+func sigmaGlobToRegexp(s string) string {
+	var b strings.Builder
+	b.WriteString("(?i)^")
+	esc := false
+	for _, r := range s {
+		switch {
+		case esc:
+			b.WriteString(regexp.QuoteMeta(string(r)))
+			esc = false
+		case r == '\\':
+			esc = true
+		case r == '*':
+			b.WriteString(".*")
+		case r == '?':
+			b.WriteString(".")
+		default:
+			b.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	if esc { // a trailing backslash with nothing to escape -> treat as literal
+		b.WriteString(regexp.QuoteMeta("\\"))
+	}
+	b.WriteString("$")
+	return b.String()
 }
 
 // yamlValues reads a scalar or a sequence of scalars as []string, rendering
@@ -296,14 +356,22 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 func yamlValues(node *yaml.Node) ([]string, error) {
 	switch node.Kind {
 	case yaml.ScalarNode:
-		return []string{scalarString(node)}, nil
+		s, err := scalarString(node)
+		if err != nil {
+			return nil, err
+		}
+		return []string{s}, nil
 	case yaml.SequenceNode:
 		out := make([]string, 0, len(node.Content))
 		for _, c := range node.Content {
 			if c.Kind != yaml.ScalarNode {
 				return nil, errors.New("value list entries must be scalars")
 			}
-			out = append(out, scalarString(c))
+			s, err := scalarString(c)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, s)
 		}
 		return out, nil
 	default:
@@ -311,13 +379,16 @@ func yamlValues(node *yaml.Node) ([]string, error) {
 	}
 }
 
-func scalarString(node *yaml.Node) string {
-	// yaml.v3 leaves Value as the literal text for strings; for ints/bools
-	// it is still the source text, which is exactly what we want.
+// scalarString returns a scalar's literal text. A null is rejected rather than
+// coerced to "": a `Field: null` matcher would silently never fire (an empty
+// string never matches a present field), so it is reported at load time
+// instead of becoming a silently-dead detection. (Sigma's null = "field
+// absent" semantics are not yet implemented; see the roadmap.)
+func scalarString(node *yaml.Node) (string, error) {
 	if node.Tag == "!!null" {
-		return ""
+		return "", errors.New("null value is not supported (it would never match); give the field a value or remove it")
 	}
 	// yaml.v3 leaves Value as the literal source text for every scalar kind
 	// (string, int, bool), which is exactly what a matcher wants.
-	return node.Value
+	return node.Value, nil
 }

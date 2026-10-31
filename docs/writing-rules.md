@@ -43,6 +43,13 @@ error naming the file and reason — a malformed rule is never silently dropped)
 A value may be a scalar or a list; a list is OR (any) unless `|all` is added. String comparisons are
 case-insensitive (Sigma's default); a regexp honours its own casing.
 
+**Wildcards.** In an *unmodified* value, `*` matches any run of characters and `?` matches exactly
+one, matched against the whole field — so `CommandLine: '*whoami*'` is contains, `'sudo *'` is
+startswith, `'*/python3'` is endswith, and `'f?o'` matches `fXo`. Escape a literal with a backslash
+(`\*`, `\?`, `\\`). A `Field: null` is rejected at load (it would never match) rather than silently
+becoming a dead rule. (`logsource` routing and Sigma's null = "field absent" are not yet
+implemented — see the roadmap.)
+
 **Selections and conditions.** A selection is a mapping of `field: matcher` (AND across its fields),
 or a list of such mappings (OR across them). The `condition` combines selection names with
 `and` / `or` / `not`, parentheses, and the quantifiers `N of them` / `all of them` / `1 of sel*`.

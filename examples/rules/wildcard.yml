@@ -1,0 +1,11 @@
+# Showcase: Sigma wildcards in an unmodified value. '*' matches any run of
+# characters and '?' exactly one, against the whole field (case-insensitive).
+# Here: any python invocation running an inline '-c' one-liner.
+title: Python inline command execution
+id: example-python-inline
+level: medium
+detection:
+  sel:
+    Image|endswith: /python3
+    CommandLine: '*-c *'
+  condition: sel
