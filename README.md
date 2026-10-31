@@ -69,9 +69,14 @@ is, plus plain IOC lists for bulk feeds:
 - **Bulk IOC feeds** (thousands of values) go in `ioc/*.txt` as flat lists, one value per line, not
   one Sigma file each.
 
-banken evaluates the Sigma subset these use — `Image|endswith` / `CommandLine|contains` /
-`TargetFilename|contains` value lists and `and`/`or`/parens conditions — with clear errors on a bad
-rule. Fuller Sigma is added as rules need it.
+banken evaluates the field modifiers `contains` / `startswith` / `endswith` / `re` / `cidr` / `all`,
+plain-value equality, `*`/`?` wildcards, keyword (bare string-list) selections, and conditions of
+`and`/`or`/`not`/parens and `N of` / `all of` — with a clear load error (never a silent drop) on a
+rule it can't evaluate. **Measured coverage: banken loads 100% of the SigmaHQ `rules/linux` set
+(211/211)** — run `go run ./tools/sigmacov <sigma>/rules/linux` yourself. "Loads" means it compiles
+and evaluates; a rule that needs a field only a future source provides (e.g. a network `cidr` rule)
+loads and stays inert until that source lands, rather than failing. Verdict-level conformance against
+the reference engine (pySigma) is the next bar — see the roadmap.
 
 ## Alerts
 

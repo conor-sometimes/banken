@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/netip"
 	"os"
 	"path"
 	"path/filepath"
@@ -271,9 +272,9 @@ func compileSelMap(node yaml.Node) (selMap, error) {
 func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 	parts := strings.Split(key, "|")
 	fm := fieldMatch{field: parts[0], op: opEquals}
-	if fm.field == "" {
-		return fieldMatch{}, errors.New("empty field name")
-	}
+	// An empty field (a bare modifier key like `|all`) is a keyword matcher
+	// over all fields (Sigma's modifier-only keyword form), handled by the
+	// field-less path in fieldMatch.match.
 	for _, mod := range parts[1:] {
 		switch strings.ToLower(mod) {
 		case "contains":
@@ -284,6 +285,8 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 			fm.op = opEndsWith
 		case "re", "regex":
 			fm.op = opRegexp
+		case "cidr":
+			fm.op = opCIDR
 		case "all":
 			fm.all = true
 		default:
@@ -300,6 +303,18 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 	}
 	fm.values = values
 
+	// A field-less key (a bare modifier like `|all`) is a keyword matcher: its
+	// default is substring (contains), and its wildcards are unanchored, so
+	// route the common forms through compileKeywords and carry the |all flag.
+	if fm.field == "" && (fm.op == opEquals || fm.op == opContains) {
+		kw, err := compileKeywords(values)
+		if err != nil {
+			return fieldMatch{}, err
+		}
+		kw.all = fm.all
+		return kw, nil
+	}
+
 	switch {
 	case fm.op == opRegexp:
 		fm.res = make([]*regexp.Regexp, len(values))
@@ -309,6 +324,15 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 				return fieldMatch{}, fmt.Errorf("field %q: invalid regexp %q: %w", fm.field, v, err)
 			}
 			fm.res[i] = re
+		}
+	case fm.op == opCIDR:
+		fm.nets = make([]netip.Prefix, len(values))
+		for i, v := range values {
+			p, err := netip.ParsePrefix(strings.TrimSpace(v))
+			if err != nil {
+				return fieldMatch{}, fmt.Errorf("field %q: invalid CIDR %q: %w", fm.field, v, err)
+			}
+			fm.nets[i] = p
 		}
 	case fm.op == opEquals && needsGlobCompile(values):
 		// A plain (unmodified) value containing a Sigma wildcard (* or ?) or a

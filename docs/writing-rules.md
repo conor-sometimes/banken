@@ -38,7 +38,14 @@ error naming the file and reason — a malformed rule is never silently dropped)
 | `Field\|startswith: value` | starts with value |
 | `Field\|endswith: value` | ends with value |
 | `Field\|re: pattern` | matches the RE2 regexp (case per the pattern) |
+| `Field\|cidr: 10.0.0.0/8` | the field's IP is within the CIDR range (needs a network source to populate the field) |
 | `Field\|...\|all: [a, b]` | matches *every* listed value, not just one |
+
+**Keyword selections.** A selection whose value is a bare list of strings (not field mappings) is a
+*keyword* match: it fires if any string appears in any of the event's text fields — e.g.
+`keywords:\n  - /etc/shadow\n  - id_rsa`. A single scalar works too, and a modifier-only key makes
+it stricter: `'|all':\n  - truncate\n  - ' -s'` requires every string to appear (each in some field).
+Wildcards inside a keyword are substring (unanchored) matches.
 
 A value may be a scalar or a list; a list is OR (any) unless `|all` is added. String comparisons are
 case-insensitive (Sigma's default); a regexp honours its own casing.

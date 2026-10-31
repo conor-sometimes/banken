@@ -10,6 +10,7 @@
 package sigma
 
 import (
+	"net/netip"
 	"regexp"
 	"strings"
 
@@ -55,6 +56,7 @@ const (
 	opStartsWith
 	opEndsWith
 	opRegexp
+	opCIDR
 )
 
 // fieldMatch is one `field|mods: value(s)` entry.
@@ -64,6 +66,7 @@ type fieldMatch struct {
 	all    bool // |all: every value must match, not just one
 	values []string
 	res    []*regexp.Regexp // compiled, parallel to values, for opRegexp
+	nets   []netip.Prefix   // parsed, parallel to values, for opCIDR
 }
 
 // Match reports whether the rule fires on the event.
@@ -109,18 +112,43 @@ func (fm fieldMatch) match(e event.Event) bool {
 	// if any of the event's text fields matches. Used for bare string-list
 	// selections; see compileKeywords.
 	if fm.field == "" {
-		for _, text := range e.AllText() {
-			if fm.matchValues(text) {
-				return true
-			}
-		}
-		return false
+		return fm.matchKeyword(e)
 	}
 	val, present := e.Field(fm.field)
 	if !present {
 		return false
 	}
 	return fm.matchValues(val)
+}
+
+// matchKeyword is the field-less (keyword) match over all of the event's text
+// fields: with |all every value must appear in SOME field (not necessarily the
+// same one); otherwise any one value in any field suffices.
+func (fm fieldMatch) matchKeyword(e event.Event) bool {
+	texts := e.AllText()
+	if fm.all {
+		for i := range fm.values {
+			found := false
+			for _, text := range texts {
+				if fm.matchOne(text, i) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+	}
+	for _, text := range texts {
+		for i := range fm.values {
+			if fm.matchOne(text, i) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // matchValues applies the field's value list to one string: with |all every
@@ -155,6 +183,9 @@ func (fm fieldMatch) matchOne(fieldVal string, i int) bool {
 		return strings.HasPrefix(fold(fieldVal), fold(fm.values[i]))
 	case opEndsWith:
 		return strings.HasSuffix(fold(fieldVal), fold(fm.values[i]))
+	case opCIDR:
+		addr, err := netip.ParseAddr(strings.TrimSpace(fieldVal))
+		return err == nil && fm.nets[i].Contains(addr)
 	default: // opEquals
 		return fold(fieldVal) == fold(fm.values[i])
 	}

@@ -75,8 +75,8 @@ func NewMatcher(rules []*Rule) *Matcher {
 				smp := selMapPrefilter{fields: make([]fieldPrefilter, 0, len(alt.fields))}
 				for _, fm := range alt.fields {
 					fp := fieldPrefilter{all: fm.all}
-					if fm.op == opRegexp {
-						fp.wild = true
+					if fm.op == opRegexp || fm.op == opCIDR {
+						fp.wild = true // not a literal; cannot prefilter on it
 					} else {
 						for _, v := range fm.values {
 							folded := fold(v)
