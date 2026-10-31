@@ -17,6 +17,14 @@ ExecStart=/usr/bin/banken -config /etc/banken/banken.yml
 StateDirectory=banken
 StateDirectoryMode=0700
 
+# Survive host memory pressure: an attacker who floods the box with processes
+# to trip the OOM killer must not be able to reap the watchdog. A strongly
+# negative score makes banken one of the last things killed. (A MemoryMax= cap
+# on banken itself is deferred until the parser streams events -- today a large
+# first-run backlog legitimately needs memory; capping it now would kill a
+# valid run. See the DoS-resilience task.)
+OOMScoreAdjust=-900
+
 # --- hardening: banken parses untrusted log bytes, so shrink the blast radius of a parser bug ---
 NoNewPrivileges=true
 ProtectSystem=strict

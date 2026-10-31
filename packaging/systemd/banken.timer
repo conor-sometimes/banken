@@ -1,0 +1,17 @@
+# Drives banken.service on a schedule. This is banken's "keep running": each
+# tick re-runs the one-shot scan, so a failed or killed run never stops future
+# ones -- the next tick just runs again. Persistent=true catches up a run
+# missed while the machine was off. The interval is the main detection-latency
+# knob (a threat is flagged within ~one interval of being logged).
+[Unit]
+Description=Run banken (host EDR) on a schedule
+Documentation=https://github.com/conor-sometimes/banken
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Persistent=true
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target
