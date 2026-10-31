@@ -113,6 +113,7 @@ type OCSFFinding struct {
 	Evidences      []ocsfEvidence   `json:"evidences,omitempty"`
 	Device         *ocsfDevice      `json:"device,omitempty"`
 	Observables    []ocsfObservable `json:"observables,omitempty"`
+	Osint          []ocsfOsint      `json:"osint,omitempty"`
 	RawData        string           `json:"raw_data,omitempty"`
 	Unmapped       map[string]any   `json:"unmapped,omitempty"`
 }
@@ -195,10 +196,22 @@ type ocsfDevice struct {
 	Hostname string `json:"hostname,omitempty"`
 }
 
+// ocsfObservable is one pivotable value. Name is required (1.3.0) and is the
+// path to the attribute in this same finding that holds Value -- validators
+// resolve it and compare values, so it must point at a real attribute.
 type ocsfObservable struct {
+	Name   string `json:"name"`
 	TypeID int    `json:"type_id"`
 	Type   string `json:"type,omitempty"`
 	Value  string `json:"value,omitempty"`
+}
+
+// ocsfOsint is one indicator from threat intelligence (the osint profile):
+// for an IOC alert, the indicator the feed matched.
+type ocsfOsint struct {
+	TypeID int    `json:"type_id"`
+	Type   string `json:"type,omitempty"`
+	Value  string `json:"value"`
 }
 
 // ToOCSF maps one alert to a Detection Finding. Pure: the same (Alert,
@@ -255,7 +268,11 @@ func ToOCSF(a Alert, o OCSFOptions) OCSFFinding {
 		Evidences:   ocsfEvidences(ev),
 		Device:      ocsfDeviceFor(o.Hostname),
 		Observables: ocsfObservables(a, o.Hostname),
+		Osint:       ocsfOsintFor(a),
 		Unmapped:    ocsfUnmapped(a),
+	}
+	if f.Osint != nil {
+		f.Metadata.Profiles = append(f.Metadata.Profiles, "osint")
 	}
 	if ev.Source != "" {
 		f.FindingInfo.DataSources = []string{ev.Source}
@@ -431,36 +448,54 @@ func ocsfDeviceFor(hostname string) *ocsfDevice {
 }
 
 // ocsfObservables are flat, typed, pivotable copies of the values a SOC
-// searches on, in a fixed order so goldens are byte-stable.
+// searches on, in a fixed order so goldens are byte-stable. Each names the
+// attribute that holds it (bare array notation: evidences.process.cmd_line).
 func ocsfObservables(a Alert, hostname string) []ocsfObservable {
 	ev := a.Event
 	var out []ocsfObservable
-	add := func(typeID int, typ, val string) {
+	add := func(name string, typeID int, typ, val string) {
 		if val != "" {
-			out = append(out, ocsfObservable{TypeID: typeID, Type: typ, Value: val})
+			out = append(out, ocsfObservable{Name: name, TypeID: typeID, Type: typ, Value: val})
 		}
 	}
-	add(13, "Command Line", ev.CommandLine)
+	add("evidences.process.cmd_line", 13, "Command Line", ev.CommandLine)
 	if ev.Image != "" {
-		add(9, "Process Name", path.Base(ev.Image))
-		add(7, "File Name", ev.Image) // 45 File Path is not in 1.3.0
+		add("evidences.process.name", 9, "Process Name", path.Base(ev.Image))
+		add("evidences.process.file.path", 7, "File Name", ev.Image) // 45 File Path is not in 1.3.0
 	}
 	if ev.User != "" && !isAllDigits(ev.User) {
-		add(4, "User Name", ev.User)
+		add("evidences.process.user.name", 4, "User Name", ev.User)
 	}
-	add(7, "File Name", ev.TargetFilename)
-	add(1, "Hostname", hostname)
-	if a.Kind == KindIOC && a.IOC != "" {
-		switch ioc.Classify(a.IOC) {
-		case ioc.KindIP:
-			add(2, "IP Address", a.IOC)
-		case ioc.KindDomain:
-			add(1, "Hostname", a.IOC)
-		default: // ioc.KindFilename
-			add(7, "File Name", a.IOC)
+	add("evidences.file.path", 7, "File Name", ev.TargetFilename)
+	add("device.hostname", 1, "Hostname", hostname)
+	if o := ocsfOsintFor(a); o != nil {
+		typeID, typ := 7, "File Name"
+		switch o[0].TypeID {
+		case 1:
+			typeID, typ = 2, "IP Address"
+		case 2:
+			typeID, typ = 1, "Hostname"
 		}
+		add("osint.value", typeID, typ, a.IOC)
 	}
 	return out
+}
+
+// ocsfOsintFor is the matched indicator of an IOC alert, typed by its shape
+// with the loader's own classifier. OSINT has no File Name type, so a path
+// indicator is 99 Other with the caption saying what it is.
+func ocsfOsintFor(a Alert) []ocsfOsint {
+	if a.Kind != KindIOC || a.IOC == "" {
+		return nil
+	}
+	o := ocsfOsint{TypeID: 99, Type: "File Name", Value: a.IOC}
+	switch ioc.Classify(a.IOC) {
+	case ioc.KindIP:
+		o.TypeID, o.Type = 1, "IP Address"
+	case ioc.KindDomain:
+		o.TypeID, o.Type = 2, "Domain"
+	}
+	return []ocsfOsint{o}
 }
 
 // ocsfUnmapped carries everything banken knows that has no clean 1.3.0 home,

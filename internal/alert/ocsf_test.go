@@ -230,6 +230,9 @@ func TestOCSFIOCObservableByShape(t *testing.T) {
 		if !found {
 			t.Errorf("IOC %q produced no observable", c.ioc)
 		}
+		if len(f.Osint) != 1 || f.Osint[0].Value != c.ioc || f.Metadata.Profiles[len(f.Metadata.Profiles)-1] != "osint" {
+			t.Errorf("IOC %q: osint = %+v, profiles = %v", c.ioc, f.Osint, f.Metadata.Profiles)
+		}
 	}
 }
 

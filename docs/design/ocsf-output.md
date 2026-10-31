@@ -20,6 +20,14 @@ code as it was then. Where the build departed from the text below, this list win
   is written as-is, not as `>&`. (The native encoder is unchanged.)
 - The `ocsf-schema` tags have **no `v` prefix** from 1.3.0 on (`1.3.0`, not `v1.3.0` as the §7.4
   sketch had); `just ocsf-validate` is the corrected recipe, and CI runs it as the `ocsf` job.
+- **The official validator corrected two calls (§4.7, §3.1).** `observable.name` is *required* in
+  1.3.0, not optional: every observable now names the attribute holding its value
+  (`evidences.process.cmd_line`, `evidences.process.file.path`, `device.hostname`, ...; bare array
+  notation), which the validator resolves and compares. And an IOC indicator is a substring of
+  the command line, held by no attribute, so IOC findings now declare the **`osint`** profile
+  (a `base_event` profile, so legal on 2004) and carry the matched indicator as
+  `osint[0] = {type_id, type, value}` (IP Address 1, Domain 2, a path 99 "File Name"); its
+  observable is `osint.value`. The profile's only requirement is that array, which banken fills.
 - jsonl keeps `NewJSONLSink(dir, days)` and gains `NewJSONLSinkEncoded(dir, days, enc)` rather than
   the config-struct constructor of §6.3: same seam, no churn at existing call sites.
 

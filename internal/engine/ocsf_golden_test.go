@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -207,8 +208,18 @@ func TestOCSFGoldenShape(t *testing.T) {
 			if md["version"] != alert.OCSFVersion {
 				t.Errorf("metadata.version = %v, want %s", md["version"], alert.OCSFVersion)
 			}
-			if p, _ := md["profiles"].([]any); len(p) != 1 || p[0] != "host" {
-				t.Errorf("metadata.profiles = %v, want [host]", md["profiles"])
+			// host always; osint exactly when the finding carries an indicator.
+			wantProfiles := []any{"host"}
+			if f["osint"] != nil {
+				wantProfiles = append(wantProfiles, "osint")
+			}
+			if p, _ := md["profiles"].([]any); fmt.Sprint(p) != fmt.Sprint(wantProfiles) {
+				t.Errorf("metadata.profiles = %v, want %v", md["profiles"], wantProfiles)
+			}
+			for i, o := range asSlice(f["observables"]) {
+				if name, _ := o.(map[string]any)["name"].(string); name == "" {
+					t.Errorf("observables[%d] has no name (required in 1.3.0)", i)
+				}
 			}
 			uid, _ := fi["uid"].(string)
 			if !hex32.MatchString(uid) || md["uid"] != uid {
