@@ -1,6 +1,6 @@
 # Portable, distro-agnostic banken unit — any systemd Linux, no Nix required.
-# Install: put `banken` on PATH, your rules in /etc/banken/rules, a config at
-# /etc/banken/banken.yml, enable banken.timer. The NixOS module (module.nix) generates an
+# Install: put `banken` on PATH, enable banken.timer. Optional: rules in /etc/banken/rules,
+# settings in /etc/banken/banken.yml. The NixOS module (module.nix) generates an
 # equivalent of this; the hardening below is the canonical set it mirrors.
 #
 # banken reads the audit log (it does NOT touch the watched files themselves — the log already
@@ -13,7 +13,9 @@ Wants=auditd.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/banken -config /etc/banken/banken.yml
+# No flags: banken reads /etc/banken/banken.yml if it exists, else its built-in defaults
+# (embedded rules, auto-detected audit log, alerts to the journal).
+ExecStart=/usr/bin/banken
 StateDirectory=banken
 StateDirectoryMode=0700
 # /var/log/banken for the jsonl sink (alerts.jsonl.dir's default): created here and the one

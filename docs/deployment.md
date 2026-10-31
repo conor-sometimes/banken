@@ -24,26 +24,22 @@ anywhere, but outside systemd it is unsupported.
 
    ```sh
    install -m0755 banken /usr/bin/banken
-   install -m0644 packaging/systemd/banken.service /etc/systemd/system/
-   # a banken.timer (e.g. OnUnitActiveSec=2min) drives it; see below
+   install -m0644 packaging/systemd/banken.service packaging/systemd/banken.timer /etc/systemd/system/
+   systemctl daemon-reload
    systemctl enable --now banken.timer
    ```
 
 With no config file, `banken` loads its embedded rules, auto-detects the source
-(`/var/log/laurel/audit.log`, then `/var/log/audit/audit.log`), and alerts to the journal. A config
-file is only needed to add rule trees, change the source, or enable the jsonl/webhook sinks.
+(`/var/log/laurel/audit.log`, then `/var/log/audit/audit.log`), and alerts to the journal. When
+`/etc/banken/banken.yml` exists it is read; it is only needed to add rule trees, change the source,
+or enable the jsonl/webhook sinks. The unit runs `banken` with no flags either way.
 
-A matching `banken.timer` (ship alongside the unit):
+The timer is `packaging/systemd/banken.timer`: first scan two minutes after boot, then every two
+minutes, catching up a run missed while the machine was off.
 
-```ini
-[Unit]
-Description=Run banken on a schedule
-[Timer]
-OnBootSec=1min
-OnUnitActiveSec=2min
-[Install]
-WantedBy=timers.target
-```
+Under systemd banken logs at the right priorities: alerts at `crit`/`err`, its own problems at
+`warning`/`err`, progress at `info`. So `journalctl -u banken -p err` is the alert feed, and
+anything else it shows at `warning` or above is banken telling you something is wrong.
 
 The interval is the main detection-latency knob: a threat is flagged within one interval of being
 logged (plus ~microseconds of matching — see [Performance](../README.md#performance)). Shorten it,

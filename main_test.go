@@ -311,3 +311,37 @@ func BenchmarkDetectionLatency(b *testing.B) {
 	b.Run("threat", func(b *testing.B) { run(b, threat, true) })
 	b.Run("clean", func(b *testing.B) { run(b, clean, false) })
 }
+
+// TestBuildConfigDefaultPath locks the zero-fiddle config rule: with no
+// -config, /etc/banken/banken.yml is read if it exists and otherwise the
+// built-in defaults apply; a file named with -config that is missing is an
+// error, never silently ignored.
+func TestBuildConfigDefaultPath(t *testing.T) {
+	dir := t.TempDir()
+	old := defaultConfigPath
+	defaultConfigPath = filepath.Join(dir, "banken.yml")
+	t.Cleanup(func() { defaultConfigPath = old })
+
+	cfg, err := buildConfig(flags{}, nil)
+	if err != nil {
+		t.Fatalf("absent default config: %v", err)
+	}
+	if cfg.StatePath != "/var/lib/banken/cursor.json" {
+		t.Errorf("absent default config: StatePath = %q, want the built-in default", cfg.StatePath)
+	}
+
+	if err := os.WriteFile(defaultConfigPath, []byte("statePath: /tmp/banken-test-cursor.json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = buildConfig(flags{}, nil)
+	if err != nil {
+		t.Fatalf("present default config: %v", err)
+	}
+	if cfg.StatePath != "/tmp/banken-test-cursor.json" {
+		t.Errorf("present default config not read: StatePath = %q", cfg.StatePath)
+	}
+
+	if _, err := buildConfig(flags{configPath: filepath.Join(dir, "missing.yml")}, nil); err == nil {
+		t.Error("a missing file named with -config must be an error")
+	}
+}

@@ -49,7 +49,7 @@ func runCheck(args []string, stdout, stderr io.Writer) error {
 
 	rules, problems := loadRules(splitComma(f.rules))
 	for _, p := range problems {
-		logln(stderr, "banken: rule error:", p.Error())
+		logAt(stderr, levelErr, "banken: rule error: %s", p.Error())
 	}
 	if len(rules) == 0 {
 		return errors.New("no rules loaded")

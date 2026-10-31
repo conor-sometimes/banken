@@ -31,7 +31,7 @@ func sampleAlert(level string) Alert {
 
 func TestJournalSinkJournalsOnlyHighAndCritical(t *testing.T) {
 	var buf bytes.Buffer
-	j := NewJournalSink(&buf)
+	j := NewJournalSink(&buf, true)
 	for _, lvl := range []string{"low", "medium", "high", "critical"} {
 		if err := j.Emit(sampleAlert(lvl)); err != nil {
 			t.Fatalf("Emit(%s): %v", lvl, err)
@@ -63,12 +63,33 @@ func TestJournalSinkJournalsOnlyHighAndCritical(t *testing.T) {
 
 func TestJournalSinkCloseNoAlertsIsSilent(t *testing.T) {
 	var buf bytes.Buffer
-	j := NewJournalSink(&buf)
+	j := NewJournalSink(&buf, true)
 	if err := j.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	if buf.Len() != 0 {
 		t.Errorf("expected no output with zero alerts, got %q", buf.String())
+	}
+}
+
+// TestJournalSinkPlainOutsideSystemd: in a terminal (no journal underneath)
+// the sd-daemon level prefix would be noise, so lines carry none.
+func TestJournalSinkPlainOutsideSystemd(t *testing.T) {
+	var buf bytes.Buffer
+	j := NewJournalSink(&buf, false)
+	if err := j.Emit(sampleAlert("critical")); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range nonEmptyLines(buf.String()) {
+		if strings.HasPrefix(l, "<") {
+			t.Errorf("level prefix outside systemd: %q", l)
+		}
+	}
+	if !strings.HasPrefix(buf.String(), "critical reverse_shell: ") {
+		t.Errorf("unexpected line: %q", buf.String())
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,9 +28,16 @@ import (
 // version is stamped in at build time (see justfile `build`).
 var version = "dev"
 
+// defaultConfigPath is read when -config is not given and the file exists:
+// the zero-fiddle install is a unit with no flags, and an operator who wants
+// settings puts them here. A missing default is the built-in defaults; a
+// missing file named with -config is an error. A var so tests can point it
+// at a temp dir.
+var defaultConfigPath = "/etc/banken/banken.yml"
+
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		logln(os.Stderr, "banken:", err)
+		logAt(os.Stderr, levelErr, "banken: %v", err)
 		os.Exit(1)
 	}
 }
@@ -55,6 +63,27 @@ type flags struct {
 func logf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 func logln(w io.Writer, a ...any)               { _, _ = fmt.Fprintln(w, a...) }
 
+// banken's own messages carry a log level (sd-daemon(3)). Under systemd,
+// which sets JOURNAL_STREAM when a service's stderr goes to the journal, the
+// level prefixes the line ("<3>") and the journal files it at that priority,
+// so `journalctl -u banken -p warning` shows banken's problems and only them.
+// In a terminal the prefix would be noise, so it is left off.
+const (
+	levelErr     = 3
+	levelWarning = 4
+	levelInfo    = 6
+)
+
+var underJournald = os.Getenv("JOURNAL_STREAM") != ""
+
+// logAt writes one message line at a level (see above).
+func logAt(w io.Writer, level int, format string, a ...any) {
+	if underJournald {
+		format = "<" + strconv.Itoa(level) + ">" + format
+	}
+	_, _ = fmt.Fprintf(w, format+"\n", a...)
+}
+
 func run(args []string, stdout, stderr io.Writer) error {
 	// Subcommands. The default (no subcommand) is the one-shot scan.
 	if len(args) > 0 && args[0] == "check" {
@@ -64,7 +93,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("banken", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var f flags
-	fs.StringVar(&f.configPath, "config", "", "path to a YAML config file (flags override its values)")
+	fs.StringVar(&f.configPath, "config", "", "path to a YAML config file, flags override its values (default "+defaultConfigPath+" if it exists)")
 	fs.StringVar(&f.rules, "rules", "", "comma-separated rule tree dirs (overrides config)")
 	fs.StringVar(&f.statePath, "state", "", "path to the cursor/state file (overrides config)")
 	fs.BoolVar(&f.watch, "watch", false, "run continuously on --interval instead of one-shot")
@@ -99,17 +128,17 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if len(cfg.Sources) == 0 {
 		cfg.Sources = config.AutoDetectSources(nil)
 		if len(cfg.Sources) == 0 {
-			logln(stderr, "banken: no log source configured or auto-detected; "+
+			logAt(stderr, levelWarning, "banken: no log source configured or auto-detected; "+
 				"pass -source type:path or set sources in the config (will retry next run)")
 		} else {
-			logf(stderr, "banken: auto-detected source: %s %s\n", cfg.Sources[0].Type, cfg.Sources[0].Path)
+			logAt(stderr, levelInfo, "banken: auto-detected source: %s %s", cfg.Sources[0].Type, cfg.Sources[0].Path)
 		}
 	}
 
 	rules, problems := loadRules(cfg.Rules)
 	for _, p := range problems {
 		// A malformed rule is surfaced, loudly, never silently dropped.
-		logln(stderr, "banken: rule error:", p.Error())
+		logAt(stderr, levelErr, "banken: rule error: %s", p.Error())
 	}
 	if len(rules) == 0 {
 		// The embedded baseline should always load, so this means the binary
@@ -128,13 +157,13 @@ func run(args []string, stdout, stderr io.Writer) error {
 	disp := alert.NewDispatcher(sinks...)
 	defer func() {
 		for _, e := range disp.Close() {
-			logln(stderr, "banken: sink close:", e)
+			logAt(stderr, levelErr, "banken: sink close: %v", e)
 		}
 	}()
 
 	eng := engine.New(rules, iocSet, disp)
 
-	logf(stderr, "banken %s: %d rules, %d indicators, %d source(s)\n",
+	logAt(stderr, levelInfo, "banken %s: %d rules, %d indicators, %d source(s)",
 		version, len(rules), iocSet.Len(), len(cfg.Sources))
 
 	if f.watch {
@@ -148,7 +177,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 func scanOnce(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 	cursor, corrupted := engine.LoadCursor(cfg.StatePath)
 	if corrupted {
-		logf(stderr, "banken: cursor at %s was unreadable, starting fresh (re-reading sources this pass)\n", cfg.StatePath)
+		logAt(stderr, levelWarning, "banken: cursor at %s was unreadable, starting fresh (re-reading sources this pass)", cfg.StatePath)
 	}
 	reg := parser.Registry()
 	totalAlerts := 0
@@ -156,18 +185,18 @@ func scanOnce(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 	for _, src := range cfg.Sources {
 		p, ok := reg[src.Type]
 		if !ok {
-			logf(stderr, "banken: unknown source type %q (%s), skipping\n", src.Type, src.Path)
+			logAt(stderr, levelWarning, "banken: unknown source type %q (%s), skipping", src.Type, src.Path)
 			continue
 		}
 		ch, err := cursor.OpenAt(src.Path)
 		if err != nil {
-			logf(stderr, "banken: open %s: %v\n", src.Path, err)
+			logAt(stderr, levelErr, "banken: open %s: %v", src.Path, err)
 			continue
 		}
 		res := eng.Process(p, ch)
 		_ = ch.Close()
 		for _, e := range res.Errors {
-			logln(stderr, "banken:", e)
+			logAt(stderr, levelErr, "banken: %v", e)
 		}
 		totalAlerts += res.Alerts
 		// Advance the cursor only if the source parsed cleanly; a parse/read
@@ -181,13 +210,13 @@ func scanOnce(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 				cursor.Inodes[src.Path] = ino // for rotation detection next run
 			}
 		}
-		logf(stderr, "banken: %s %s: %d events, %d alerts\n", src.Type, src.Path, res.Events, res.Alerts)
+		logAt(stderr, levelInfo, "banken: %s %s: %d events, %d alerts", src.Type, src.Path, res.Events, res.Alerts)
 	}
 
 	if err := cursor.Save(cfg.StatePath); err != nil {
 		return err
 	}
-	logf(stderr, "banken: done, %d alert(s)\n", totalAlerts)
+	logAt(stderr, levelInfo, "banken: done, %d alert(s)", totalAlerts)
 	return nil
 }
 
@@ -200,11 +229,11 @@ func watch(eng *engine.Engine, cfg config.Config, interval time.Duration, stderr
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	if err := scanOnce(eng, cfg, stderr); err != nil {
-		logln(stderr, "banken: scan:", err)
+		logAt(stderr, levelErr, "banken: scan: %v", err)
 	}
 	for range ticker.C {
 		if err := scanOnce(eng, cfg, stderr); err != nil {
-			logln(stderr, "banken: scan:", err)
+			logAt(stderr, levelErr, "banken: scan: %v", err)
 		}
 	}
 	return nil
@@ -262,8 +291,14 @@ func existingDirs(dirs []string) []string {
 // buildConfig loads the config file (if any) and applies flag overrides.
 func buildConfig(f flags, sources multiFlag) (config.Config, error) {
 	cfg := config.Default()
-	if f.configPath != "" {
-		loaded, err := config.Load(f.configPath)
+	path := f.configPath
+	if path == "" {
+		if _, err := os.Stat(defaultConfigPath); err == nil {
+			path = defaultConfigPath
+		}
+	}
+	if path != "" {
+		loaded, err := config.Load(path)
 		if err != nil {
 			return config.Config{}, err
 		}
@@ -312,7 +347,7 @@ func buildSinks(cfg config.Config, stderr io.Writer) ([]alert.Sink, error) {
 
 	var sinks []alert.Sink
 	if cfg.Alerts.Journal.Enable {
-		sinks = append(sinks, alert.NewJournalSink(stderr))
+		sinks = append(sinks, alert.NewJournalSink(stderr, underJournald))
 	}
 	if cfg.Alerts.JSONL.Enable {
 		enc, err := jsonlEncoder(cfg.Alerts.JSONL.Format, ocsfOpts)
@@ -360,7 +395,7 @@ func jsonlEncoder(format string, o alert.OCSFOptions) (alert.Encoder, error) {
 func ocsfHostname(stderr io.Writer) string {
 	h, err := os.Hostname()
 	if err != nil || h == "" {
-		logln(stderr, "banken: os.Hostname() unavailable; OCSF findings will omit device.hostname")
+		logAt(stderr, levelWarning, "banken: os.Hostname() unavailable; OCSF findings will omit device.hostname")
 		return ""
 	}
 	return h
