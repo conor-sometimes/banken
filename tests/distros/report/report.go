@@ -1,12 +1,13 @@
-// Package report is the distro matrix's wire format: the one line the guest
-// program (distrocheck) writes to the serial console when it is done, and the
-// host test (matrix_test.go) reads back. Typed JSON both ways, so neither side
-// scrapes text.
+// Package report is the distro matrix's wire format: the JSON report the guest
+// program (distrocheck) writes when it is done, and the host test
+// (matrix_test.go) reads back. Typed both ways, so neither side scrapes text.
 package report
 
-// Marker starts the report line on the serial console. Everything else the
-// guest's console prints (kernel, cloud-init) is ignored.
-const Marker = "DISTROCHECK "
+// Disk is the serial of the small raw virtio disk the report travels on: the
+// guest writes the JSON to /dev/disk/by-id/virtio-<Disk>, the host reads the
+// disk's file. virtio-blk is what every image boots from, so the channel needs
+// no driver, console setting or udev rule the root disk does not already need.
+const Disk = "banken-report"
 
 // Report is one distro's result.
 type Report struct {

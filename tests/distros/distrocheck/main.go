@@ -1,8 +1,8 @@
 // Command distrocheck runs inside one throwaway VM of the live distro matrix
 // (tests/distros), as root, started by cloud-init from the seed ISO it sits on.
 // It installs banken the way docs/deployment.md tells an operator to, checks
-// every objective in tests/distros/README.md, writes one report line to the
-// serial console and powers the VM off.
+// every objective in tests/distros/README.md, writes its report to a small raw
+// disk the host reads back, and powers the VM off.
 //
 // It must never run anywhere but such a VM: it installs packages, rewrites the
 // audit rules and runs the benign malware look-alikes in tests/emulations.
@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -48,13 +49,10 @@ const bankenConfig = `alerts:
 `
 
 func main() {
-	self, err := os.Executable()
-	if err != nil {
-		fatal(err)
-	}
-	seed := filepath.Dir(self)
+	seed := flag.String("seed", "/mnt/seed", "where the seed ISO is mounted")
+	flag.Parse()
 	var cfg report.Config
-	data, err := os.ReadFile(filepath.Join(seed, "config.json"))
+	data, err := os.ReadFile(filepath.Join(*seed, "config.json"))
 	if err == nil {
 		err = json.Unmarshal(data, &cfg)
 	}
@@ -62,7 +60,7 @@ func main() {
 		fatal(fmt.Errorf("read config.json: %w", err))
 	}
 
-	c := &checker{cfg: cfg, seed: seed, rep: report.Report{Distro: cfg.Distro, Info: map[string]string{}}}
+	c := &checker{cfg: cfg, seed: *seed, rep: report.Report{Distro: cfg.Distro, Info: map[string]string{}}}
 	c.run()
 	emit(c.rep)
 	_ = exec.Command("systemctl", "poweroff").Run()
@@ -76,17 +74,21 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
+// emit writes the report to the report disk (see report.Disk) and to stdout
+// for the guest's own journal. The disk is raw: the JSON, a newline, and the
+// host stops reading at the first NUL.
 func emit(r report.Report) {
-	line, err := json.Marshal(r)
+	data, err := json.Marshal(r)
 	if err != nil {
-		line = []byte(`{"checks":[{"id":"A1","detail":"distrocheck: cannot encode report"}]}`)
+		data = []byte(`{"checks":[{"id":"A1","detail":"distrocheck: cannot encode report"}]}`)
 	}
-	out := report.Marker + string(line) + "\n"
-	if tty, err := os.OpenFile("/dev/ttyS0", os.O_WRONLY, 0); err == nil {
-		_, _ = tty.WriteString(out)
-		_ = tty.Close()
+	data = append(data, '\n')
+	if f, err := os.OpenFile("/dev/disk/by-id/virtio-"+report.Disk, os.O_WRONLY, 0); err == nil {
+		_, _ = f.Write(data)
+		_ = f.Sync()
+		_ = f.Close()
 	}
-	_, _ = os.Stdout.WriteString(out)
+	_, _ = os.Stdout.Write(data)
 }
 
 type checker struct {
@@ -135,6 +137,7 @@ func (c *checker) run() {
 		}
 	}
 	c.check("A1", true, "")
+	defer c.recordAuditState()
 	c.zeroConfig()
 	c.timerFires()
 	c.detection()
@@ -230,6 +233,28 @@ func (c *checker) recordPlatform() {
 		out, _ := c.sh(time.Minute, "getenforce")
 		info["selinux"] = strings.TrimSpace(out)
 	}
+	if data, err := os.ReadFile("/proc/cmdline"); err == nil {
+		info["cmdline"] = strings.TrimSpace(string(data))
+	}
+}
+
+// recordAuditState notes what a reader needs when detection comes up empty:
+// whether auditd runs, what it last said, how much it has logged, and what
+// banken last reported reading.
+func (c *checker) recordAuditState() {
+	info := c.rep.Info
+	out, _ := c.sh(time.Minute, "systemctl", "is-active", "auditd")
+	info["auditd"] = strings.TrimSpace(out)
+	if fi, err := os.Stat(auditLog); err == nil {
+		info["audit_log_bytes"] = strconv.FormatInt(fi.Size(), 10)
+	} else {
+		info["audit_log_bytes"] = "missing"
+	}
+	out, _ = c.sh(time.Minute, "journalctl", "-u", "auditd", "-n", "3", "--no-pager", "-o", "cat")
+	info["auditd_log"] = lastLines(out, 3)
+	out, _ = c.sh(time.Minute, "journalctl", "_SYSTEMD_UNIT=banken.service", "_COMM=banken",
+		"-p", "info", "--no-pager", "-o", "cat", "-g", "events")
+	info["banken_last_read"] = lastLines(out, 1)
 }
 
 func (c *checker) installPackages() error {
@@ -324,7 +349,9 @@ func (c *checker) loadAuditRules() error {
 	c.rep.Info["audit_task_never"] = strconv.FormatBool(strings.Contains(rules, "task,never"))
 	c.rep.Info["audit_enabled"] = statusField(status, "enabled")
 	if !strings.Contains(rules, "banken-exec") {
-		return fmt.Errorf("banken's audit rules did not load (auditctl -s: %s)", strings.Join(nonEmpty(status), "; "))
+		c.recordAuditState()
+		return fmt.Errorf("banken's audit rules did not load (auditctl -s: %s; auditd: %s; %s)",
+			strings.Join(nonEmpty(status), "; "), c.rep.Info["auditd"], c.rep.Info["auditd_log"])
 	}
 	return nil
 }

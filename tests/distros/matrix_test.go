@@ -34,10 +34,9 @@ var (
 	payload = flag.String("payload", "", "dir holding distros.json, banken, distrocheck, the units, emulations and fixtures (set by the Nix app)")
 	images  = flag.String("images", "", "JSON map of distro name to its verified image (set by the Nix app)")
 	keep    = flag.Bool("keep", false, "copy every VM's serial log to the current directory, pass or fail")
+	// bootTimeout bounds one distro end to end: boot, package installs, every objective.
+	bootTimeout = flag.Duration("boot-timeout", 30*time.Minute, "longest one distro may take, boot to report")
 )
-
-// bootTimeout bounds one distro end to end: boot, package installs, every objective.
-const bootTimeout = 30 * time.Minute
 
 type distro struct {
 	Name     string            `json:"name"`
@@ -78,7 +77,9 @@ func TestMatrix(t *testing.T) {
 }
 
 // boot runs one distro to completion and returns distrocheck's report. The
-// guest powers itself off after reporting, so the VM's exit is the end.
+// report arrives on a small raw virtio disk (see report.Disk); the serial
+// console is kept only to show when something goes wrong. The guest powers
+// itself off after reporting, so the VM's exit is the end.
 func boot(t *testing.T, d distro, image string, expected map[string][]string) report.Report {
 	t.Helper()
 	dir := t.TempDir()
@@ -86,16 +87,23 @@ func boot(t *testing.T, d distro, image string, expected map[string][]string) re
 	run(t, "qemu-img", "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", image, overlay, "20G")
 	seed := writeSeed(t, dir, d, expected)
 	serial := filepath.Join(dir, "serial.log")
+	reportFile := filepath.Join(dir, "report.img")
+	must(t, os.WriteFile(reportFile, make([]byte, 1<<20), 0o600))
 
-	ctx, cancel := context.WithTimeout(context.Background(), bootTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), *bootTimeout)
 	defer cancel()
 	var stderr bytes.Buffer
 	qemu := exec.CommandContext(ctx, "qemu-system-x86_64",
 		"-enable-kvm", "-cpu", "host", "-m", "2048", "-smp", "2",
 		"-display", "none", "-monitor", "none", "-no-reboot",
-		"-drive", "file="+overlay+",if=virtio,format=qcow2",
+		// Explicit devices so the root disk is booted first: left to itself the
+		// firmware may try the blank report disk and stop there, silently.
+		"-drive", "file="+overlay+",if=none,id=root,format=qcow2",
+		"-device", "virtio-blk-pci,drive=root,bootindex=0",
 		"-drive", "file="+seed+",media=cdrom,readonly=on",
 		"-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0",
+		"-drive", "file="+reportFile+",if=none,id=report,format=raw",
+		"-device", "virtio-blk-pci,drive=report,serial="+report.Disk,
 		"-serial", "file:"+serial)
 	qemu.Stderr = &stderr
 	err := qemu.Run()
@@ -104,19 +112,29 @@ func boot(t *testing.T, d distro, image string, expected map[string][]string) re
 	if *keep {
 		_ = os.WriteFile(d.Name+"-serial.log", log, 0o600)
 	}
-	rep, found := findReport(log)
-	if !found {
+	var rep report.Report
+	data, _ := os.ReadFile(reportFile)
+	if end := bytes.IndexByte(data, 0); end >= 0 {
+		data = data[:end]
+	}
+	if json.Unmarshal(data, &rep) != nil {
 		reason := fmt.Sprintf("qemu: %v %s", err, strings.TrimSpace(stderr.String()))
 		if ctx.Err() != nil {
-			reason = fmt.Sprintf("no report within %s", bootTimeout)
+			reason = fmt.Sprintf("no report within %s", *bootTimeout)
 		}
 		t.Fatalf("%s; last serial lines:\n%s", reason, tail(string(log), 40))
 	}
 	return rep
 }
 
-// writeSeed builds the NoCloud seed ISO (label cidata): a one-line cloud-init
-// config that runs distrocheck from the seed, plus everything it needs.
+// writeSeed builds the NoCloud seed ISO (label cidata): distrocheck, what it
+// needs, and a cloud-init config that starts it. The config uses bootcmd,
+// cloud-init's first stage, which every distro runs, to install a systemd unit
+// that runs distrocheck once the network is online. (runcmd, in cloud-init's
+// last stage, never runs on images where that stage waits on a target that is
+// not reached, as on Arch.) distrocheck is copied off the ISO into
+// /usr/local/sbin first: SELinux will not let systemd execute a file labelled
+// for an ISO, and the copy takes the directory's ordinary binary label.
 func writeSeed(t *testing.T, dir string, d distro, expected map[string][]string) string {
 	t.Helper()
 	root := filepath.Join(dir, "seed")
@@ -135,9 +153,18 @@ func writeSeed(t *testing.T, dir string, d distro, expected map[string][]string)
 	must(t, os.WriteFile(filepath.Join(root, "config.json"), cfg, 0o600))
 	must(t, os.WriteFile(filepath.Join(root, "meta-data"),
 		[]byte("instance-id: banken-"+d.Name+"\nlocal-hostname: banken-"+d.Name+"\n"), 0o600))
+	must(t, os.WriteFile(filepath.Join(root, "distrocheck.service"), []byte(`[Unit]
+Description=banken distro matrix checker (test VM only)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/distrocheck -seed /mnt/seed
+`), 0o600))
 	must(t, os.WriteFile(filepath.Join(root, "user-data"), []byte(`#cloud-config
-runcmd:
-  - [sh, -c, "mkdir -p /mnt/seed && (mount -o ro LABEL=cidata /mnt/seed || mount -o ro /dev/sr0 /mnt/seed) && /mnt/seed/distrocheck"]
+bootcmd:
+  - [sh, -c, "mkdir -p /mnt/seed && (mount -o ro LABEL=cidata /mnt/seed || mount -o ro /dev/sr0 /mnt/seed) && install -D -m0755 /mnt/seed/distrocheck /usr/local/sbin/distrocheck && cp /mnt/seed/distrocheck.service /run/systemd/system/ && systemctl daemon-reload && systemctl start --no-block distrocheck.service"]
 `), 0o600))
 	iso := filepath.Join(dir, "seed.iso")
 	run(t, "xorriso", "-as", "mkisofs", "-quiet", "-output", iso, "-volid", "cidata", "-joliet", "-rock", root)
@@ -186,17 +213,6 @@ func expectedRules(t *testing.T) map[string][]string {
 		sort.Strings(rules)
 	}
 	return want
-}
-
-func findReport(serial []byte) (report.Report, bool) {
-	var rep report.Report
-	for _, line := range strings.Split(string(serial), "\n") {
-		if i := strings.Index(line, report.Marker); i >= 0 &&
-			json.Unmarshal([]byte(strings.TrimSpace(line[i+len(report.Marker):])), &rep) == nil {
-			return rep, true
-		}
-	}
-	return rep, false
 }
 
 func run(t *testing.T, name string, args ...string) {
