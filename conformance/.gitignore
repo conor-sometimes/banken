@@ -1,0 +1,3 @@
+# uv-managed virtualenv; uv.lock pins the deps reproducibly
+.venv/
+__pycache__/

@@ -1,0 +1,6 @@
+[project]
+name = "banken-conformance"
+version = "0.0.0"
+description = "Differential Sigma-conformance harness: banken vs the reference pySigma parser/engine."
+requires-python = ">=3.11"
+dependencies = ["pysigma>=0.11"]
