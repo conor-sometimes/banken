@@ -1,0 +1,49 @@
+# Portable, distro-agnostic banken unit — any systemd Linux, no Nix required.
+# Install: put `banken` on PATH, your rules in /etc/banken/rules, a config at
+# /etc/banken/banken.yml, enable banken.timer. The NixOS module (module.nix) generates an
+# equivalent of this; the hardening below is the canonical set it mirrors.
+#
+# banken reads the audit log (it does NOT touch the watched files themselves — the log already
+# captured the event), writes only its state, and may POST to a webhook. The sandbox reflects that.
+[Unit]
+Description=banken host EDR — one detection scan
+Documentation=https://github.com/conor-sometimes/banken
+After=auditd.service
+Wants=auditd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/banken -config /etc/banken/banken.yml
+StateDirectory=banken
+StateDirectoryMode=0700
+
+# --- hardening: banken parses untrusted log bytes, so shrink the blast radius of a parser bug ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+UMask=0077
+
+# Reads the root-owned audit log; writes only its own state. Runs as root for the log read but
+# drops every capability it doesn't need.
+ReadWritePaths=/var/lib/banken
+ReadOnlyPaths=/var/log/audit /var/log/laurel
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+AmbientCapabilities=CAP_DAC_READ_SEARCH
