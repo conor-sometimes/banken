@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -89,11 +90,14 @@ func boot(t *testing.T, d distro, image string, expected map[string][]string) re
 		must(t, err)
 		t.Logf("work dir kept: %s", dir)
 	}
-	// Copy-on-write: the image is never written. No size: the overlay takes the
-	// image's own, since a smaller disk than the partition table describes is
-	// rejected by the guest kernel (Amazon Linux's image is 25 GiB).
+	// Copy-on-write: the image is never written. The overlay is the image's own
+	// size or minDisk, whichever is larger: smaller than the partition table
+	// describes and the guest kernel rejects the disk (Amazon Linux's image is
+	// 25 GiB); too small and installs and the audit log fill it (openSUSE's
+	// minimal image is a few GiB). cloud-init grows the root partition to fit.
 	overlay := filepath.Join(dir, "overlay.qcow2")
-	run(t, "qemu-img", "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", image, overlay)
+	size := max(imageSize(t, image), minDisk)
+	run(t, "qemu-img", "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", image, overlay, strconv.FormatInt(size, 10))
 	seed := writeSeed(t, dir, d, expected)
 	serial := filepath.Join(dir, "serial.log")
 	reportFile := filepath.Join(dir, "report.img")
@@ -152,6 +156,13 @@ func writeSeed(t *testing.T, dir string, d distro, expected map[string][]string)
 	for _, s := range scripts {
 		copyFile(t, s, filepath.Join(root, "emulations", filepath.Base(s)))
 	}
+	// E1: every package's test binary and the source tree they read fixtures from.
+	must(t, os.MkdirAll(filepath.Join(root, "suite"), 0o755))
+	bins, _ := filepath.Glob(filepath.Join(*payload, "suite", "*.test"))
+	for _, b := range bins {
+		copyFile(t, b, filepath.Join(root, "suite", filepath.Base(b)))
+	}
+	copyFile(t, filepath.Join(*payload, "src.tar"), filepath.Join(root, "src.tar"))
 	cfg, err := json.Marshal(report.Config{
 		Distro: d.Name, PM: d.PM, Packages: d.Packages, Proxy: guestProxy(), Expected: expected,
 	})
@@ -219,6 +230,22 @@ func expectedRules(t *testing.T) map[string][]string {
 		sort.Strings(rules)
 	}
 	return want
+}
+
+// minDisk is the smallest disk a guest gets: room for package installs, the
+// test suite and a day of audit log.
+const minDisk = 20 << 30
+
+// imageSize is an image's virtual size in bytes.
+func imageSize(t *testing.T, image string) int64 {
+	t.Helper()
+	out, err := exec.Command("qemu-img", "info", "--output=json", image).Output()
+	must(t, err)
+	var info struct {
+		VirtualSize int64 `json:"virtual-size"`
+	}
+	must(t, json.Unmarshal(out, &info))
+	return info.VirtualSize
 }
 
 func run(t *testing.T, name string, args ...string) {

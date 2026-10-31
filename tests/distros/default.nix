@@ -18,26 +18,42 @@ let
   images = writeText "banken-distro-images.json"
     (builtins.toJSON (lib.listToAttrs (map (d: lib.nameValuePair d.name "${image d}") distros)));
 
-  # The test binary and distrocheck, from the same module as banken (so the
-  # same pinned Go modules, the same vendorHash).
+  # The whole repository's source (its Go code with every test, fixture and
+  # golden), so banken's own test suite can run inside each guest (E1).
+  src = lib.fileset.toSource {
+    root = ../..;
+    fileset = lib.fileset.unions [
+      banken.fileset ../../examples ../../tests ../../tools
+      (lib.fileset.fileFilter (f: lib.hasSuffix "_test.go" f.name) ../..)
+    ];
+  };
+
+  # The matrix test, distrocheck, and a test binary per package, from the same
+  # module as banken (so the same pinned Go modules, the same vendorHash).
   harness = buildGo127Module {
     pname = "banken-distro-matrix";
     inherit (banken) version vendorHash;
-    src = lib.fileset.toSource {
-      root = ../..;
-      fileset = lib.fileset.unions [ banken.fileset (lib.fileset.fileFilter (f: f.hasExt "go") ./.) ];
-    };
+    inherit src;
     env.CGO_ENABLED = 0;
     buildPhase = ''
       runHook preBuild
       go build -trimpath -o distrocheck ./tests/distros/distrocheck
       go test -c -trimpath -tags distros -o distro-matrix.test ./tests/distros
+      # One binary per package with tests, named for its directory
+      # (internal/sigma -> internal_sigma.test; the root package -> banken.test).
+      mkdir suite
+      for pkg in $(go list ./...); do
+        dir=''${pkg#github.com/conor-sometimes/banken}; dir=''${dir#/}
+        name=$(echo "''${dir:-banken}" | tr / _)
+        go test -c -trimpath -o "suite/$name.test" "$pkg"
+      done
       runHook postBuild
     '';
     doCheck = false;
     installPhase = ''
       install -Dm755 distrocheck $out/bin/distrocheck
       install -Dm755 distro-matrix.test $out/bin/distro-matrix.test
+      mkdir -p $out/suite && cp suite/*.test $out/suite/
     '';
   };
 
@@ -52,6 +68,8 @@ let
     cp ${../../packaging/systemd/banken.timer} $out/banken.timer
     cp ${lib.getExe banken} $out/banken
     cp ${harness}/bin/distrocheck $out/distrocheck
+    cp -r ${harness}/suite $out/suite
+    tar -C ${src} -cf $out/src.tar .
   '';
 in
 writeShellApplication {

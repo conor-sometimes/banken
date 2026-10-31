@@ -66,6 +66,11 @@ subtest. Status as of 2026-10-31.
 | D2 | The distro's MAC as shipped (SELinux, AppArmor) denies banken nothing | no AVC or AppArmor denial naming banken | built |
 | D3 | Recovers from abuse: corrupt cursor, audit log rotation, truncated log | each, then the next run recovers without losing events | to build |
 | D4 | Footprint: peak memory and CPU per scan under a budget | systemd's `MemoryPeak` / `CPUUsageNSec` | to build |
+| **E. Full conformance on this distro** | | | |
+| E1 | banken's whole Go test suite (every package, fixture and golden) passes on this distro | each package's test binary runs in the guest | built |
+| E2 | The full Atomic Red Team range, scored per technique on this distro's telemetry | every Linux atomic run live | to build |
+| E3 | SigmaHQ's Linux rules on the normal-day workload: the false-positive count | measured per distro | to build |
+| E4 | Every live alert passes the official OCSF validator | ocsf-toolkit over the distro's own alerts | to build |
 
 Recorded per distro (logged, not judged): OS, kernel, systemd version, the LSM and SELinux mode,
 packages the install needed, audit rule count and status, whether the distro ships a

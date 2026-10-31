@@ -9,11 +9,13 @@
 package main
 
 import (
+	"archive/tar"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -109,6 +111,59 @@ type checker struct {
 	rep  report.Report
 	// unitFailures counts banken.service runs that did not succeed (A4).
 	unitFailures []string
+	workDir      string // for shIn
+}
+
+// packageDir maps a suite binary's name back to its package directory:
+// internal_sigma.test -> internal/sigma; banken.test (the root) -> ".".
+func packageDir(bin string) string {
+	name := strings.TrimSuffix(bin, ".test")
+	if name == "banken" {
+		return "."
+	}
+	return strings.ReplaceAll(name, "_", "/")
+}
+
+// untar unpacks a tar archive into dir, refusing any entry that would land
+// outside it.
+func untar(archive, dir string) error {
+	f, err := os.Open(archive) //nolint:gosec // our own seed file
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	tr := tar.NewReader(f)
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(dir, h.Name) // #nosec G305 -- checked on the next line
+		if !strings.HasPrefix(dst, filepath.Clean(dir)+string(os.PathSeparator)) && dst != filepath.Clean(dir) {
+			return fmt.Errorf("tar entry %q escapes %s", h.Name, dir)
+		}
+		switch h.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(dst, 0o755); err != nil { //nolint:gosec // a source tree, world-readable
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { //nolint:gosec // as above
+				return err
+			}
+			out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, h.FileInfo().Mode().Perm()) //nolint:gosec // as above
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(out, io.LimitReader(tr, h.Size))
+			if err := errors.Join(err, out.Close()); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func (c *checker) check(id string, pass bool, detail string) {
@@ -126,7 +181,7 @@ func (c *checker) objectives() []string {
 	for _, f := range c.families() {
 		ids = append(ids, "B1/"+f)
 	}
-	return append(ids, "B2", "C1", "C2", "A4", "D1", "D2")
+	return append(ids, "B2", "C1", "C2", "A4", "D1", "D2", "E1")
 }
 
 func (c *checker) families() []string {
@@ -158,6 +213,7 @@ func (c *checker) run() {
 	c.cleanLogs()
 	c.sandbox()
 	c.mac()
+	c.testSuite()
 }
 
 // --- commands ---
@@ -173,6 +229,7 @@ func (c *checker) sh(timeout time.Duration, name string, args ...string) (string
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
+	cmd.Dir = c.workDir
 	cmd.Env = os.Environ()
 	if c.cfg.Proxy != "" {
 		for _, k := range []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"} {
@@ -184,6 +241,13 @@ func (c *checker) sh(timeout time.Duration, name string, args ...string) (string
 		return string(out), fmt.Errorf("%s: timed out after %s", name, timeout)
 	}
 	return string(out), err
+}
+
+// shIn is sh in a working directory.
+func (c *checker) shIn(dir string, timeout time.Duration, name string, args ...string) (string, error) {
+	c.workDir = dir
+	defer func() { c.workDir = "" }()
+	return c.sh(timeout, name, args...)
 }
 
 // asUser runs a shell command as the test user. runuser, not su or sudo: those
@@ -564,6 +628,39 @@ func (c *checker) mac() {
 	denials = append(denials, linesContaining(out, "banken")...)
 	c.check("D2", len(denials) == 0, fmt.Sprintf("lsm=%s selinux=%s; denials: %s",
 		c.rep.Info["lsm"], c.rep.Info["selinux"], strings.Join(firstN(denials, 3), " | ")))
+}
+
+// testSuite (E1): banken's own Go test suite -- every package's tests, with
+// their fixtures and goldens -- passes on this distro. Each package's test
+// binary runs from its package directory, as `go test` runs it.
+func (c *checker) testSuite() {
+	const srcDir = "/opt/banken-src"
+	if err := untar(filepath.Join(c.seed, "src.tar"), srcDir); err != nil {
+		c.check("E1", false, "unpack the source: "+err.Error())
+		return
+	}
+	bins, _ := filepath.Glob(filepath.Join(c.seed, "suite", "*.test"))
+	if len(bins) == 0 {
+		c.check("E1", false, "no test binaries on the seed")
+		return
+	}
+	var failed []string
+	for _, bin := range bins {
+		pkg := packageDir(filepath.Base(bin))
+		local := filepath.Join(srcDir, pkg, filepath.Base(bin))
+		if err := copyFile(bin, local, 0o755); err != nil {
+			failed = append(failed, pkg+": "+err.Error())
+			continue
+		}
+		cmd := []string{"-test.count=1", "-test.timeout=10m"}
+		out, err := c.shIn(filepath.Join(srcDir, pkg), 15*time.Minute, local, cmd...)
+		if err != nil {
+			failed = append(failed, pkg+": "+lastLines(out, 4))
+		}
+	}
+	c.rep.Info["test_packages"] = strconv.Itoa(len(bins))
+	c.check("E1", len(failed) == 0, fmt.Sprintf("%d of %d packages failed: %s",
+		len(failed), len(bins), strings.Join(failed, "; ")))
 }
 
 // --- files ---
