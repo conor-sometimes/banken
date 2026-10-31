@@ -9,9 +9,9 @@ Two fidelities:
   an atomic makes, so rules that key on TargetFilename or a live connection
   score lower here than they would against real telemetry.
 
-* LIVE (run-live.sh, on a sandbox host with auditd): actually execute the
-  atomics, let auditd capture the real behaviour, and run banken over the log.
-  That is the faithful scorecard. See the README.
+* LIVE (tests/attackrange.nix, a throwaway VM): actually execute the atomics
+  (`--emit` lists them for range.py), let auditd capture the real behaviour, and
+  run banken around each one. That is the faithful scorecard. See the README.
 
 Both answer: of the ATT&CK techniques Atomic Red Team exercises on Linux, how
 many does banken detect?
@@ -92,8 +92,10 @@ def emit_atomics(atomics):
             print(json.dumps({
                 "technique": tid,
                 "name": t.get("name", ""),
-                "command": substitute(ex.get("command", ""), t.get("input_arguments")),
-                "cleanup": substitute(ex.get("cleanup_command", ""), t.get("input_arguments")),
+                # `or ""`: ART writes absent fields as YAML null, which .get's
+                # default does not cover (the key exists).
+                "command": substitute(ex.get("command") or "", t.get("input_arguments")),
+                "cleanup": substitute(ex.get("cleanup_command") or "", t.get("input_arguments")),
             }))
 
 
@@ -126,7 +128,7 @@ def main():
         techniques += 1
         tested.add(tid)
         for t in linux_tests:
-            cmd = substitute(t["executor"].get("command", ""), t.get("input_arguments"))
+            cmd = substitute(t["executor"].get("command") or "", t.get("input_arguments"))
             for line in cmd.splitlines():
                 ev = event_from_line(line)
                 if ev and banken_detects(banken, ev):

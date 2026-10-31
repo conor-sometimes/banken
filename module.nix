@@ -98,7 +98,10 @@ in
           Files whose access is audited, so a credential read shows up whatever
           program does it (the binary-agnostic branch of credential_file_read).
           Keep it to files: a watch on a busy directory such as /home floods
-          the log.
+          the log. Each path's parent directory must exist when the audit
+          rules load: NixOS loads them in one go (auditctl -R), and a single
+          failing watch leaves the host with no audit rules at all. A missing
+          file is fine; a missing directory is not.
         '';
       };
     };
