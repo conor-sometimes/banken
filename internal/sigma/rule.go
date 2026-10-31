@@ -102,13 +102,30 @@ func (m selMap) match(e event.Event) bool {
 }
 
 func (fm fieldMatch) match(e event.Event) bool {
+	if len(fm.values) == 0 {
+		return false
+	}
+	// A field-less matcher (empty field name) is a Sigma "keyword": it matches
+	// if any of the event's text fields matches. Used for bare string-list
+	// selections; see compileKeywords.
+	if fm.field == "" {
+		for _, text := range e.AllText() {
+			if fm.matchValues(text) {
+				return true
+			}
+		}
+		return false
+	}
 	val, present := e.Field(fm.field)
 	if !present {
 		return false
 	}
-	if len(fm.values) == 0 {
-		return false
-	}
+	return fm.matchValues(val)
+}
+
+// matchValues applies the field's value list to one string: with |all every
+// value must match, otherwise any one does.
+func (fm fieldMatch) matchValues(val string) bool {
 	if fm.all {
 		for i := range fm.values {
 			if !fm.matchOne(val, i) {

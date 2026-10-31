@@ -165,17 +165,13 @@ func (m *Matcher) Match(ev event.Event) []*Rule {
 	return hits
 }
 
-// scanEvent runs the automaton over each matchable field of the event,
+// scanEvent runs the automaton over every matchable field of the event,
 // folding to the same casing the literals were compiled with so substring
-// relationships are preserved.
+// relationships are preserved. It uses event.AllText -- the same definition of
+// "matchable fields" a field-less keyword match uses -- so the prefilter and
+// the authoritative match can never disagree about which text an event has.
 func (m *Matcher) scanEvent(ev event.Event, present map[int]struct{}) {
-	m.ac.scanInto(fold(ev.Image), present)
-	m.ac.scanInto(fold(ev.CommandLine), present)
-	m.ac.scanInto(fold(ev.ParentImage), present)
-	m.ac.scanInto(fold(ev.TargetFilename), present)
-	m.ac.scanInto(fold(ev.User), present)
-	m.ac.scanInto(fold(ev.CurrentDirectory), present)
-	for _, v := range ev.Raw {
+	for _, v := range ev.AllText() {
 		m.ac.scanInto(fold(v), present)
 	}
 }

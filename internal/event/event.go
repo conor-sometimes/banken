@@ -83,3 +83,25 @@ func (e Event) Field(name string) (string, bool) {
 	}
 	return "", false
 }
+
+// AllText returns every matchable text value on the event: the named string
+// fields plus the Raw values, skipping empties. It is the single definition
+// of "the fields banken searches", used both by a field-less (keyword) match
+// and by the matcher's literal prefilter scan, so the two can never disagree
+// about which text an event exposes. Source and Time are deliberately excluded
+// (provenance, not content). The order is stable for the named fields; Raw
+// values follow in map order.
+func (e Event) AllText() []string {
+	out := make([]string, 0, 6+len(e.Raw))
+	for _, v := range []string{e.Image, e.CommandLine, e.ParentImage, e.TargetFilename, e.User, e.CurrentDirectory} {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	for _, v := range e.Raw {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}

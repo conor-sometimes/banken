@@ -204,12 +204,23 @@ func compileSelection(node yaml.Node) (selection, error) {
 			return selection{}, err
 		}
 		return selection{alts: []selMap{m}}, nil
+	case yaml.ScalarNode:
+		// A lone string under a selection is a single keyword.
+		return compileKeywordSelection(&node)
 	case yaml.SequenceNode:
-		var alts []selMap
+		if len(node.Content) == 0 {
+			return selection{}, errors.New("empty list selection")
+		}
+		// A list of scalars is a Sigma "keyword" selection (match any string in
+		// any field); a list of mappings is OR'd field conditions.
+		if node.Content[0].Kind == yaml.ScalarNode {
+			return compileKeywordSelection(&node)
+		}
+		alts := make([]selMap, 0, len(node.Content))
 		for i := range node.Content {
 			child := node.Content[i]
 			if child.Kind != yaml.MappingNode {
-				return selection{}, fmt.Errorf("list selection entry %d is not a mapping", i)
+				return selection{}, fmt.Errorf("list selection entry %d is neither a mapping nor a scalar keyword", i)
 			}
 			m, err := compileSelMap(*child)
 			if err != nil {
@@ -217,13 +228,24 @@ func compileSelection(node yaml.Node) (selection, error) {
 			}
 			alts = append(alts, m)
 		}
-		if len(alts) == 0 {
-			return selection{}, errors.New("empty list selection")
-		}
 		return selection{alts: alts}, nil
 	default:
-		return selection{}, errors.New("selection must be a mapping or a list of mappings")
+		return selection{}, errors.New("selection must be a mapping, a list of mappings, or a list of keywords")
 	}
+}
+
+// compileKeywordSelection builds a keyword selection from a scalar or a
+// sequence of scalars.
+func compileKeywordSelection(node *yaml.Node) (selection, error) {
+	values, err := yamlValues(node)
+	if err != nil {
+		return selection{}, err
+	}
+	fm, err := compileKeywords(values)
+	if err != nil {
+		return selection{}, err
+	}
+	return selection{alts: []selMap{{fields: []fieldMatch{fm}}}}, nil
 }
 
 func compileSelMap(node yaml.Node) (selMap, error) {
@@ -298,9 +320,33 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 		fm.op = opRegexp
 		fm.res = make([]*regexp.Regexp, len(values))
 		for i, v := range values {
-			re, err := regexp.Compile(sigmaGlobToRegexp(v))
+			re, err := regexp.Compile(sigmaGlobToRegexp(v, true)) // field wildcards match the whole field
 			if err != nil {
 				return fieldMatch{}, fmt.Errorf("field %q: bad wildcard pattern %q: %w", fm.field, v, err)
+			}
+			fm.res[i] = re
+		}
+	}
+	return fm, nil
+}
+
+// compileKeywords builds a field-less matcher from a Sigma keyword list (a
+// bare list of strings under a selection): it matches if any value appears in
+// any of the event's text fields. Plain values use a substring (contains)
+// test; a value with a wildcard becomes an unanchored regexp (a keyword is a
+// substring match, not a whole-field match).
+func compileKeywords(values []string) (fieldMatch, error) {
+	if len(values) == 0 {
+		return fieldMatch{}, errors.New("empty keyword list")
+	}
+	fm := fieldMatch{field: "", op: opContains, values: values}
+	if needsGlobCompile(values) {
+		fm.op = opRegexp
+		fm.res = make([]*regexp.Regexp, len(values))
+		for i, v := range values {
+			re, err := regexp.Compile(sigmaGlobToRegexp(v, false)) // keyword = substring, unanchored
+			if err != nil {
+				return fieldMatch{}, fmt.Errorf("bad keyword pattern %q: %w", v, err)
 			}
 			fm.res[i] = re
 		}
@@ -325,9 +371,12 @@ func needsGlobCompile(values []string) bool {
 // character quoted. A value with no wildcards becomes an exact (anchored)
 // match, so equality still means equality. Matching the whole field (anchored)
 // is Sigma's wildcard semantics.
-func sigmaGlobToRegexp(s string) string {
+func sigmaGlobToRegexp(s string, anchored bool) string {
 	var b strings.Builder
-	b.WriteString("(?i)^")
+	b.WriteString("(?i)")
+	if anchored {
+		b.WriteString("^")
+	}
 	esc := false
 	for _, r := range s {
 		switch {
@@ -347,7 +396,9 @@ func sigmaGlobToRegexp(s string) string {
 	if esc { // a trailing backslash with nothing to escape -> treat as literal
 		b.WriteString(regexp.QuoteMeta("\\"))
 	}
-	b.WriteString("$")
+	if anchored {
+		b.WriteString("$")
+	}
 	return b.String()
 }
 
