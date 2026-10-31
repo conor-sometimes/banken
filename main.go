@@ -135,6 +135,13 @@ func run(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
+	// A rule that switches syscall auditing off leaves banken running cleanly
+	// and seeing nothing: say so, loudly, every run.
+	for _, b := range auditBlindspots() {
+		logAt(stderr, levelWarning, "banken: audit rule %s turns syscall auditing off, so banken sees no "+
+			"process events; remove it and run augenrules --load (docs/deployment.md, Log source)", b)
+	}
+
 	rules, problems := loadRules(cfg.Rules)
 	for _, p := range problems {
 		// A malformed rule is surfaced, loudly, never silently dropped.

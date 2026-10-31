@@ -56,7 +56,17 @@ execve (and the file accesses you care about). A minimal rule set:
 -a always,exit -F arch=b32 -S execve -k exec
 ```
 
-Then `augenrules --load` (or `auditctl -R`). [Laurel](https://github.com/threathunters-io/laurel) is
+Then `augenrules --load` (or `auditctl -R`). Two distro quirks to check first (both found by the
+live distro matrix, [tests/distros](../tests/distros/README.md)):
+
+- **`-a task,never` turns syscall auditing off entirely.** Fedora and openSUSE ship it in
+  `/etc/audit/rules.d/audit.rules`. With it loaded the kernel emits no exec events, and banken runs
+  cleanly while seeing nothing. Comment the line out before `augenrules --load`. banken checks for
+  it on every run and logs a warning naming the file and line.
+- **On RHEL 10 and its rebuilds, `auditctl` and `augenrules` are in a separate `audit-rules`
+  package** that a cloud image may lack (seen on AlmaLinux 10): `dnf install audit-rules`.
+
+[Laurel](https://github.com/threathunters-io/laurel) is
 supported and recommended as an enricher (it turns the multi-line audit records into clean JSON),
 but not required — the raw auditd parser reads `/var/log/audit/audit.log` directly.
 
