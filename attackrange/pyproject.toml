@@ -1,0 +1,6 @@
+[project]
+name = "banken-attackrange"
+version = "0.0.0"
+description = "Atomic Red Team -> banken ATT&CK detection-coverage scorecard."
+requires-python = ">=3.11"
+dependencies = ["pyyaml>=6"]
