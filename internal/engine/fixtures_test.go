@@ -79,6 +79,41 @@ func TestFixtures(t *testing.T) {
 	}
 }
 
+// TestEveryRuleHasAFixture enforces the project rule that no detection ships
+// without a test: every loaded Sigma rule must have at least one
+// tests/fixtures/NAME.expect-<rule>.json proving it fires. When a new rule --
+// or an imported SigmaHQ rule -- lands without a fixture, this fails loudly,
+// which is also how banken ends up testing upstream rules against real events.
+func TestEveryRuleHasAFixture(t *testing.T) {
+	rulesDir := filepath.Join("..", "..", "rules")
+	fixturesDir := filepath.Join("..", "..", "tests", "fixtures")
+
+	rules, problems := sigma.LoadTree(rulesDir)
+	for _, p := range problems {
+		t.Fatalf("rule failed to load: %v", p)
+	}
+	if len(rules) == 0 {
+		t.Fatalf("no rules loaded from %s", rulesDir)
+	}
+
+	tested := map[string]bool{}
+	entries, err := os.ReadDir(fixturesDir)
+	if err != nil {
+		t.Fatalf("read fixtures dir: %v", err)
+	}
+	for _, e := range entries {
+		if r, ok := expectedRule(e.Name()); ok && r != "none" {
+			tested[r] = true
+		}
+	}
+	for _, r := range rules {
+		if !tested[r.Name] {
+			t.Errorf("rule %q (%s) has no tests/fixtures/*.expect-%s.json — every rule must ship with a test",
+				r.Name, r.Path, r.Name)
+		}
+	}
+}
+
 // expectedRule parses the rule name out of NAME.expect-<rule>.json.
 func expectedRule(filename string) (string, bool) {
 	base := strings.TrimSuffix(filename, ".json")
