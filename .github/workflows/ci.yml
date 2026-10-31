@@ -25,7 +25,7 @@ jobs:
       - name: Install lint/test tooling
         run: |
           go install mvdan.cc/gofumpt@v0.12.0
-          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
           go install github.com/kisielk/errcheck@v1.20.0
           go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
@@ -38,3 +38,38 @@ jobs:
       # TODO(banken): the Nix module VM test (tests/vm.nix via nix flake
       # check) is owned by the head session; add it as a second job once it
       # lands, mirroring the sibling module repos' CI.
+
+  # Performance is tracked, not vibed: every push runs the benchmarks and
+  # prints benchstat's delta from the committed baseline into the run summary,
+  # and keeps the raw numbers as an artifact. It does NOT fail on a regression
+  # -- shared CI runners are too noisy for a hard gate -- so a real regression
+  # is read from the delta and the trend, and the baseline is re-committed
+  # deliberately (`just bench-baseline`) when a change is meant to move it.
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20261009192801-be2c69fb417e
+      - name: Run benchmarks
+        run: |
+          mkdir -p bench
+          go test ./... -run '^$' -bench . -benchmem -count=6 | tee bench/new.txt
+      - name: Compare to baseline
+        run: |
+          echo '### Benchmarks vs committed baseline (indicative: baseline may be from another machine)' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f bench/baseline.txt ]; then
+            benchstat bench/baseline.txt bench/new.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'no bench/baseline.txt committed yet' | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmarks
+          path: bench/new.txt

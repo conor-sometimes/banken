@@ -1,0 +1,3 @@
+# Transient per-run benchmark output; the committed reference is baseline.txt.
+new.txt
+e2e.json

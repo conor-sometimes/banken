@@ -13,6 +13,10 @@
 # Tools: `brew install just gofumpt staticcheck errcheck gosec govulncheck
 # golangci-lint` (or `go install` the same), plus
 # `go install gotest.tools/gotestsum@v1.13.0`.
+#
+# Performance recipes (bench*) additionally need benchstat
+# (`go install golang.org/x/perf/cmd/benchstat@latest`); bench-e2e also needs
+# hyperfine (`brew install hyperfine`).
 
 alias all := default
 
@@ -78,6 +82,48 @@ test: fuzz property-deep
 
 cover:
 	go test ./... -cover -count=1
+
+# --- performance: tracked, not vibed ---
+#
+# bench runs the in-process Go benchmarks (matcher, parsers) with the race
+# detector OFF and allocs reported. -count makes benchstat's statistics
+# meaningful. Results land in bench/new.txt.
+bench count="10":
+	mkdir -p bench
+	go test ./... -run '^$' -bench . -benchmem -count={{count}} | tee bench/new.txt
+
+# bench-baseline records the current numbers as the committed reference
+# `bench-compare` diffs against. It is machine-specific (the goos/goarch/cpu
+# header says which), so compare on the same machine; CI treats a cross-runner
+# delta as indicative only and the trend dashboard is the real cross-run gate.
+# Run it deliberately, when a change is meant to move performance, and commit
+# bench/baseline.txt with that change.
+bench-baseline count="10":
+	mkdir -p bench
+	go test ./... -run '^$' -bench . -benchmem -count={{count}} | tee bench/baseline.txt
+
+# bench-compare shows the delta from the committed baseline to a fresh run.
+# benchstat prints the percentage change and whether it is statistically
+# significant, so a regression is a number, not a hunch.
+bench-compare: (bench "10")
+	benchstat bench/baseline.txt bench/new.txt
+
+# bench-e2e measures a full binary scan over a large synthetic log with
+# hyperfine: build -> generate ~200k events -> time `banken` end to end (fresh
+# cursor each run so every run does the full scan). This catches regressions
+# the micro-benchmarks miss -- startup, rule loading, file I/O.
+bench-e2e n="200000":
+	#!/usr/bin/env bash
+	set -euo pipefail
+	tmp="$(mktemp -d)"
+	trap 'rm -rf "$tmp"' EXIT
+	go build -o "$tmp/banken" .
+	go run ./tools/genlog -n {{n}} > "$tmp/audit.jsonl"
+	printf 'rules: [./rules]\nstatePath: %s/state.json\nsources:\n  - type: laurel\n    path: %s/audit.jsonl\n' "$tmp" "$tmp" > "$tmp/banken.yml"
+	hyperfine --warmup 1 --prepare "rm -f $tmp/state.json" \
+		--export-json "$tmp/e2e.json" \
+		"$tmp/banken -config $tmp/banken.yml"
+	echo "log: {{n}} events -> $(wc -c < "$tmp/audit.jsonl") bytes"
 
 # Short fuzz run against every Fuzz* target in every package, discovered via
 # `go test -list` (not hardcoded, so a new target is picked up

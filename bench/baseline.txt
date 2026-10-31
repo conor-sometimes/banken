@@ -1,0 +1,66 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/conor-sometimes/banken/internal/sigma
+cpu: Apple M4
+BenchmarkMatcher100-10      	  815845	       745.4 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher100-10      	  816784	       730.9 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher100-10      	  822852	       731.1 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher100-10      	  862218	       736.4 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher100-10      	  835125	       749.7 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher100-10      	  831350	       731.5 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher100-10      	  810837	       731.1 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher100-10      	  852645	       734.2 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher100-10      	  824703	       722.4 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher100-10      	  834975	       732.8 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher1000-10     	  312336	      1732 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher1000-10     	  354842	      1697 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher1000-10     	  326456	      1838 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher1000-10     	  326250	      1649 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher1000-10     	  360183	      1653 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher1000-10     	  361863	      1694 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher1000-10     	  320062	      1661 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher1000-10     	  359319	      1687 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher1000-10     	  351132	      1650 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher1000-10     	  352590	      1646 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher10000-10    	   54775	     12101 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher10000-10    	   54948	     11031 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher10000-10    	   55173	     11163 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher10000-10    	   54825	     11019 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher10000-10    	   51464	     11149 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher10000-10    	   54945	     11246 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher10000-10    	   55266	     11103 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher10000-10    	   53713	     10900 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher10000-10    	   54998	     12076 ns/op	     364 B/op	       4 allocs/op
+BenchmarkMatcher10000-10    	   54765	     10982 ns/op	     364 B/op	       4 allocs/op
+BenchmarkNaive100-10        	   30535	     20040 ns/op	   43200 B/op	     400 allocs/op
+BenchmarkNaive100-10        	   30393	     20022 ns/op	   43200 B/op	     400 allocs/op
+BenchmarkNaive100-10        	   27525	     20603 ns/op	   43200 B/op	     400 allocs/op
+BenchmarkNaive100-10        	   27632	     20785 ns/op	   43200 B/op	     400 allocs/op
+BenchmarkNaive100-10        	   30865	     19719 ns/op	   43200 B/op	     400 allocs/op
+BenchmarkNaive100-10        	   30069	     20633 ns/op	   43200 B/op	     400 allocs/op
+BenchmarkNaive100-10        	   30498	     20070 ns/op	   43200 B/op	     400 allocs/op
+BenchmarkNaive100-10        	   27540	     19484 ns/op	   43200 B/op	     400 allocs/op
+BenchmarkNaive100-10        	   30608	     20495 ns/op	   43200 B/op	     400 allocs/op
+BenchmarkNaive100-10        	   29686	     19514 ns/op	   43200 B/op	     400 allocs/op
+BenchmarkNaive1000-10       	    2817	    226120 ns/op	  432000 B/op	    4000 allocs/op
+BenchmarkNaive1000-10       	    2970	    204143 ns/op	  432000 B/op	    4000 allocs/op
+BenchmarkNaive1000-10       	    3013	    214128 ns/op	  432000 B/op	    4000 allocs/op
+BenchmarkNaive1000-10       	    2797	    222800 ns/op	  432000 B/op	    4000 allocs/op
+BenchmarkNaive1000-10       	    2668	    206306 ns/op	  432000 B/op	    4000 allocs/op
+BenchmarkNaive1000-10       	    2911	    201318 ns/op	  432000 B/op	    4000 allocs/op
+BenchmarkNaive1000-10       	    2990	    242267 ns/op	  432002 B/op	    4000 allocs/op
+BenchmarkNaive1000-10       	    2038	    316797 ns/op	  432001 B/op	    4000 allocs/op
+BenchmarkNaive1000-10       	    2048	    258927 ns/op	  432000 B/op	    4000 allocs/op
+BenchmarkNaive1000-10       	    2293	    268847 ns/op	  432001 B/op	    4000 allocs/op
+BenchmarkNaive10000-10      	     238	   2229283 ns/op	 4320000 B/op	   40000 allocs/op
+BenchmarkNaive10000-10      	     264	   2194908 ns/op	 4320000 B/op	   40000 allocs/op
+BenchmarkNaive10000-10      	     260	   2535315 ns/op	 4320000 B/op	   40000 allocs/op
+BenchmarkNaive10000-10      	     198	   3322402 ns/op	 4320000 B/op	   40000 allocs/op
+BenchmarkNaive10000-10      	     188	   3125464 ns/op	 4320001 B/op	   40000 allocs/op
+BenchmarkNaive10000-10      	     186	   3151270 ns/op	 4320000 B/op	   40000 allocs/op
+BenchmarkNaive10000-10      	     196	   3005745 ns/op	 4320002 B/op	   40000 allocs/op
+BenchmarkNaive10000-10      	     178	   2965068 ns/op	 4320000 B/op	   40000 allocs/op
+BenchmarkNaive10000-10      	     181	   3509781 ns/op	 4320000 B/op	   40000 allocs/op
+BenchmarkNaive10000-10      	     186	   3611102 ns/op	 4320001 B/op	   40000 allocs/op
+PASS
+ok  	github.com/conor-sometimes/banken/internal/sigma	53.382s
