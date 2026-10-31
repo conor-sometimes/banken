@@ -1,0 +1,4 @@
+[
+  {"source":"auditd","image":"/usr/bin/truncate","commandLine":"truncate -s0 /var/log/myapp.log","user":"1000","pid":8400,"ppid":8399},
+  {"source":"auditd","image":"/usr/bin/rm","commandLine":"rm /tmp/build/cache.bin","user":"1000","pid":8401,"ppid":8399}
+]

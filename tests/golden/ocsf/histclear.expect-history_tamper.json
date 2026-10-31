@@ -1,0 +1,129 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"history_tamper\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "29b0b985da4f2cac4e2d9bc4f06aa12e",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "29b0b985da4f2cac4e2d9bc4f06aa12e",
+    "title": "Shell history tampering",
+    "desc": "A program wiped, truncated or redirected a shell history file - rm / truncate / shred of ~/.bash_history (and zsh/sh equivalents), or symlinking it to /dev/null so nothing is ever recorded. Clearing command history is how an intruder covers their tracks after the fact (MITRE T1070.003). Honest limit: this catches history tampering done by a *program*; the shell-builtin forms (history -c, unset HISTFILE, set +o history) run no process and so are invisible to any exec-based detector - banken sees programs, not builtins. Disabling history by editing a shell rc is caught separately by the persistence rule (shell_rc).",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "history_tamper",
+      "uid": "d5808197-81b7-4e8a-8157-1106c05174d5"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0005",
+          "name": "Defense Evasion"
+        },
+        "technique": {
+          "uid": "T1070"
+        },
+        "sub_technique": {
+          "uid": "T1070.003"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 8300,
+        "name": "rm",
+        "cmd_line": "rm /home/u/.bash_history",
+        "file": {
+          "name": "rm",
+          "path": "/usr/bin/rm",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 8299
+        }
+      },
+      "file": {
+        "name": ".bash_history",
+        "path": "/home/u/.bash_history",
+        "type_id": 0,
+        "type": "Unknown"
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "rm /home/u/.bash_history"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "rm"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/rm"
+    },
+    {
+      "name": "evidences.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/home/u/.bash_history"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/rm\",\"commandLine\":\"rm /home/u/.bash_history\",\"parentImage\":\"\",\"targetFilename\":\"/home/u/.bash_history\",\"user\":\"1000\",\"currentDirectory\":\"\",\"pid\":8300,\"ppid\":8299}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "history_tamper",
+    "source": "auditd"
+  }
+}

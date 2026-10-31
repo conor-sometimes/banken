@@ -1,0 +1,56 @@
+title: Shell history tampering
+id: d5808197-81b7-4e8a-8157-1106c05174d5
+status: experimental
+description: >
+  A program wiped, truncated or redirected a shell history file - rm / truncate / shred of
+  ~/.bash_history (and zsh/sh equivalents), or symlinking it to /dev/null so nothing is ever
+  recorded. Clearing command history is how an intruder covers their tracks after the fact
+  (MITRE T1070.003). Honest limit: this catches history tampering done by a *program*; the
+  shell-builtin forms (history -c, unset HISTFILE, set +o history) run no process and so are
+  invisible to any exec-based detector - banken sees programs, not builtins. Disabling history by
+  editing a shell rc is caught separately by the persistence rule (shell_rc).
+references:
+  - https://attack.mitre.org/techniques/T1070/003/
+author: banken
+date: 2026-10-31
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1070.003
+detection:
+  histfile_cmd:
+    CommandLine|contains:
+      - .bash_history
+      - .zsh_history
+      - .sh_history
+      - .histfile
+      - /.history
+      - .local/share/fish/fish_history
+  # programs used to wipe, truncate or neuter a history file
+  wiper:
+    Image|endswith:
+      - /rm
+      - /shred
+      - /truncate
+      - /ln
+      - /unlink
+  # or the acted-on file itself, if a watch recorded it (catches `echo "" > ~/.bash_history`,
+  # where the shell strips the path from argv so CommandLine never names it)
+  histfile_target:
+    TargetFilename|endswith:
+      - /.bash_history
+      - /.zsh_history
+      - /.sh_history
+      - /.histfile
+  truncating:
+    Image|endswith:
+      - /truncate
+      - /dd
+      - /tee
+  condition: (wiper and histfile_cmd) or (truncating and histfile_target)
+falsepositives:
+  - A dotfile manager or a shell that rotates its own history; scope to the accounts that have no
+    business clearing history, as with the credential rules.
+level: high

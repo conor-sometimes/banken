@@ -1,0 +1,5 @@
+[
+  {"source":"auditd","image":"/usr/bin/rm","commandLine":"rm /home/u/.bash_history","targetFilename":"/home/u/.bash_history","user":"1000","pid":8300,"ppid":8299},
+  {"source":"auditd","image":"/usr/bin/ln","commandLine":"ln -sf /dev/null /home/u/.bash_history","user":"1000","pid":8301,"ppid":8299},
+  {"source":"auditd","image":"/run/current-system/sw/bin/truncate","commandLine":"echo","targetFilename":"/home/u/.bash_history","user":"1000","pid":8302,"ppid":8299}
+]
