@@ -123,7 +123,19 @@ today; hash and network indicators arrive with the eBPF / network sources.
 
 ## Testing a rule
 
-Add a fixture: a normalised event JSON under `tests/fixtures/`. `NAME.expect-<rule>.json` must fire
-that rule; `NAME.expect-none.json` must fire nothing. `go test ./...` runs them, so a rule ships
-with proof it does (and doesn't) fire. A `banken check`/repl fast path for one-off
-command/log-line checks is on the roadmap.
+Two ways:
+
+- **`banken check`** — the fast path. Describe one event and see which rules fire, no log needed:
+
+  ```sh
+  banken check -image /usr/bin/cat 'cat /etc/shadow'          # -> credential_file_read
+  banken check -json '{"image":"/bin/bash","commandLine":"...dev/tcp..."}'
+  ```
+
+  It's faithful to the rule logic — if a rule needs `TargetFilename`, set `-target`; a command line
+  alone won't satisfy it. Perfect for tuning ("does my change still fire?") and purple-teaming.
+
+- **A fixture** for regression: a normalised event JSON under `tests/fixtures/`.
+  `NAME.expect-<rule>.json` must fire that rule; `NAME.expect-none.json` must fire nothing.
+  `go test ./...` runs them (and the coverage gate requires every rule to have one), so a rule ships
+  with proof it does — and doesn't — fire.

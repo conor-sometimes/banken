@@ -58,6 +58,11 @@ func logf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, 
 func logln(w io.Writer, a ...any)               { _, _ = fmt.Fprintln(w, a...) }
 
 func run(args []string, stdout, stderr io.Writer) error {
+	// Subcommands. The default (no subcommand) is the one-shot scan.
+	if len(args) > 0 && args[0] == "check" {
+		return runCheck(args[1:], stdout, stderr)
+	}
+
 	fs := flag.NewFlagSet("banken", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var f flags
