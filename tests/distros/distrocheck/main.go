@@ -147,11 +147,11 @@ func untar(archive, dir string) error {
 		}
 		switch h.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(dst, 0o755); err != nil { //nolint:gosec // a source tree, world-readable
+			if err := os.MkdirAll(dst, 0o755); err != nil { //#nosec G301 -- a source tree, world-readable
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { //nolint:gosec // as above
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { //#nosec G301 -- as above
 				return err
 			}
 			out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, h.FileInfo().Mode().Perm()) //nolint:gosec // as above

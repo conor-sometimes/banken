@@ -1,0 +1,26 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/bin/grep",
+    "commandLine": "grep -r TODO /home/u/project",
+    "user": "1000",
+    "pid": 7200,
+    "ppid": 7199
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/grep",
+    "commandLine": "grep password /etc/myapp/app.conf",
+    "user": "1000",
+    "pid": 7201,
+    "ppid": 7199
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/find",
+    "commandLine": "find /var/log -name *.log -mtime -1",
+    "user": "1000",
+    "pid": 7202,
+    "ppid": 7199
+  }
+]
