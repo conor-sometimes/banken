@@ -11,6 +11,9 @@ Start with the [project README](../README.md) for the overview. These pages go d
 - **[Deployment](deployment.md)** — getting it running: the zero-config default, the systemd
   timer, the NixOS module, the log source it reads, and the sandbox it runs in. Read this to
   install it.
+- **[Log sources](log-sources.md)** — how banken stays extensible across OSes: the one-interface
+  seam, the generic-JSONL adapter, and the per-OS (Linux/macOS/Windows) source roadmap. Read this to
+  add a source.
 
 Security model (why a root daemon that ingests rules is not a trojan) lives in the
 [README's Security model section](../README.md#security-model); the threat model is short enough to

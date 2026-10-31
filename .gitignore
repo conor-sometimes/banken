@@ -19,3 +19,8 @@ coverage.out
 
 # the built binary
 /output/banken
+
+# binaries built in-tree by `go build .` / `go build ./tools/...`
+/banken
+/sigmacov
+/genlog
