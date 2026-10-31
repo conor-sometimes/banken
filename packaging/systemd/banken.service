@@ -16,6 +16,11 @@ Type=oneshot
 ExecStart=/usr/bin/banken -config /etc/banken/banken.yml
 StateDirectory=banken
 StateDirectoryMode=0700
+# /var/log/banken for the jsonl sink (alerts.jsonl.dir's default): created here and the one
+# other writable path, since ProtectSystem=strict makes everything else read-only. 0750: alert
+# lines carry command lines.
+LogsDirectory=banken
+LogsDirectoryMode=0750
 
 # Survive host memory pressure: an attacker who floods the box with processes
 # to trip the OOM killer must not be able to reap the watchdog. A strongly
@@ -49,9 +54,10 @@ SystemCallErrorNumber=EPERM
 SystemCallArchitectures=native
 UMask=0077
 
-# Reads the root-owned audit log; writes only its own state. Runs as root for the log read but
-# drops every capability it doesn't need.
-ReadWritePaths=/var/lib/banken
-ReadOnlyPaths=/var/log/audit /var/log/laurel
+# Reads the root-owned audit log; writes only its own state and alert files. Runs as root for the
+# log read but drops every capability it doesn't need. "-": a host without Laurel has no
+# /var/log/laurel, and a missing path must not stop the scan.
+ReadWritePaths=/var/lib/banken /var/log/banken
+ReadOnlyPaths=-/var/log/audit -/var/log/laurel
 CapabilityBoundingSet=CAP_DAC_READ_SEARCH
 AmbientCapabilities=CAP_DAC_READ_SEARCH
