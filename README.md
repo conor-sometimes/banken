@@ -1,5 +1,12 @@
 # banken
 
+[![CI](https://github.com/conor-sometimes/banken/actions/workflows/ci.yml/badge.svg)](https://github.com/conor-sometimes/banken/actions/workflows/ci.yml)
+![OCSF 1.3.0, validated](https://img.shields.io/badge/OCSF-1.3.0%20validated-blue)
+![Sigma](https://img.shields.io/badge/rules-Sigma-blue)
+![MITRE ATT&CK](https://img.shields.io/badge/mapped%20to-MITRE%20ATT%26CK-blue)
+![Linux with systemd](https://img.shields.io/badge/platform-Linux%20%2B%20systemd-informational)
+![NixOS module](https://img.shields.io/badge/NixOS-module-informational)
+
 番犬 — "watchdog". A small, host-wide EDR: it watches the machine's logs on a timer, matches them
 against Sigma rules and IOC lists, and alerts. One Go binary, no agent runtime, no Python — a
 poor-man's SentinelOne you can actually read.
@@ -15,6 +22,29 @@ Not an agent thing: banken watches the *whole host*. A contained AI agent, a cro
 user — if it does something a rule flags, banken alerts. (The
 [agent containment](https://github.com/conor-sometimes/nixos-agent-containment) is one consumer: it
 adds its own tighter agent-specific rules on top.)
+
+## Supported platforms
+
+**Linux with systemd** (banken's security model is its systemd sandbox; see
+[docs/deployment.md](docs/deployment.md#supported-platforms)). Each distro below is tested live by the
+[distro matrix](tests/distros/README.md): its official cloud image booted under KVM, banken installed
+as the docs say, benign malware look-alikes run against that distro's own kernel and auditd, and 15
+objectives checked, from a clean install to exact detections, no false positives on a normal day,
+valid OCSF and the sandbox. `nix run .#distro-matrix` runs it.
+
+| Distro | Status | Last verified |
+| --- | --- | --- |
+| Rocky Linux 9 (RHEL 9) | all 15 objectives pass, SELinux enforcing | 2026-10-31 |
+| AlmaLinux 10 (RHEL 10) | all 15 objectives pass, SELinux enforcing | 2026-10-31 |
+| Fedora 44 | all 15 objectives pass, SELinux enforcing (remove the stock `-a task,never`; banken warns) | 2026-10-31 |
+| Debian 13 | all 15 objectives pass, AppArmor active | 2026-10-31 |
+| Ubuntu 24.04 LTS | all 15 objectives pass, AppArmor active | 2026-10-31 |
+| openSUSE Leap 16 | all 15 objectives pass, SELinux enforcing (remove the stock `-a task,never`; banken warns) | 2026-10-31 |
+| Arch Linux | all 15 objectives pass | 2026-10-31 |
+| NixOS | module VM test passes ([`tests/vm.nix`](tests/vm.nix)) | 2026-10-31 |
+| Amazon Linux 2023 | in the matrix, not yet verified (the test harness cannot start its checker yet) | — |
+
+x86_64; aarch64 builds but is not yet tested.
 
 ## How it works
 
