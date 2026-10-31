@@ -1,0 +1,9 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/bin/passwd",
+    "commandLine": "passwd",
+    "targetFilename": "/etc/shadow",
+    "user": "0"
+  }
+]
