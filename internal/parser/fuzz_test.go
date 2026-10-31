@@ -69,6 +69,19 @@ func FuzzParseLaurel(f *testing.F) {
 	})
 }
 
+// FuzzParseSysmon: arbitrary bytes fed to the Sysmon XML parser must never
+// panic and must produce the sysmon source tag on whatever parsed.
+func FuzzParseSysmon(f *testing.F) {
+	f.Add(sysmonProcessCreate)
+	f.Add("<Event><System><EventID>1</EventID></System><EventData><Data Name='Image'>x</Data></EventData></Event>")
+	f.Add("<<<not xml")
+	f.Add("")
+	p := Sysmon{}
+	f.Fuzz(func(t *testing.T, data string) {
+		checkParser(t, p, data)
+	})
+}
+
 // FuzzParseStubs asserts the journald/syslog stubs also never panic and
 // faithfully drain their input (so a cursor advances) while emitting
 // nothing -- the interface contract holds even before they are real.

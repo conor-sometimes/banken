@@ -25,7 +25,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -402,15 +401,15 @@ func ocsfEvidences(ev event.Event) []ocsfEvidence {
 		CmdLine: ev.CommandLine,
 	}
 	if ev.Image != "" {
-		p.Name = path.Base(ev.Image)
-		p.File = &ocsfFile{Name: path.Base(ev.Image), Path: ev.Image, TypeID: 1, Type: "Regular File"}
+		p.Name = baseName(ev.Image)
+		p.File = &ocsfFile{Name: baseName(ev.Image), Path: ev.Image, TypeID: 1, Type: "Regular File"}
 	}
 	p.User = ocsfUserFor(ev.User)
 	if ev.ParentImage != "" || ev.PPID > 0 {
 		pp := &ocsfProcess{PID: ev.PPID}
 		if ev.ParentImage != "" {
-			pp.Name = path.Base(ev.ParentImage)
-			pp.File = &ocsfFile{Name: path.Base(ev.ParentImage), Path: ev.ParentImage, TypeID: 1, Type: "Regular File"}
+			pp.Name = baseName(ev.ParentImage)
+			pp.File = &ocsfFile{Name: baseName(ev.ParentImage), Path: ev.ParentImage, TypeID: 1, Type: "Regular File"}
 		}
 		p.ParentProcess = pp
 	}
@@ -420,7 +419,7 @@ func ocsfEvidences(ev event.Event) []ocsfEvidence {
 	if ev.TargetFilename != "" {
 		// 0 Unknown: banken does not know whether the acted-on path is a
 		// regular file, a dir or a device.
-		e.File = &ocsfFile{Name: path.Base(ev.TargetFilename), Path: ev.TargetFilename, TypeID: 0, Type: "Unknown"}
+		e.File = &ocsfFile{Name: baseName(ev.TargetFilename), Path: ev.TargetFilename, TypeID: 0, Type: "Unknown"}
 	}
 	if e.Process == nil && e.File == nil {
 		return nil
@@ -462,7 +461,7 @@ func ocsfObservables(a Alert, hostname string) []ocsfObservable {
 	}
 	add("evidences.process.cmd_line", 13, "Command Line", ev.CommandLine)
 	if ev.Image != "" {
-		add("evidences.process.name", 9, "Process Name", path.Base(ev.Image))
+		add("evidences.process.name", 9, "Process Name", baseName(ev.Image))
 		add("evidences.process.file.path", 7, "File Name", ev.Image) // 45 File Path is not in 1.3.0
 	}
 	if ev.User != "" && !isAllDigits(ev.User) {
@@ -559,6 +558,17 @@ func ocsfUID(a Alert) string {
 		a.Event.Image + "\n" + a.Event.CommandLine + "\n" +
 		a.Event.User + "\n" + a.IOC + "\n" + a.Field + "\n"))
 	return hex.EncodeToString(h[:])[:32]
+}
+
+// baseName is the final element of a file path, understanding both the Unix
+// separator and the Windows backslash, so an OCSF finding from a Sysmon event
+// gets "powershell.exe" and not the whole C:\... path. For a pure forward-slash
+// path it equals path.Base, so Linux output is unchanged.
+func baseName(p string) string {
+	if i := strings.LastIndexAny(p, "/\\"); i >= 0 {
+		return p[i+1:]
+	}
+	return p
 }
 
 func isAllDigits(s string) bool {

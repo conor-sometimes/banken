@@ -27,7 +27,8 @@ type Config struct {
 
 // Source is one log input.
 type Source struct {
-	// Type selects the parser: laurel | auditd | journald | syslog.
+	// Type selects the parser: laurel | auditd | generic | sysmon (journald,
+	// syslog are stubs). See parser.Registry.
 	Type string `yaml:"type"`
 	// Path is the file to read.
 	Path string `yaml:"path"`

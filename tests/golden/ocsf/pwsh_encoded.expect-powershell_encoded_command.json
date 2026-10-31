@@ -1,0 +1,141 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"powershell_encoded_command\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "430981a778227c19cf2e8a7f0f2f6e55",
+    "log_provider": "sysmon"
+  },
+  "finding_info": {
+    "uid": "430981a778227c19cf2e8a7f0f2f6e55",
+    "title": "Suspicious PowerShell encoded command",
+    "desc": "PowerShell launched with an encoded command and hiding flags - the classic fileless launcher / download-cradle shape. This is banken's first Windows (Sysmon) detection, and it exists to prove the Sysmon source end to end: it keys on the same process_creation fields a SigmaHQ Windows rule uses (Image, CommandLine), which the Sysmon parser fills from a Windows Event Log record exactly as the auditd parser fills them from a Linux exec. So SigmaHQ's whole Windows ruleset drops in the same way. See docs/windows.md for the scaffold status (logsource-aware routing is the next piece, so until then a Windows rule simply never matches a Linux event by field shape).",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "powershell_encoded_command",
+      "uid": "a57e9df8-7b89-438a-ae2e-9125aebc3de0"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0002",
+          "name": "Execution"
+        },
+        "technique": {
+          "uid": "T1059"
+        },
+        "sub_technique": {
+          "uid": "T1059.001"
+        }
+      },
+      {
+        "tactic": {
+          "uid": "TA0002",
+          "name": "Execution"
+        },
+        "technique": {
+          "uid": "T1027"
+        }
+      }
+    ],
+    "data_sources": [
+      "sysmon"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 4242,
+        "name": "powershell.exe",
+        "cmd_line": "powershell.exe -nop -w hidden -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0ACAATgBlAHQALgBXAGUAYgBDAGwAaQBlAG4AdAApAA==",
+        "file": {
+          "name": "powershell.exe",
+          "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "name": "WIN-DEV\\dev"
+        },
+        "parent_process": {
+          "pid": 1000,
+          "name": "explorer.exe",
+          "file": {
+            "name": "explorer.exe",
+            "path": "C:\\Windows\\explorer.exe",
+            "type_id": 1,
+            "type": "Regular File"
+          }
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "powershell.exe -nop -w hidden -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0ACAATgBlAHQALgBXAGUAYgBDAGwAaQBlAG4AdAApAA=="
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "powershell.exe"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+    },
+    {
+      "name": "evidences.process.user.name",
+      "type_id": 4,
+      "type": "User Name",
+      "value": "WIN-DEV\\dev"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"sysmon\",\"image\":\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\",\"commandLine\":\"powershell.exe -nop -w hidden -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0ACAATgBlAHQALgBXAGUAYgBDAGwAaQBlAG4AdAApAA==\",\"parentImage\":\"C:\\\\Windows\\\\explorer.exe\",\"targetFilename\":\"\",\"user\":\"WIN-DEV\\\\dev\",\"currentDirectory\":\"\",\"pid\":4242,\"ppid\":1000,\"raw\":{\"EventID\":\"1\",\"IntegrityLevel\":\"Medium\"}}",
+  "unmapped": {
+    "kind": "sigma",
+    "raw.EventID": "1",
+    "raw.IntegrityLevel": "Medium",
+    "rule": "powershell_encoded_command",
+    "source": "sysmon"
+  }
+}

@@ -1,0 +1,46 @@
+title: Suspicious PowerShell encoded command
+id: a57e9df8-7b89-438a-ae2e-9125aebc3de0
+status: experimental
+description: >
+  PowerShell launched with an encoded command and hiding flags - the classic fileless launcher /
+  download-cradle shape. This is banken's first Windows (Sysmon) detection, and it exists to prove
+  the Sysmon source end to end: it keys on the same process_creation fields a SigmaHQ Windows rule
+  uses (Image, CommandLine), which the Sysmon parser fills from a Windows Event Log record exactly
+  as the auditd parser fills them from a Linux exec. So SigmaHQ's whole Windows ruleset drops in
+  the same way. See docs/windows.md for the scaffold status (logsource-aware routing is the next
+  piece, so until then a Windows rule simply never matches a Linux event by field shape).
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1027/
+author: banken
+date: 2026-10-31
+logsource:
+  product: windows
+  category: process_creation
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.defense-evasion
+  - attack.t1027
+detection:
+  powershell:
+    Image|endswith:
+      - \powershell.exe
+      - \pwsh.exe
+      - \powershell_ise.exe
+  encoded:
+    CommandLine|contains:
+      - ' -enc '
+      - ' -encodedcommand'
+      - ' -ec '
+  hiding:
+    CommandLine|contains:
+      - ' -nop'
+      - ' -noni'
+      - ' -w hidden'
+      - ' -windowstyle hidden'
+  condition: powershell and (encoded or hiding)
+falsepositives:
+  - Some management tooling launches PowerShell with -nop or an encoded command; scope by the
+    launching parent or host once there is a baseline.
+level: high
