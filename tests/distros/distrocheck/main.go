@@ -83,12 +83,24 @@ func emit(r report.Report) {
 		data = []byte(`{"checks":[{"id":"A1","detail":"distrocheck: cannot encode report"}]}`)
 	}
 	data = append(data, '\n')
-	if f, err := os.OpenFile("/dev/disk/by-id/virtio-"+report.Disk, os.O_WRONLY, 0); err == nil {
+	if f, err := os.OpenFile(reportDisk(), os.O_WRONLY, 0); err == nil {
 		_, _ = f.Write(data)
 		_ = f.Sync()
 		_ = f.Close()
 	}
 	_, _ = os.Stdout.Write(data)
+}
+
+// reportDisk finds the report disk by its virtio serial in sysfs, which needs
+// no udev rule (the /dev/disk/by-id link does, and not every image has it).
+func reportDisk() string {
+	serials, _ := filepath.Glob("/sys/block/*/serial")
+	for _, f := range serials {
+		if data, err := os.ReadFile(f); err == nil && strings.TrimSpace(string(data)) == report.Disk { //nolint:gosec // sysfs
+			return "/dev/" + filepath.Base(filepath.Dir(f))
+		}
+	}
+	return "/dev/disk/by-id/virtio-" + report.Disk
 }
 
 type checker struct {
@@ -104,6 +116,7 @@ func (c *checker) check(id string, pass bool, detail string) {
 		detail = detail[:400] + "..."
 	}
 	c.rep.Checks = append(c.rep.Checks, report.Check{ID: id, Pass: pass, Detail: detail})
+	emit(c.rep) // a partial report after every check: if the guest dies, the host sees how far it got
 }
 
 // objectives lists every check ID in run order, so a setup failure can report
@@ -252,6 +265,13 @@ func (c *checker) recordAuditState() {
 	}
 	out, _ = c.sh(time.Minute, "journalctl", "-u", "auditd", "-n", "3", "--no-pager", "-o", "cat")
 	info["auditd_log"] = lastLines(out, 3)
+	if data, err := os.ReadFile(auditLog); err == nil {
+		lines := nonEmpty(string(data))
+		if len(lines) > 2 {
+			lines = lines[len(lines)-2:]
+		}
+		info["audit_log_tail"] = strings.Join(lines, " | ")
+	}
 	out, _ = c.sh(time.Minute, "journalctl", "_SYSTEMD_UNIT=banken.service", "_COMM=banken",
 		"-p", "info", "--no-pager", "-o", "cat", "-g", "events")
 	info["banken_last_read"] = lastLines(out, 1)
@@ -334,6 +354,15 @@ func (c *checker) loadAuditRules() error {
 	if err := os.WriteFile("/etc/audit/rules.d/banken.rules", []byte(auditRules), 0o600); err != nil {
 		return err
 	}
+	// docs/deployment.md: a stock "-a task,never" turns syscall auditing off
+	// (Fedora, openSUSE); the operator removes it, and so does this.
+	removed, err := dropTaskNever("/etc/audit/rules.d/*.rules")
+	if err != nil {
+		return err
+	}
+	if len(removed) > 0 {
+		c.rep.Info["audit_task_never_removed"] = strings.Join(removed, " ")
+	}
 	if _, err := c.sh(2*time.Minute, "systemctl", "enable", "--now", "auditd"); err != nil {
 		_, _ = c.sh(2*time.Minute, "service", "auditd", "start")
 	}
@@ -343,10 +372,13 @@ func (c *checker) loadAuditRules() error {
 		_, _ = c.sh(2*time.Minute, "auditctl", "-R", "/etc/audit/rules.d/banken.rules")
 	}
 	_, _ = c.sh(time.Minute, "auditctl", "-e", "1")
-	rules, _ := c.sh(time.Minute, "auditctl", "-l")
-	status, _ := c.sh(time.Minute, "auditctl", "-s")
+	rules, rerr := c.sh(time.Minute, "auditctl", "-l")
+	status, serr := c.sh(time.Minute, "auditctl", "-s")
+	if rerr != nil || serr != nil {
+		c.rep.Info["auditctl_error"] = fmt.Sprintf("-l: %v; -s: %v", rerr, serr)
+	}
 	c.rep.Info["audit_rules"] = strconv.Itoa(len(nonEmpty(rules)))
-	c.rep.Info["audit_task_never"] = strconv.FormatBool(strings.Contains(rules, "task,never"))
+	c.rep.Info["audit_task_never"] = strconv.FormatBool(len(linesMatching(rules, taskNever)) > 0)
 	c.rep.Info["audit_enabled"] = statusField(status, "enabled")
 	if !strings.Contains(rules, "banken-exec") {
 		c.recordAuditState()
@@ -554,6 +586,23 @@ func appendFile(path, text string) error {
 	}
 	_, err = f.WriteString(text)
 	return errors.Join(err, f.Close())
+}
+
+// dropTaskNever comments out every "-a task,never" rule in the matching
+// files and reports where each was.
+func dropTaskNever(glob string) ([]string, error) {
+	var removed []string
+	err := rewriteRepos(glob, func(text string) string {
+		lines := strings.Split(text, "\n")
+		for i, l := range lines {
+			if taskNever.MatchString(l) {
+				removed = append(removed, strings.TrimSpace(l))
+				lines[i] = "# removed for banken (turns syscall auditing off): " + l
+			}
+		}
+		return strings.Join(lines, "\n")
+	})
+	return removed, err
 }
 
 func rewriteRepos(glob string, edit func(string) string) error {

@@ -12,7 +12,8 @@
       "python3": "python3",
       "runuser": "util-linux",
       "pkill": "procps-ng",
-      "tar": "tar"
+      "tar": "tar",
+      "auditctl": "audit"
     }
   },
   {
@@ -28,7 +29,8 @@
       "python3": "python3",
       "runuser": "util-linux",
       "pkill": "procps-ng",
-      "tar": "tar"
+      "tar": "tar",
+      "auditctl": "audit-rules"
     }
   },
   {
@@ -44,7 +46,8 @@
       "python3": "python3",
       "runuser": "util-linux",
       "pkill": "procps-ng",
-      "tar": "tar"
+      "tar": "tar",
+      "auditctl": "audit-rules"
     }
   },
   {
@@ -60,7 +63,8 @@
       "python3": "python3",
       "runuser": "util-linux",
       "pkill": "procps-ng",
-      "tar": "tar"
+      "tar": "tar",
+      "auditctl": "audit"
     }
   },
   {
@@ -76,7 +80,8 @@
       "python3": "python3",
       "runuser": "util-linux",
       "pkill": "procps",
-      "tar": "tar"
+      "tar": "tar",
+      "auditctl": "auditd"
     }
   },
   {
@@ -92,7 +97,8 @@
       "python3": "python3",
       "runuser": "util-linux",
       "pkill": "procps",
-      "tar": "tar"
+      "tar": "tar",
+      "auditctl": "auditd"
     }
   },
   {
@@ -108,7 +114,8 @@
       "python3": "python3",
       "runuser": "util-linux",
       "pkill": "procps",
-      "tar": "tar"
+      "tar": "tar",
+      "auditctl": "audit"
     }
   },
   {
@@ -124,7 +131,8 @@
       "python3": "python",
       "runuser": "util-linux",
       "pkill": "procps-ng",
-      "tar": "tar"
+      "tar": "tar",
+      "auditctl": "audit"
     }
   }
 ]

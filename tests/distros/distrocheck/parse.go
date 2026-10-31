@@ -103,6 +103,20 @@ func pinDNFRepo(s string) string {
 	return strings.Join(lines, "\n")
 }
 
+// taskNever matches an audit rule that turns syscall auditing off for every
+// process, in either order auditctl accepts or prints it.
+var taskNever = regexp.MustCompile(`^\s*-a\s+(task,never|never,task)(\s|$)`)
+
+func linesMatching(s string, re *regexp.Regexp) []string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		if re.MatchString(l) {
+			out = append(out, strings.TrimSpace(l))
+		}
+	}
+	return out
+}
+
 // containsRule reports whether a journal alert line ("critical reverse_shell:
 // Reverse shell spawned ...") for rule is among lines.
 func containsRule(lines []string, rule string) bool {

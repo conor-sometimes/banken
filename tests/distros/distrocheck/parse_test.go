@@ -108,3 +108,10 @@ func TestFrom(t *testing.T) {
 		t.Errorf("a shrunk source must give nothing, got %q", got)
 	}
 }
+
+func TestTaskNever(t *testing.T) {
+	rules := "-a always,exit -F arch=b64 -S execve -k banken-exec\n-a never,task\n# -a task,never\n  -a task,never\n"
+	if got := linesMatching(rules, taskNever); len(got) != 2 {
+		t.Errorf("linesMatching = %q, want both orders and no comment", got)
+	}
+}
