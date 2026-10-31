@@ -1,0 +1,58 @@
+title: Agent modified its own harness configuration
+id: 2d7cff8b-e701-42cc-9e3e-b561e0d28d0f
+status: experimental
+description: >
+  An agent account wrote its own harness config - the settings that grant its permissions, the hooks
+  that run on every tool call, the MCP servers it loads, or its instruction files. A human edits
+  ~/.claude/settings.json by hand; the *agent* widening its own allow-list, adding a hook, registering
+  an MCP server or editing CLAUDE.md is the purest form of prompt-injection persistence: the next
+  session re-reads the file and the injection is now policy. Auto-memory writes (projects/*/memory/*)
+  are excluded - the agent writes those constantly by design, and memory *poisoning* is a content
+  problem banken cannot see. This detection has no SigmaHQ equivalent; it is specific to an agent that
+  can rewrite its own leash.
+references:
+  - https://attack.mitre.org/techniques/T1546/
+  - https://github.com/conor-sometimes/nixos-agent-containment
+author: banken
+date: 2026-10-31
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.persistence
+  - attack.t1546
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  # The file itself (needs a -w watch on the paths; see falsepositives).
+  harness_file:
+    TargetFilename|contains:
+      - /.claude/settings
+      - /.claude.json
+      - /.claude/hooks/
+      - /.claude/skills/
+      - /.codex/config
+      - /.config/aider
+  # Or a writer naming a harness config / instruction file on its command line.
+  writer:
+    Image|endswith:
+      - /tee
+      - /cp
+      - /mv
+      - /sed
+      - /install
+      - /python3
+      - /node
+      - /jq
+  writer_target:
+    CommandLine|re: '\.claude/(settings|hooks|skills)|\.claude\.json|\.mcp\.json|/CLAUDE\.md\b|\.codex/config|\.cursor/rules'
+  condition: agent_user and (harness_file or (writer and writer_target))
+falsepositives:
+  - The harness writes settings.local.json itself when a human clicks "always allow" (same uid), so
+    on an interactive session that one file is noisy; headless and worker runs have no approvals and
+    are clean. Exclude settings.local.json if interactive noise is a problem. The file branch needs a
+    `-w .../.claude/settings.json -p wa` watch to fire (nixos-agent-containment auditExtraRules).
+level: high

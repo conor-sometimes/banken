@@ -1,0 +1,132 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"agent_self_config_modification\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "d00ec57ca1e00a1a8e6df7424795d062",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "d00ec57ca1e00a1a8e6df7424795d062",
+    "title": "Agent modified its own harness configuration",
+    "desc": "An agent account wrote its own harness config - the settings that grant its permissions, the hooks that run on every tool call, the MCP servers it loads, or its instruction files. A human edits ~/.claude/settings.json by hand; the *agent* widening its own allow-list, adding a hook, registering an MCP server or editing CLAUDE.md is the purest form of prompt-injection persistence: the next session re-reads the file and the injection is now policy. Auto-memory writes (projects/*/memory/*) are excluded - the agent writes those constantly by design, and memory *poisoning* is a content problem banken cannot see. This detection has no SigmaHQ equivalent; it is specific to an agent that can rewrite its own leash.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "agent_self_config_modification",
+      "uid": "2d7cff8b-e701-42cc-9e3e-b561e0d28d0f"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0003",
+          "name": "Persistence"
+        },
+        "technique": {
+          "uid": "T1546"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 9141,
+        "name": "tee",
+        "cmd_line": "tee /home/claude/.claude/settings.json",
+        "file": {
+          "name": "tee",
+          "path": "/run/current-system/sw/bin/tee",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "name": "claude"
+        },
+        "parent_process": {
+          "pid": 9000
+        }
+      },
+      "file": {
+        "name": "settings.json",
+        "path": "/home/claude/.claude/settings.json",
+        "type_id": 0,
+        "type": "Unknown"
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "tee /home/claude/.claude/settings.json"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "tee"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/run/current-system/sw/bin/tee"
+    },
+    {
+      "name": "evidences.process.user.name",
+      "type_id": 4,
+      "type": "User Name",
+      "value": "claude"
+    },
+    {
+      "name": "evidences.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/home/claude/.claude/settings.json"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/run/current-system/sw/bin/tee\",\"commandLine\":\"tee /home/claude/.claude/settings.json\",\"parentImage\":\"\",\"targetFilename\":\"/home/claude/.claude/settings.json\",\"user\":\"claude\",\"currentDirectory\":\"\",\"pid\":9141,\"ppid\":9000}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "agent_self_config_modification",
+    "source": "laurel"
+  }
+}

@@ -1,0 +1,46 @@
+title: Agent tried to bypass its egress proxy
+id: d19f187f-e15e-4fea-9a0c-638b15ef7988
+status: experimental
+description: >
+  An agent account tried to sidestep the egress proxy it was given - unsetting or emptying the
+  proxy environment, passing --noproxy / --no-proxy, overriding git's http.proxy, or reaching for
+  proxychains / torsocks. The proxy env reaches every shell the agent gets; a legitimate task never
+  needs to remove it. The kernel wall will still drop the connection, but the *attempt* is the
+  injection fingerprint - the agent was told to reach something the allow-list refuses.
+references:
+  - https://attack.mitre.org/techniques/T1562/
+  - https://github.com/conor-sometimes/nixos-agent-containment
+author: banken
+date: 2026-10-31
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1562.001
+  - attack.command-and-control
+  - attack.t1090
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  flags:
+    CommandLine|re: '--no-?proxy\b|--socks[45]\b|\b(ALL_PROXY|all_proxy)='
+  env_strip:
+    CommandLine|re: '\b(unset|env\s+-u)\s+(https?_proxy|HTTPS?_PROXY)|\b(NO_PROXY|no_proxy)=\*|\b(https?_proxy|HTTPS?_PROXY)=(\s|$)'
+  git_cfg:
+    Image|endswith: /git
+    CommandLine|re: '(-c\s+|config\s+).*https?\.proxy'
+  tools:
+    Image|endswith:
+      - /proxychains
+      - /proxychains4
+      - /torsocks
+      - /tsocks
+  condition: agent_user and (flags or env_strip or git_cfg or tools)
+falsepositives:
+  - An agent debugging a proxy problem might try --noproxy localhost; the wildcard and empty forms
+    are what fire. Low.
+level: high

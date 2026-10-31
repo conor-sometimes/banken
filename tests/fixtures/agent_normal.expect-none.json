@@ -1,0 +1,5 @@
+[{"source":"laurel","image":"/usr/bin/git","commandLine":"git push origin main","user":"claude","pid":9161,"ppid":9000},
+ {"source":"laurel","image":"/usr/bin/git","commandLine":"git config user.email bot@example","user":"claude","pid":9162,"ppid":9000},
+ {"source":"laurel","image":"/run/current-system/sw/bin/curl","commandLine":"curl -s https://github.com/x/y","user":"claude","pid":9163,"ppid":9000},
+ {"source":"laurel","image":"/usr/bin/node","commandLine":"node /home/claude/.claude/projects/p/abc.jsonl","user":"claude","pid":9164,"ppid":9000},
+ {"source":"laurel","image":"/usr/bin/git","commandLine":"git clone https://github.com/x/y","user":"claude","pid":9165,"ppid":9000}]

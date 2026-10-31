@@ -1,0 +1,52 @@
+title: Agent set a git config that executes code or captures credentials
+id: 45e5cffc-e66e-4c9d-af3f-1b18e02c09f3
+status: experimental
+description: >
+  An agent account set a git config key that runs code or steals credentials, or wrote a git hook
+  directly. core.hooksPath / core.fsmonitor / core.sshCommand / core.pager run a command on an
+  ordinary git operation; credential.helper captures the credentials of whoever next uses the
+  checkout; include.path / filter.*.clean / alias with a `!` shell escape are the same. A coding
+  agent runs git all day and never sets these. The payload fires on *the human's* machine or his next
+  pull - persistence that leaves the agent's account entirely. SigmaHQ has no git-config-persistence
+  rule; this is useful on any host, not just for agents.
+references:
+  - https://attack.mitre.org/techniques/T1546/
+  - https://attack.mitre.org/techniques/T1574/
+author: banken
+date: 2026-10-31
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.persistence
+  - attack.t1546
+  - attack.defense-evasion
+  - attack.t1574
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  git_cfg:
+    Image|endswith: /git
+    CommandLine|re: '\bconfig\b.*\b(core\.(hooksPath|fsmonitor|sshCommand|pager|editor|gitProxy|askPass)|credential\.helper|include\.path|includeIf\.|filter\.[^.]+\.(clean|smudge|process)|diff\.external|sendemail\.smtpserver)\b'
+  git_alias:
+    Image|endswith: /git
+    CommandLine|re: '\bconfig\b.*\balias\.[^ ]+\s+["'']?!'
+  hook_write:
+    Image|endswith:
+      - /tee
+      - /cp
+      - /mv
+      - /install
+      - /chmod
+      - /ln
+    CommandLine|contains: /.git/hooks/
+  gitconfig_file:
+    TargetFilename|endswith: /.gitconfig
+  condition: agent_user and (git_cfg or git_alias or hook_write or gitconfig_file)
+falsepositives:
+  - pre-commit install and husky set core.hooksPath / write .git/hooks legitimately; exclude those
+    launchers, or keep this at the review bar it is written for.
+level: high

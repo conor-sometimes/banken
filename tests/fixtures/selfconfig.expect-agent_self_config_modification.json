@@ -1,0 +1,1 @@
+[{"source":"laurel","image":"/run/current-system/sw/bin/tee","commandLine":"tee /home/claude/.claude/settings.json","user":"claude","pid":9141,"ppid":9000,"targetFilename":"/home/claude/.claude/settings.json"}]

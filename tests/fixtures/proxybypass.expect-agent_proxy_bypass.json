@@ -1,0 +1,1 @@
+[{"source":"laurel","image":"/run/current-system/sw/bin/curl","commandLine":"curl --noproxy * https://1.2.3.4/x","user":"redteam","pid":9121,"ppid":9000}]

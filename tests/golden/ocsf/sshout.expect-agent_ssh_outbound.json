@@ -1,0 +1,123 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"agent_ssh_outbound\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "839ce94d48211824a23b27eb561af65c",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "839ce94d48211824a23b27eb561af65c",
+    "title": "Agent account ran SSH",
+    "desc": "An agent account executed ssh, scp, sftp, sshpass or an ssh-based git transfer. agent_ssh_access catches the agent reading SSH *files*; this catches the agent *running* SSH. A coding agent talks to its forge over HTTPS through the proxy - it has no host to SSH to, so an ssh exec is lateral movement or exfil. sshpass -p and ssh-copy-id are especially telling (a password handed to ssh, a key being installed on another host).",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "agent_ssh_outbound",
+      "uid": "a9967f2e-55e4-4e8a-8877-5c54a0e49b52"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0008",
+          "name": "Lateral Movement"
+        },
+        "technique": {
+          "uid": "T1021"
+        },
+        "sub_technique": {
+          "uid": "T1021.004"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 9111,
+        "name": "ssh",
+        "cmd_line": "ssh deploy@10.0.0.5 whoami",
+        "file": {
+          "name": "ssh",
+          "path": "/usr/bin/ssh",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "name": "claude"
+        },
+        "parent_process": {
+          "pid": 9000
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "ssh deploy@10.0.0.5 whoami"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "ssh"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/ssh"
+    },
+    {
+      "name": "evidences.process.user.name",
+      "type_id": 4,
+      "type": "User Name",
+      "value": "claude"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/usr/bin/ssh\",\"commandLine\":\"ssh deploy@10.0.0.5 whoami\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"claude\",\"currentDirectory\":\"\",\"pid\":9111,\"ppid\":9000}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "agent_ssh_outbound",
+    "source": "laurel"
+  }
+}

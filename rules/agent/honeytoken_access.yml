@@ -1,0 +1,35 @@
+title: Honeytoken file accessed
+id: 99adb376-b464-4ad7-86eb-740c74676b43
+status: experimental
+description: >
+  A planted decoy credential file was opened. A honeytoken is a credential-shaped file that no real
+  task ever refers to, placed where a credential hunter looks and the agent's own tooling does not, so
+  **any** open of it is a hit with no false-positive story: either a credential hunt or an injected
+  instruction, caught before the attacker does anything with it. This is the one proactive detection
+  in the set, and the only one not scoped to an account - any uid touching the decoy is wrong. Deploy
+  with a read watch on each decoy (nixos-agent-containment auditExtraRules: `-w <path> -p r -k
+  honeytoken`), and place the decoys outside any tree the agent greps (not under ~/repos). Edit the
+  paths below to match the decoys you plant.
+references:
+  - https://attack.mitre.org/techniques/T1552/001/
+  - https://d3fend.mitre.org/technique/d3f:DecoyFile/
+author: banken
+date: 2026-10-31
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.credential-access
+  - attack.t1552.001
+detection:
+  honeytoken:
+    TargetFilename:
+      - /home/claude/.aws/credentials
+      - /home/claude/.kube/config
+      - /home/claude/notes/passwords.txt
+      - /srv/backup/prod-db.sql.gz
+  condition: honeytoken
+falsepositives:
+  - A backup job or a locate/updatedb index reading the decoy - exclude those Image values, and use a
+    read watch (-p r) not attribute (-p a) so a plain `ls` (which stats, not opens) stays quiet.
+level: critical

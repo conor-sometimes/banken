@@ -1,0 +1,41 @@
+title: Agent account ran SSH
+id: a9967f2e-55e4-4e8a-8877-5c54a0e49b52
+status: experimental
+description: >
+  An agent account executed ssh, scp, sftp, sshpass or an ssh-based git transfer. agent_ssh_access
+  catches the agent reading SSH *files*; this catches the agent *running* SSH. A coding agent talks
+  to its forge over HTTPS through the proxy - it has no host to SSH to, so an ssh exec is lateral
+  movement or exfil. sshpass -p and ssh-copy-id are especially telling (a password handed to ssh, a
+  key being installed on another host).
+references:
+  - https://attack.mitre.org/techniques/T1021/004/
+author: banken
+date: 2026-10-31
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.lateral-movement
+  - attack.t1021.004
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  ssh_exec:
+    Image|endswith:
+      - /ssh
+      - /scp
+      - /sftp
+      - /sshpass
+      - /ssh-copy-id
+      - /mosh
+  git_ssh:
+    Image|endswith: /git
+    CommandLine|re: '\b(clone|push|pull|fetch|remote)\b.*(git@|ssh://)'
+  condition: agent_user and (ssh_exec or git_ssh)
+falsepositives:
+  - A deploy agent that legitimately uses SSH - then this rule is not for that account; remove it
+    from the agent_user list (the same escape hatch agent_ssh_access documents).
+level: high
