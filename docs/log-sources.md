@@ -42,7 +42,7 @@ Most OS-specific telemetry arrives best through (2): the OS-native collector (wh
 | macOS | Unified Log | `log stream --style ndjson` | helper → generic JSONL | 🔜 |
 | Windows | Sysmon | Sysmon → Windows Event Log | collector → generic JSONL (SigmaHQ's Windows rules target Sysmon fields) | 🔜 |
 | Windows | ETW | Event Tracing for Windows | collector → generic JSONL | 🔜 |
-| any | generic JSONL | one normalised `Event` per line | **the adapter the rest build on** | 🔜 (build first) |
+| any | generic JSONL | one normalised `Event` per line | **the adapter the rest build on** | ✅ (`-source generic:PATH`) |
 
 ## Why this needs no rewrite
 

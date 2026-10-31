@@ -41,8 +41,8 @@ match. A new source is a new parser and nothing else changes.
 | **Laurel** | auditd → JSON ([Laurel](https://github.com/threathunters-io/laurel)), one reassembled event per line | **implemented** |
 | journald | the systemd journal (`_COMM`/`_EXE`/`_CMDLINE`/`_UID`) | stubbed (interface placeholder) |
 | syslog / auth | RFC 3164/5424 — `/var/log/auth.log`, `secure` (sshd / sudo / PAM logins) | stubbed (interface placeholder) |
-| generic JSONL | one pre-normalised event per line, a passthrough for anything that can emit the common event | planned |
-| eBPF / Falco | kernel syscall + network events | planned |
+| **generic JSONL** | one pre-normalised event per line — the universal adapter any external collector emits to (`-source generic:PATH`) | **implemented** |
+| eBPF / Falco | kernel syscall + network events (via a helper → generic JSONL) | planned |
 | network | Zeek / Suricata, for network IOCs | planned |
 
 Both auditd and Laurel are wired up and tested this pass (table + golden + fuzz, see Testing); the
