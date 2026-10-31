@@ -1,0 +1,15 @@
+# build output
+/output/
+/result
+/result-*
+
+# local test/bench scratch
+/stress-data/
+/stress-data-tiers/
+bench-baseline.txt
+bench-after.txt
+*.cover
+coverage.out
+
+# go fuzz corpus cache (seed corpora under testdata/ ARE committed)
+/**/testdata/fuzz/
