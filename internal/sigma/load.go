@@ -128,6 +128,7 @@ type rawRule struct {
 	ID          string               `yaml:"id"`
 	Level       string               `yaml:"level"`
 	Description string               `yaml:"description"`
+	Tags        []string             `yaml:"tags"`
 	Detection   map[string]yaml.Node `yaml:"detection"`
 }
 
@@ -170,6 +171,7 @@ func Compile(data []byte) (*Rule, error) {
 		ID:          raw.ID,
 		Level:       raw.Level,
 		Description: raw.Description,
+		Tags:        raw.Tags,
 		selections:  map[string]selection{},
 	}
 

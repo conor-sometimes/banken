@@ -28,7 +28,8 @@ type Alert struct {
 	Title   string      `json:"title"`
 	Level   string      `json:"level"` // critical|high|medium|low
 	Source  string      `json:"source"`
-	IOC     string      `json:"ioc,omitempty"` // the matched indicator, for KindIOC
+	Tags    []string    `json:"tags,omitempty"` // the rule's ATT&CK tags (attack.tNNNN...), for OCSF + response selectors
+	IOC     string      `json:"ioc,omitempty"`  // the matched indicator, for KindIOC
 	Field   string      `json:"field,omitempty"`
 	Message string      `json:"message"`
 	Event   event.Event `json:"event"`

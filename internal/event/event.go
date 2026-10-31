@@ -5,7 +5,10 @@
 // Source tag it carries for provenance.
 package event
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // Event is a single normalised host event -- one process execution, one
 // file access -- flattened out of whatever multi-record shape its source
@@ -53,6 +56,19 @@ type Event struct {
 	// CurrentDirectory is the process working directory (auditd CWD.cwd).
 	CurrentDirectory string `json:"currentDirectory"`
 
+	// PID and PPID are the process and parent-process ids (0 when the source
+	// did not carry them). Exposed to rules as ProcessId / ParentProcessId,
+	// and used to target a process for a response action -- never by pid
+	// alone (the response design pairs the pid with ProcessStart to defeat
+	// pid reuse).
+	PID  int `json:"pid,omitempty"`
+	PPID int `json:"ppid,omitempty"`
+
+	// ProcessStart is the process start time when a source provides it (raw
+	// auditd and Laurel do not today, so it stays zero), for pid-reuse-safe
+	// targeting by a response action.
+	ProcessStart time.Time `json:"processStart,omitempty"`
+
 	// Raw holds any additional source fields a parser chose to keep for
 	// matching or IOC lookup but that have no dedicated field above. Keyed
 	// by Sigma field name. May be nil.
@@ -76,6 +92,16 @@ func (e Event) Field(name string) (string, bool) {
 		return e.User, e.User != ""
 	case "CurrentDirectory":
 		return e.CurrentDirectory, e.CurrentDirectory != ""
+	case "ProcessId":
+		if e.PID > 0 {
+			return strconv.Itoa(e.PID), true
+		}
+		return "", false
+	case "ParentProcessId":
+		if e.PPID > 0 {
+			return strconv.Itoa(e.PPID), true
+		}
+		return "", false
 	}
 	if e.Raw != nil {
 		v, ok := e.Raw[name]

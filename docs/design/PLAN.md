@@ -92,11 +92,10 @@ matcher — land it, re-baseline goldens, green, then branch into the three feat
   hokkaido spike before committing to the classic CLI parser.
 
 **Ethos**
-- **D8 (important).** `golang.org/x/sys` is needed for `pidfd`/`openat2`/cgroup (and `openat2`
-  closes YARA's symlink race). It's the Go team's *own* extended stdlib, not a random third-party
-  repo — I'd accept it as stdlib-grade and restate the story as *"one external dependency
-  (`yaml.v3`) plus the Go extended stdlib (`x/sys`)."* Your call, since the "one dependency" line is
-  a CV flex.
+- **D8 — DECIDED (Conor, morning): official Go-team libs (`golang.org/x/*`) are accepted.** So
+  `golang.org/x/sys` is in-bounds for `pidfd`/`openat2`/cgroup. The story is restated as *"one
+  external dependency (`yaml.v3`) plus the Go team's extended stdlib (`x/sys`), CGO-free static
+  binary."* Still no CGO, still static — x/sys is pure-Go syscall wrappers.
 
 **Nice convergence (bonus, from the standards brainstorm)**
 - The attackrange scorecard can gain an **"expected response"** column (assert the decided action

@@ -13,6 +13,9 @@ date: 2026-10-13
 logsource:
   product: linux
   category: process_creation
+tags:
+  - attack.command-and-control
+  - attack.t1059.004
 detection:
   bash_devtcp:
     CommandLine|contains:

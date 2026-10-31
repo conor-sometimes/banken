@@ -40,6 +40,8 @@ type=PROCTITLE msg=audit(1626611363.720:348): proctitle=636174002F6574632F736861
 				User:             "1000",
 				CurrentDirectory: "/home/u",
 				TargetFilename:   "/etc/shadow",
+				PID:              1234,
+				PPID:             1200,
 			}},
 		},
 		{

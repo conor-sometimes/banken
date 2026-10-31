@@ -12,6 +12,9 @@ date: 2026-10-13
 logsource:
   product: linux
   category: process_creation
+tags:
+  - attack.execution
+  - attack.t1059.004
 detection:
   source:
     CommandLine|contains:

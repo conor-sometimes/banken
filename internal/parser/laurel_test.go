@@ -25,6 +25,7 @@ func TestLaurelParse(t *testing.T) {
 				TargetFilename:   "/etc/shadow",
 				User:             "root",
 				CurrentDirectory: "/root",
+				PPID:             1200,
 			}},
 		},
 		{

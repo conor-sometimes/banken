@@ -45,6 +45,7 @@ func (e *Engine) Match(ev event.Event) []alert.Alert {
 			Title:   r.Title,
 			Level:   defaultLevel(r.Level),
 			Source:  ev.Source,
+			Tags:    r.Tags,
 			Message: fmt.Sprintf("rule %q matched", r.Name),
 			Event:   ev,
 		})

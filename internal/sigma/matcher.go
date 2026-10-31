@@ -1,6 +1,10 @@
 package sigma
 
-import "github.com/conor-sometimes/banken/internal/event"
+import (
+	"strconv"
+
+	"github.com/conor-sometimes/banken/internal/event"
+)
 
 // Matcher evaluates a whole rule set against an event far more cheaply than
 // calling Rule.Match on every rule. It is a sound prefilter in front of the
@@ -173,6 +177,16 @@ func (m *Matcher) Match(ev event.Event) []*Rule {
 func (m *Matcher) scanEvent(ev event.Event, present map[int]struct{}) {
 	for _, v := range ev.AllText() {
 		m.ac.scanInto(fold(v), present)
+	}
+	// ProcessId / ParentProcessId are matchable via Event.Field but are not in
+	// AllText (they are ids, not keyword text), so scan them here too -- the
+	// prefilter must cover EVERY value Field() can return, or a rule keying on
+	// them would be wrongly skipped. Keyword matching still ignores them.
+	if ev.PID > 0 {
+		m.ac.scanInto(fold(strconv.Itoa(ev.PID)), present)
+	}
+	if ev.PPID > 0 {
+		m.ac.scanInto(fold(strconv.Itoa(ev.PPID)), present)
 	}
 }
 

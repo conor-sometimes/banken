@@ -242,6 +242,12 @@ func foldAuditGroup(id string, recs []record) (event.Event, bool) {
 			}
 			ev.CurrentDirectory = firstNonEmpty(ev.CurrentDirectory, rec.fields["cwd"])
 			ev.User = firstNonEmpty(rec.fields["auid"], rec.fields["uid"], ev.User)
+			if n, err := strconv.Atoi(rec.fields["pid"]); err == nil {
+				ev.PID = n
+			}
+			if n, err := strconv.Atoi(rec.fields["ppid"]); err == nil {
+				ev.PPID = n
+			}
 		case "EXECVE":
 			useful = true
 			execveArgv = rec.argv

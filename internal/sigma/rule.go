@@ -30,6 +30,9 @@ type Rule struct {
 	ID          string
 	Level       string
 	Description string
+	// Tags are the rule's `tags:` (e.g. attack.t1059.004); carried to the
+	// alert for ATT&CK mapping (OCSF) and response-action selectors.
+	Tags []string
 
 	selections map[string]selection
 	cond       condNode

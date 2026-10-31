@@ -60,6 +60,8 @@ func laurelEvent(obj map[string]json.RawMessage) event.Event {
 
 	syscall := rawObject(obj["SYSCALL"])
 	ev.Image = rawString(syscall["exe"])
+	ev.PID, _ = strconv.Atoi(rawString(syscall["pid"]))
+	ev.PPID, _ = strconv.Atoi(rawString(syscall["ppid"]))
 	ev.CurrentDirectory = rawString(rawObject(obj["CWD"])["cwd"])
 
 	// User: translate the numeric uid through Laurel's UID map when

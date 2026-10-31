@@ -13,6 +13,9 @@ date: 2026-10-16
 logsource:
   product: linux
   category: process_creation
+tags:
+  - attack.privilege-escalation
+  - attack.t1548.003
 detection:
   escalate:
     Image|endswith:

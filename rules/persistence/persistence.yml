@@ -12,6 +12,10 @@ date: 2026-10-13
 logsource:
   product: linux
   category: process_creation
+tags:
+  - attack.persistence
+  - attack.t1053.003
+  - attack.t1543.002
 detection:
   crontab:
     Image|endswith: /crontab
