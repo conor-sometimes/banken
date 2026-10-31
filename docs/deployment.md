@@ -3,6 +3,19 @@
 The goal is no fiddling: install the binary, point it at the audit log, enable the timer. banken
 ships an embedded baseline ruleset and auto-detects the log source, so there is little to configure.
 
+## Supported platforms
+
+**Linux with systemd** on x86_64 (aarch64 builds but is not yet tested). The live distro matrix
+([tests/distros](../tests/distros/README.md)) runs banken against each distro's own kernel and
+auditd: Rocky 9, AlmaLinux 10, Fedora 44, Amazon Linux 2023, Debian 13, Ubuntu 24.04, openSUSE
+Leap 16 and Arch; NixOS is tested through its own module (`tests/vm.nix`).
+
+systemd is a requirement, not a preference. banken runs as root and parses untrusted log bytes,
+so its security model *is* the unit's sandbox ([Sandbox](#sandbox)): `ProtectSystem=strict`,
+one capability, a syscall filter, no writable or executable memory. OpenRC and SysV init have no
+equivalent, so a banken under them would be an unconfined root parser. The static binary runs
+anywhere, but outside systemd it is unsupported.
+
 ## Quickstart (any systemd Linux)
 
 1. Put the `banken` binary on `PATH` (a static `CGO_ENABLED=0` build runs on any Linux).
