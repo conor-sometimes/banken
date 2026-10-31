@@ -1,0 +1,129 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"agent_destructive_action\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "457596a72735c895d8d2c4975308c615",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "457596a72735c895d8d2c4975308c615",
+    "title": "Agent ran a destructive git or filesystem action",
+    "desc": "An agent account did something destructive or history-rewriting - a force push, a branch delete, a reflog expiry or filter-repo (destroying the record of what it committed), a hard reset far back, `git clean -fdx`, an `rm -rf` of a repo or home, or a database drop. Empirically this is the most common real agent harm: agents deleting repos, branches and data. For a human, force-push is routine; for the agent it should be a reviewed event, and `reflog expire --expire=now` + `gc --prune=now` is covering tracks inside git itself. Worker branches (squashed before a PR, which is sanctioned) are carved out.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "agent_destructive_action",
+      "uid": "267f204d-7064-4082-a34b-5f435d7b87ad"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0040",
+          "name": "Impact"
+        },
+        "technique": {
+          "uid": "T1485"
+        }
+      },
+      {
+        "tactic": {
+          "uid": "TA0040",
+          "name": "Impact"
+        },
+        "technique": {
+          "uid": "T1070"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 9171,
+        "name": "git",
+        "cmd_line": "git push --force origin main",
+        "file": {
+          "name": "git",
+          "path": "/usr/bin/git",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "name": "claude"
+        },
+        "parent_process": {
+          "pid": 9000
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "git push --force origin main"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "git"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/git"
+    },
+    {
+      "name": "evidences.process.user.name",
+      "type_id": 4,
+      "type": "User Name",
+      "value": "claude"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/usr/bin/git\",\"commandLine\":\"git push --force origin main\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"claude\",\"currentDirectory\":\"\",\"pid\":9171,\"ppid\":9000}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "agent_destructive_action",
+    "source": "laurel"
+  }
+}

@@ -1,0 +1,48 @@
+title: Agent ran a destructive git or filesystem action
+id: 267f204d-7064-4082-a34b-5f435d7b87ad
+status: experimental
+description: >
+  An agent account did something destructive or history-rewriting - a force push, a branch delete,
+  a reflog expiry or filter-repo (destroying the record of what it committed), a hard reset far back,
+  `git clean -fdx`, an `rm -rf` of a repo or home, or a database drop. Empirically this is the most
+  common real agent harm: agents deleting repos, branches and data. For a human, force-push is
+  routine; for the agent it should be a reviewed event, and `reflog expire --expire=now` + `gc
+  --prune=now` is covering tracks inside git itself. Worker branches (squashed before a PR, which is
+  sanctioned) are carved out.
+references:
+  - https://attack.mitre.org/techniques/T1485/
+  - https://attack.mitre.org/techniques/T1070/
+author: banken
+date: 2026-10-31
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.impact
+  - attack.t1485
+  - attack.defense-evasion
+  - attack.t1070
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  git_destructive:
+    Image|endswith: /git
+    CommandLine|re: '\bpush\b.*(--force\b|--force-with-lease|\s-f\b|--delete\b)|\bbranch\s+-D\b|\breflog\s+expire\b|\bgc\b.*--prune=now|\bfilter-(branch|repo)\b|\bupdate-ref\s+-d\b|\breset\s+--hard\s+(origin|HEAD~[2-9]|HEAD~[0-9]{2,})|\bclean\s+-[a-zA-Z]*[xX]'
+  rm_repo:
+    Image|endswith: /rm
+    CommandLine|re: '-[a-zA-Z]*r[a-zA-Z]*\b.*(/\.git(\s|$)|/repos/[^/\s]+/?(\s|$)|/home/[a-z]+/?(\s|$))'
+  db_drop:
+    CommandLine|re: '\b(dropdb|DROP\s+(DATABASE|TABLE)|FLUSHALL|db\.dropDatabase)\b'
+  # Conor's convention sanctions a squash-force-push on a worker branch.
+  worker_branch:
+    CommandLine|contains:
+      - ' worker/'
+      - ' lane-'
+  condition: agent_user and (git_destructive or rm_repo or db_drop) and not worker_branch
+falsepositives:
+  - rm -rf of a shallow clone used for vendoring; a worker squashing its own branch (carved out by
+    worker_branch). Keep at the review bar it is written for.
+level: high

@@ -1,0 +1,2 @@
+[{"source":"laurel","image":"/usr/bin/git","commandLine":"git push --force origin main","user":"claude","pid":9171,"ppid":9000},
+ {"source":"laurel","image":"/usr/bin/rm","commandLine":"rm -rf /home/claude/repos/old","user":"claude","pid":9172,"ppid":9000}]

@@ -18,6 +18,15 @@ gives each agent its own uid and audits it, which is where the account names com
 
 - `agent_ssh_access` — an agent account touched an SSH file (private key, authorized_keys, config,
   known_hosts): theft, a backdoor, or lateral-movement recon.
+- `agent_ssh_outbound` — the agent *ran* ssh/scp/sshpass or git-over-ssh (it has no host to reach).
+- `agent_exfil_to_code_host` — pushed to a gist/release/new repo, published or uploaded (T1567.001).
+- `agent_proxy_bypass` — unset/overrode the egress proxy, `--noproxy`, proxychains.
+- `agent_git_config_persistence` — a git config or hook that runs code or steals credentials.
+- `agent_self_config_modification` — wrote its own harness config: settings, hooks, skills, CLAUDE.md.
+- `honeytoken_access` — any process opened a planted decoy credential (host-wide, critical).
+
+More ideas, ranked and grounded in banken's telemetry, are in
+[docs/design/agentic-detection-ideas.md](../../docs/design/agentic-detection-ideas.md).
 
 ## Design notes
 
