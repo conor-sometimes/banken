@@ -5,7 +5,7 @@
     "image": "/usr/bin/cat",
     "commandLine": "cat /etc/shadow",
     "parentImage": "/usr/bin/bash",
-    "targetFilename": "/etc/shadow",
+    "targetFilename": "",
     "user": "root",
     "currentDirectory": "/root",
     "ppid": 1200

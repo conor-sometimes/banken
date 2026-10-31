@@ -26,11 +26,15 @@ func TestAuditdParse(t *testing.T) {
 		want  []event.Event
 	}{
 		{
-			name: "execve with quoted argv, cwd and path",
+			// An exec's PATH records are the program and its loader, never a
+			// target: TargetFilename stays empty (else every program would
+			// "touch" its own binary -- the tamper_banken false positive).
+			name: "execve: argv, cwd; PATH is the loaded program, not a target",
 			input: `type=SYSCALL msg=audit(1626611363.720:348): arch=c000003e syscall=59 success=yes ppid=1200 pid=1234 auid=1000 uid=1000 comm="cat" exe="/usr/bin/cat" key=(null)
 type=EXECVE msg=audit(1626611363.720:348): argc=2 a0="cat" a1="/etc/shadow"
 type=CWD msg=audit(1626611363.720:348): cwd="/home/u"
-type=PATH msg=audit(1626611363.720:348): item=0 name="/etc/shadow" nametype=NORMAL
+type=PATH msg=audit(1626611363.720:348): item=0 name="/usr/bin/cat" nametype=NORMAL
+type=PATH msg=audit(1626611363.720:348): item=1 name="/lib64/ld-linux-x86-64.so.2" nametype=NORMAL
 type=PROCTITLE msg=audit(1626611363.720:348): proctitle=636174002F6574632F736861646F77`,
 			want: []event.Event{{
 				Source:           "auditd",
@@ -39,9 +43,42 @@ type=PROCTITLE msg=audit(1626611363.720:348): proctitle=636174002F6574632F736861
 				CommandLine:      "cat /etc/shadow",
 				User:             "1000",
 				CurrentDirectory: "/home/u",
+				PID:              1234,
+				PPID:             1200,
+			}},
+		},
+		{
+			// The read itself, caught by a watch (-w /etc/shadow): an openat
+			// with no EXECVE. NixOS's cat is multicall coreutils, so exe= is
+			// bin/coreutils; argv[0] says cat ran.
+			name: "watched read by multicall coreutils cat: target + resolved Image",
+			input: `type=SYSCALL msg=audit(1626611363.721:349): arch=c000003e syscall=257 success=yes ppid=1200 pid=1234 auid=1000 uid=1000 comm="cat" exe="/nix/store/x-coreutils-9.11/bin/coreutils" key="banken-watch"
+type=CWD msg=audit(1626611363.721:349): cwd="/home/u"
+type=PATH msg=audit(1626611363.721:349): item=0 name="/etc/shadow" nametype=NORMAL
+type=PROCTITLE msg=audit(1626611363.721:349): proctitle=636174002F6574632F736861646F77`,
+			want: []event.Event{{
+				Source:           "auditd",
+				Time:             time.Unix(1626611363, 721*int64(time.Millisecond)).UTC(),
+				Image:            "/nix/store/x-coreutils-9.11/bin/cat",
+				CommandLine:      "cat /etc/shadow",
+				User:             "1000",
+				CurrentDirectory: "/home/u",
 				TargetFilename:   "/etc/shadow",
 				PID:              1234,
 				PPID:             1200,
+			}},
+		},
+		{
+			name: "execve of multicall coreutils resolves Image by argv[0]",
+			input: `type=SYSCALL msg=audit(1626611363.722:350): arch=c000003e syscall=59 success=yes pid=1235 auid=1000 uid=1000 exe="/nix/store/x-coreutils-9.11/bin/coreutils"
+type=EXECVE msg=audit(1626611363.722:350): argc=2 a0="base64" a1="/home/u/.aws/credentials"`,
+			want: []event.Event{{
+				Source:      "auditd",
+				Time:        time.Unix(1626611363, 722*int64(time.Millisecond)).UTC(),
+				Image:       "/nix/store/x-coreutils-9.11/bin/base64",
+				CommandLine: "base64 /home/u/.aws/credentials",
+				User:        "1000",
+				PID:         1235,
 			}},
 		},
 		{
@@ -115,11 +152,12 @@ type=EXECVE msg=audit(20.000:2): argc=1 a0="b"`,
 			},
 		},
 		{
-			name: "PATH prefers an acted-on target over the exe entry",
-			input: `type=SYSCALL msg=audit(30.000:3): exe="/bin/rm" uid=1
-type=EXECVE msg=audit(30.000:3): argc=2 a0="rm" a1="/home/u/secret"
+			// The unlinkat rm makes after its exec: no EXECVE, argv from PROCTITLE.
+			name: "PATH prefers the acted-on entry over its PARENT",
+			input: `type=SYSCALL msg=audit(30.000:3): syscall=263 exe="/bin/rm" uid=1
 type=PATH msg=audit(30.000:3): item=0 name="/home/u" nametype=PARENT
-type=PATH msg=audit(30.000:3): item=1 name="/home/u/secret" nametype=DELETE`,
+type=PATH msg=audit(30.000:3): item=1 name="/home/u/secret" nametype=DELETE
+type=PROCTITLE msg=audit(30.000:3): proctitle=726D002F686F6D652F752F736563726574`,
 			want: []event.Event{{
 				Source: "auditd", Time: time.Unix(30, 0).UTC(),
 				Image: "/bin/rm", CommandLine: "rm /home/u/secret", User: "1",

@@ -77,9 +77,18 @@ func laurelEvent(obj map[string]json.RawMessage) event.Event {
 
 	// Command line: decoded EXECVE argv first, then proctitle.
 	ev.CommandLine = laurelCommandLine(obj)
+	argv0, _, _ := strings.Cut(ev.CommandLine, " ")
+	if argv := rawStringSlice(rawObject(obj["EXECVE"])["ARGV"]); len(argv) > 0 {
+		argv0 = argv[0] // exact, even if argv[0] itself contains a space
+	}
+	ev.Image = resolveMulticall(ev.Image, argv0)
 
-	// Target filename: the acted-on PATH entry.
-	ev.TargetFilename = laurelTarget(obj)
+	// Target filename: the acted-on PATH entry -- except for an exec, whose
+	// PATH entries are the program being loaded and its interpreter, not a
+	// file it acted on (see foldAuditGroup).
+	if _, isExec := obj["EXECVE"]; !isExec {
+		ev.TargetFilename = laurelTarget(obj)
+	}
 
 	return ev
 }

@@ -230,8 +230,8 @@ func collectArgv(fields map[string]string) []string {
 func foldAuditGroup(id string, recs []record) (event.Event, bool) {
 	ev := event.Event{Source: auditdName, Time: auditTime(id)}
 	var execveArgv []string
-	var proctitle string
-	useful := false
+	var proctitle, pathTarget string
+	useful, isExec := false, false
 
 	for _, rec := range recs {
 		switch rec.rtype {
@@ -249,7 +249,7 @@ func foldAuditGroup(id string, recs []record) (event.Event, bool) {
 				ev.PPID = n
 			}
 		case "EXECVE":
-			useful = true
+			useful, isExec = true, true
 			execveArgv = rec.argv
 		case "PROCTITLE":
 			useful = true
@@ -261,21 +261,31 @@ func foldAuditGroup(id string, recs []record) (event.Event, bool) {
 				if pi.name == "" {
 					continue
 				}
-				// Prefer a target that is acted on over the exe's own PATH
-				// entries (PARENT/NORMAL for the binary and loader).
-				if ev.TargetFilename == "" || isActedOn(pi.nametype) {
-					ev.TargetFilename = pi.name
+				// Prefer a target that is acted on over a PARENT entry.
+				if pathTarget == "" || isActedOn(pi.nametype) {
+					pathTarget = pi.name
 				}
 			}
 		}
 	}
 
+	// An exec's PATH records name the program being loaded and its
+	// interpreter, never a file it acted on (the reads and writes it goes on
+	// to make are their own events). So an exec has no TargetFilename -- else
+	// every program would "touch" its own binary.
+	if !isExec {
+		ev.TargetFilename = pathTarget
+	}
+	var argv0 string
 	switch {
 	case len(execveArgv) > 0:
 		ev.CommandLine = strings.Join(execveArgv, " ")
+		argv0 = execveArgv[0]
 	case proctitle != "":
 		ev.CommandLine = strings.TrimSpace(proctitle)
+		argv0, _, _ = strings.Cut(ev.CommandLine, " ")
 	}
+	ev.Image = resolveMulticall(ev.Image, argv0)
 	return ev, useful
 }
 

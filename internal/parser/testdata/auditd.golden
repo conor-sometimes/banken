@@ -5,7 +5,7 @@
     "image": "/usr/bin/cat",
     "commandLine": "cat /home/u/.ssh/id_rsa",
     "parentImage": "",
-    "targetFilename": "/home/u/.ssh/id_rsa",
+    "targetFilename": "",
     "user": "1000",
     "currentDirectory": "/home/u",
     "pid": 1234,

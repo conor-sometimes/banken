@@ -14,18 +14,32 @@ func TestLaurelParse(t *testing.T) {
 		want  []event.Event
 	}{
 		{
-			name:  "full event with ARGV, CWD, PATH, UID translation, PPID",
-			input: `{"ID":"1626611363.720:348","SYSCALL":{"exe":"/usr/bin/cat","uid":"0","ppid":"1200"},"EXECVE":{"argc":"2","ARGV":["cat","/etc/shadow"]},"CWD":{"cwd":"/root"},"PATH":[{"name":"/etc/shadow","nametype":"NORMAL"}],"PPID":{"exe":"/usr/bin/bash"},"UID":{"0":"root"}}`,
+			// An exec's PATH entries are the program being loaded: no target.
+			name:  "exec with ARGV, CWD, UID translation, PPID; PATH is the program, not a target",
+			input: `{"ID":"1626611363.720:348","SYSCALL":{"exe":"/usr/bin/cat","uid":"0","ppid":"1200"},"EXECVE":{"argc":"2","ARGV":["cat","/etc/shadow"]},"CWD":{"cwd":"/root"},"PATH":[{"name":"/usr/bin/cat","nametype":"NORMAL"}],"PPID":{"exe":"/usr/bin/bash"},"UID":{"0":"root"}}`,
 			want: []event.Event{{
 				Source:           "laurel",
 				Time:             time.Unix(1626611363, 720*int64(time.Millisecond)).UTC(),
 				Image:            "/usr/bin/cat",
 				CommandLine:      "cat /etc/shadow",
 				ParentImage:      "/usr/bin/bash",
-				TargetFilename:   "/etc/shadow",
 				User:             "root",
 				CurrentDirectory: "/root",
 				PPID:             1200,
+			}},
+		},
+		{
+			// The watched read itself (no EXECVE), by NixOS's multicall coreutils.
+			name:  "watched read: target from PATH, multicall Image resolved by argv[0]",
+			input: `{"ID":"1626611363.721:349","SYSCALL":{"exe":"/nix/store/x-coreutils-9.11/bin/coreutils","uid":"0","pid":"1234"},"PATH":[{"name":"/etc/shadow","nametype":"NORMAL"}],"PROCTITLE":{"ARGV_STR":"cat /etc/shadow"},"UID":{"0":"root"}}`,
+			want: []event.Event{{
+				Source:         "laurel",
+				Time:           time.Unix(1626611363, 721*int64(time.Millisecond)).UTC(),
+				Image:          "/nix/store/x-coreutils-9.11/bin/cat",
+				CommandLine:    "cat /etc/shadow",
+				TargetFilename: "/etc/shadow",
+				User:           "root",
+				PID:            1234,
 			}},
 		},
 		{
