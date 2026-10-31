@@ -183,6 +183,7 @@ ocsf_toolkit := "v0.9.0"
 ocsf-validate:
 	#!/usr/bin/env bash
 	set -euo pipefail
+	shopt -s nullglob
 	out=output/ocsf
 	schema="$out/schema-{{ocsf_schema}}.json"
 	mkdir -p "$out"
@@ -195,12 +196,23 @@ ocsf-validate:
 	mkdir -p "$out/gating" "$out/reports"
 	cp tests/golden/ocsf/*.json "$out/gating/"
 	rm -f "$out/gating"/nopid.*
+	# The validator writes its findings only to report files; print every one
+	# (gating or not) so a failure is never silent.
+	findings() { jq -r --arg f "$(basename "$1" .report.json)" \
+		'((.validation.findings // [])[] | "\($f)\t\(.level)\t\(.code)\t\(.message)\t\(.details // {} | tojson)"),
+		 ((.issues // [])[] | "\($f)\tissue\t\(.code)\t\(.message)")' "$1"; }
+	rc=0
 	"$out/bin/ocsf-toolkit" --schema "$schema" --events-dir "$out/gating" --validate \
-		--output-dir "$out/reports/gating" --fail-on-validation-errors
+		--output-dir "$out/reports/gating" --fail-on-validation-errors || rc=$?
+	for r in "$out"/reports/gating/reports/*.report.json; do findings "$r"; done
+	if [ "$rc" -ne 0 ]; then
+		echo "FAIL: OCSF goldens have validation errors against schema {{ocsf_schema}} (above)" >&2
+		exit "$rc"
+	fi
 	echo "PASS: $(ls "$out/gating" | wc -l | tr -d ' ') OCSF goldens valid against schema {{ocsf_schema}}"
 	for f in tests/golden/ocsf/nopid.*.json; do
-		echo "--- expected warning only: $(basename "$f") ---"
-		"$out/bin/ocsf-toolkit" --schema "$schema" --event "$f" --validate \
-			--report-output "$out/reports/$(basename "$f" .json).report.json" || true
-		cat "$out/reports/$(basename "$f" .json).report.json"
+		r="$out/reports/$(basename "$f" .json).report.json"
+		"$out/bin/ocsf-toolkit" --schema "$schema" --event "$f" --validate --report-output "$r" || true
+		echo "--- not gating (documented pid-less case): ---"
+		findings "$r"
 	done
