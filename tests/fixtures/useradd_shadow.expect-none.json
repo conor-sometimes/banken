@@ -1,0 +1,20 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/sbin/useradd",
+    "commandLine": "useradd -M benign-tmp",
+    "targetFilename": "/etc/shadow",
+    "user": "0",
+    "pid": 6100,
+    "ppid": 6099
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/sbin/userdel",
+    "commandLine": "userdel benign-tmp",
+    "targetFilename": "/etc/gshadow",
+    "user": "0",
+    "pid": 6101,
+    "ppid": 6099
+  }
+]
