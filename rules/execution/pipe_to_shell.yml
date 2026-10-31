@@ -20,9 +20,15 @@ detection:
       - 'base64 -d'
       - 'base64 --decode'
       - 'xxd -r'
+  # Fable: the old '(ba)?sh\b' can't match dash/zsh/ksh (no boundary mid-word),
+  # omitted php/node/lua/awk, and only matched a literal '|' (missed <(...) and
+  # $(...), the same remote-exec-in-one-line pattern).
   into_interpreter:
-    CommandLine|re: '\|\s*(sudo\s+)?(ba)?sh\b|\|\s*python[23]?\b|\|\s*perl\b|\|\s*ruby\b'
-  condition: source and into_interpreter
+    CommandLine|re: '(\||<\(|\$\()\s*(sudo\s+)?(ba|da|z|k)?sh\b|(\||<\(|\$\()\s*(python[23]?|perl|ruby|php|node|lua|awk)\b'
+  # a shell consuming a process substitution of the download, or eval of it
+  evalsubst:
+    CommandLine|re: '\beval\b|\b(ba|da|z|k)?sh\b\s+<\(|\bsource\b\s+<\(|\.\s+<\('
+  condition: source and (into_interpreter or evalsubst)
 falsepositives:
   - Some installers legitimately use curl | sh; treat these as review-worthy anyway.
 level: high

@@ -28,14 +28,26 @@ detection:
       - 'subprocess.'
       - 'pty.spawn('
       - 'os.dup2('
+  # Fable: '\bnc\b' can't match 'ncat'; cover nc and ncat, -e/-c/--exec/--sh-exec
   nc_exec:
-    CommandLine|re: '\bnc\b.*(-e|-c)\s'
+    CommandLine|re: '\bn(c|cat)\b.*(-e\b|-c\b|--exec|--sh-exec)'
+  # socat EXEC/SYSTEM: very common, was entirely unmatched (Fable)
+  socat_exec:
+    Image|endswith: /socat
+    CommandLine|re: '\b(EXEC|SYSTEM):'
+  # mkfifo + nc without -e (no -e flag, so nc_exec misses it) (Fable)
+  mkfifo_nc:
+    CommandLine|contains|all:
+      - mkfifo
+      - '|nc '
   perl_ruby:
     CommandLine|contains:
       - "exec(\"/bin/sh"
       - 'IO::Socket::INET'
       - 'TCPSocket.open'
-  condition: bash_devtcp or python_socket or nc_exec or perl_ruby
+      - 'TCPSocket.new'   # Fable: ruby .new, not just .open
+      - 'fsockopen('      # Fable: php
+  condition: bash_devtcp or python_socket or nc_exec or socat_exec or mkfifo_nc or perl_ruby
 falsepositives:
   - Rare; a legitimate network-probe or health-check script using /dev/tcp. Review it.
   - "(fixed 2026-10-24) an apt postinstall byte-compiling Python's stdlib in a container; its argv

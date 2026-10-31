@@ -21,7 +21,12 @@ detection:
       - /doas
       - /pkexec
       - /run0
-  condition: escalate
+      - /machinectl   # Fable: machinectl shell root@ ...
+  # Fable: systemd-run --uid=0 / --machine is another road to root
+  escalate_systemd:
+    Image|endswith: /systemd-run
+    CommandLine|re: '--(uid|machine)\b'
+  condition: escalate or escalate_systemd
 falsepositives:
   - A tool that probes for sudo before falling back (some installers run 'sudo -n true'); the
     command line shows it.

@@ -47,7 +47,20 @@ detection:
       - /tee
       - /truncate
       - /sed
+      - /ln          # Fable: symlink-to-/dev/null masking
+      - /dd          # Fable: overwrite the binary
+      - /install
+      - /chmod
+      - /chattr
     CommandLine|contains:
+      - banken.service
+      - banken.timer
+      - /bin/banken
+      - /banken/cursor
+      - /etc/banken
+  # binary-agnostic: ANYTHING writing/removing banken's files (Fable)
+  touch_banken_path:
+    TargetFilename|contains:
       - banken.service
       - banken.timer
       - /bin/banken
@@ -57,13 +70,16 @@ detection:
   systemctl_auditd:
     Image|endswith: /systemctl
     CommandLine|re: '\b(stop|disable|mask|kill)\b.*\bauditd'
-  # auditctl -D flushes all audit rules (blinds the pipeline)
-  auditctl_flush:
+  # auditctl -D (flush) OR -e 0 (disable) blinds the pipeline (Fable: -e 0 was missed)
+  auditctl_off:
     Image|endswith: /auditctl
-    CommandLine|re: '(^|\s)-D(\s|$)'
+    CommandLine|re: '(^|\s)-(D|e\s+0)(\s|$)'
+  # talking to systemd over D-Bus to stop/mask/kill banken, bypassing the systemctl binary (Fable)
+  dbus_stop:
+    CommandLine|re: '\b(StopUnit|MaskUnitFiles|KillUnit)\b.*banken'
   condition: >
     systemctl_banken or service_banken or kill_tool or kill_cmd or edit_unit_or_binary
-    or systemctl_auditd or auditctl_flush
+    or touch_banken_path or systemctl_auditd or auditctl_off or dbus_stop
 falsepositives:
   - A legitimate admin stopping banken or auditd for maintenance, or a deploy replacing the binary.
     Acknowledge these; do not suppress the rule - a silenced tamper rule is the thing it exists to

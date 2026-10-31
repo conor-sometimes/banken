@@ -15,7 +15,10 @@ logsource:
 detection:
   crontab:
     Image|endswith: /crontab
-    CommandLine|contains: ' -'          # crontab - / crontab <file>, not crontab -l
+    # a crontab WRITE (crontab - / crontab <file> / -r / -u), not a read (-l) or
+    # interactive edit (-e). RE2 has no lookahead, so enumerate the write forms.
+    # Fable found the old ' -' wrongly matched 'crontab -l'.
+    CommandLine|re: 'crontab\s+(-[ru]\b|-(\s|$)|[^-\s])'
   systemd_user_unit:
     CommandLine|contains:
       - '/.config/systemd/user/'
@@ -34,7 +37,30 @@ detection:
       - '/.ssh/rc'
       - '/.config/fish/'
       - '/.config/autostart/'
-  condition: crontab or systemd_user_unit or shell_rc
+  # Fable gaps: system-wide persistence that doesn't go through the above.
+  system_cron:
+    TargetFilename|contains:
+      - /etc/cron.d/
+      - /etc/cron.daily/
+      - /etc/cron.hourly/
+      - /etc/cron.weekly/
+      - /etc/cron.monthly/
+      - /etc/crontab
+      - /var/spool/cron/
+  system_unit:
+    CommandLine|contains:
+      - /etc/systemd/system/
+      - /run/systemd/system/
+      - 'systemctl enable'
+      - 'systemctl --system enable'
+  authorized_keys:
+    CommandLine|contains:
+      - /.ssh/authorized_keys
+  at_job:
+    Image|endswith:
+      - /at
+      - /batch
+  condition: crontab or systemd_user_unit or shell_rc or system_cron or system_unit or authorized_keys or at_job
 falsepositives:
   - A user or tool legitimately managing its own long-running job via a user unit; confirm against the host's expected activity.
 level: high
