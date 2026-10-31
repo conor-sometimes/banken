@@ -46,6 +46,23 @@ valid OCSF and the sandbox. `nix run .#distro-matrix` runs it.
 
 x86_64; aarch64 builds but is not yet tested.
 
+## Standards
+
+What banken implements, and how each claim is checked. "Validated" means an independent tool
+checks banken's output; "measured" means a public test suite is run against it.
+
+| Standard | What banken does | How it is checked |
+| --- | --- | --- |
+| [Sigma](https://sigmahq.io) | Rule format: banken compiles Sigma rules natively, its own and SigmaHQ's | Loads all 211 of SigmaHQ's Linux rules (`tools/sigmacov`); agrees with pySigma, the reference implementation, on 182 of 182 evaluations (`conformance/`) |
+| [OCSF](https://schema.ocsf.io) 1.3.0 | Alerts as Detection Findings (class 2004), `host` and `osint` profiles | **Validated**: every committed finding passes the OCSF project's own validator (ocsf-toolkit) against the compiled 1.3.0 schema, in CI (`just ocsf-validate`) |
+| [MITRE ATT&CK](https://attack.mitre.org) | Every rule tagged with its tactic and technique; mapped into each finding's `attacks` | Tag mapping unit-tested; the ATT&CK range below scores detection per technique |
+| [Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) | The live ATT&CK range: every Linux atomic of a pinned commit, run for real in a throwaway VM | **Measured**: 23 of 115 techniques detected on a rule about the technique, 2026-10-31 (`tests/attackrange.nix`, [scoring](attackrange/README.md)) |
+| Linux audit | Reads auditd's raw log and [Laurel](https://github.com/threathunters-io/laurel)'s JSON | Parser goldens and fuzzing; live on eight distros' own auditd ([Supported platforms](#supported-platforms)) |
+| systemd | Hardened unit and timer; log levels in the sd-daemon(3) form, so the journal files alerts by priority | `systemd-analyze security` on every distro in the matrix: exposure 2.1, "OK" |
+
+Planned, not yet implemented: YARA, STIX/TAXII threat-intel feeds, an SBOM and SLSA provenance
+for releases, and the OpenSSF Scorecard.
+
 ## How it works
 
     logs (auditd / journald / Laurel JSON / auth)  ->  banken [ parse -> normalise -> match ]  ->  alerts
