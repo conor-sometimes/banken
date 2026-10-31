@@ -198,6 +198,9 @@ bar is "a malformed input or a hostile rule can degrade a detection, never crash
   `errcheck`, `gosec`, `govulncheck`, a short fuzz smoke, the benchmarks, and (soon) `nix flake check`
   (the module's VM test) on every push.
 
+After cloning, run `just install-hooks` once: it points `core.hooksPath` at the repo's tracked
+`.githooks/`, whose `commit-msg` hook keeps AI-tool attribution out of commit messages.
+
 ## Status
 
 Early. v1 is Laurel-first input, the Sigma subset above, journal/jsonl/webhook alerts, one-shot

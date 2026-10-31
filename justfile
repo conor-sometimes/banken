@@ -150,3 +150,10 @@ property-deep checks="10000":
 build:
 	mkdir -p output
 	CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -trimpath -o output/banken .
+
+# install-hooks points git at the repo's tracked hooks (core.hooksPath), so a
+# fresh clone enforces the commit-msg policy (no AI attribution) with no
+# dependence on any global git config. Run once after cloning.
+install-hooks:
+	git config core.hooksPath .githooks
+	@echo "core.hooksPath -> .githooks"
