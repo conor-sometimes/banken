@@ -25,10 +25,7 @@ let
     inherit (banken) version vendorHash;
     src = lib.fileset.toSource {
       root = ../..;
-      fileset = lib.fileset.unions [
-        ../../go.mod ../../go.sum ../../main.go ../../check.go ../../embed.go
-        ../../internal ../../rules (lib.fileset.fileFilter (f: f.hasExt "go") ./.)
-      ];
+      fileset = lib.fileset.unions [ banken.fileset (lib.fileset.fileFilter (f: f.hasExt "go") ./.) ];
     };
     env.CGO_ENABLED = 0;
     buildPhase = ''
