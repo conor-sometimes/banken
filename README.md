@@ -200,18 +200,30 @@ a trojan is worse than no detector. The guarantee is layered:
    fully attacker-authored rule can at worst produce wrong or missing *detections* — never execution.
    `TestRuleValuesAreInertData` locks this: shell substitutions, format verbs, templates, globs and
    path-traversal strings all stay literal.
-2. **Response actions are operator policy, never rule-embedded.** A rule only emits a tag; the local
+2. **Logs are inert data too — the log4j lesson.** The other untrusted channel is the log itself:
+   banken parses attacker-influenced bytes (an attacker can write to the audit stream through what
+   they run). Parsing never interprets log content — no exec or shell-out, no format-string
+   injection (every format string is a literal; log values are only ever `%q`/`%s` arguments), no
+   file opened or URL fetched from a field, no template or `${…}` lookup expansion (the thing that
+   made log4j a remote-code-execution bug), and the XML source refuses external entities and
+   entity-expansion bombs (`TestSysmonNoXXE`; Go's `encoding/xml` resolves no external or DTD
+   entities). A rule regex is RE2, so even a hostile regex matched against a crafted event cannot
+   catastrophically backtrack (`TestRuleRegexCannotReDoS`, proven against the textbook evil
+   patterns). Every parser is fuzzed to tens of millions of executions with zero crashes, and the
+   "never fail the batch on content" contract means a malformed or adversarial line is skipped, not
+   a way to blind the detector.
+3. **Response actions are operator policy, never rule-embedded.** A rule only emits a tag; the local
    operator config maps tags to actions (kill, quarantine). A remote rule can never carry its own
    "kill this / delete that."
-3. **Trusted path (planned).** As root, banken should distrust rules from a directory writable by
+4. **Trusted path (planned).** As root, banken should distrust rules from a directory writable by
    anyone but its owner (the classic local-unprivileged-user-edits-the-rule escalation) and flag it,
    with an opt-in strict mode to refuse. *Not yet implemented* — today banken only loads from the
    paths it is given; make the rules dir root-owned and `0755` yourself.
-4. **The fetch is deprivileged and can't run code (planned).** When remote rule sync exists it will
+5. **The fetch is deprivileged and can't run code (planned).** When remote rule sync exists it will
    be a separate command (never the scan), neutering git's code-execution surfaces (hooks, filter
    drivers, fsmonitor) or using a plain tarball, and running as a dedicated low-privilege user.
    *There is no fetch today* — rules are local only, so this surface does not exist yet.
-5. **Signed bundles (v2).** Remote rule/config bundles are signature-verified against a locally
+6. **Signed bundles (v2).** Remote rule/config bundles are signature-verified against a locally
    pinned public key with a monotonic version, so a compromised transport or repo host cannot push a
    rogue rule set in the first place.
 
@@ -277,8 +289,9 @@ bar is "a malformed input or a hostile rule can degrade a detection, never crash
   - `FuzzParseAuditd`, `FuzzParseLaurel`, `FuzzParseStubs`, `FuzzMatch`, `FuzzIOC` — each parser and
     matcher against random and malformed input.
 
-  Latest full campaign (≈30–45s each, 10 workers): **~21.1 million executions across the 8 targets,
-  zero crashes, zero equivalence divergences.**
+  A 30–45s smoke of each target runs in CI; a longer campaign (3 min per target) reached
+  **~73.6 million executions across the parser targets, zero crashes, zero equivalence
+  divergences**. The per-target breakdown below is from the shorter smoke.
 
   | Target | Execs | Target | Execs |
   | --- | ---: | --- | ---: |
