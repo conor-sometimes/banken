@@ -173,6 +173,9 @@ func scanOnce(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 		// trailing line does not.
 		if res.ParseErr == nil {
 			cursor.Offsets[src.Path] = ch.NextOffset()
+			if ino := ch.Ino(); ino != 0 {
+				cursor.Inodes[src.Path] = ino // for rotation detection next run
+			}
 		}
 		logf(stderr, "banken: %s %s: %d events, %d alerts\n", src.Type, src.Path, res.Events, res.Alerts)
 	}

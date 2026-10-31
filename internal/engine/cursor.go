@@ -15,6 +15,10 @@ import (
 type Cursor struct {
 	// Offsets maps an input file path to the byte offset read up to.
 	Offsets map[string]int64 `json:"offsets"`
+	// Inodes maps an input file path to the inode it had when that offset
+	// was recorded. A changed inode means the file was rotated (replaced),
+	// so the offset no longer applies and the new file is read from the top.
+	Inodes map[string]uint64 `json:"inodes,omitempty"`
 }
 
 // LoadCursor reads a cursor from path and never fails: it always returns a
@@ -25,7 +29,7 @@ type Cursor struct {
 // once (a possible duplicate alert, self-healed by the next Save), whereas
 // halting on a bad byte would silently stop protection.
 func LoadCursor(path string) (c *Cursor, corrupted bool) {
-	fresh := &Cursor{Offsets: map[string]int64{}}
+	fresh := &Cursor{Offsets: map[string]int64{}, Inodes: map[string]uint64{}}
 	data, err := os.ReadFile(path) //nolint:gosec // operator-supplied state path
 	if err != nil || len(bytes.TrimSpace(data)) == 0 {
 		return fresh, false // missing / unreadable / empty -> fresh, nothing to warn about
@@ -36,6 +40,9 @@ func LoadCursor(path string) (c *Cursor, corrupted bool) {
 	}
 	if loaded.Offsets == nil {
 		loaded.Offsets = map[string]int64{}
+	}
+	if loaded.Inodes == nil {
+		loaded.Inodes = map[string]uint64{}
 	}
 	return &loaded, false
 }
@@ -71,8 +78,9 @@ type Chunk struct {
 	f      *os.File
 	r      io.Reader // io.LimitReader(f, size-start)
 	start  int64
-	read   int64 // bytes read so far from r
-	lastNL int64 // bytes read up to and including the last '\n' seen
+	read   int64  // bytes read so far from r
+	lastNL int64  // bytes read up to and including the last '\n' seen
+	ino    uint64 // inode of the opened file (0 if unavailable), for rotation tracking
 }
 
 // Read implements io.Reader, tracking the position of the last newline.
@@ -97,9 +105,20 @@ func (ch *Chunk) NextOffset() int64 { return ch.start + ch.lastNL }
 // Close closes the underlying file.
 func (ch *Chunk) Close() error { return ch.f.Close() }
 
+// Ino is the inode of the opened file (0 if the platform does not expose it),
+// to be stored alongside the offset so the next run can detect rotation.
+func (ch *Chunk) Ino() uint64 { return ch.ino }
+
 // OpenAt opens path, seeks to the stored offset, and returns a Chunk over the
-// new bytes. If the file is shorter than the stored offset (rotated or
-// truncated) it starts from 0 so no events are missed.
+// new bytes. The file is read from the top (offset 0) when it was replaced
+// since the last run -- detected by a changed inode (log rotation) or by the
+// file being shorter than the stored offset (truncation) -- so no events in a
+// fresh file are skipped.
+//
+// Known limit: on rotation, bytes written to the OLD inode after the last scan
+// but before the rotation (now in <path>.1) are not recovered; see the
+// rotation-tail task. Multiple rotations between two scans likewise lose the
+// intermediate files.
 func (c *Cursor) OpenAt(path string) (*Chunk, error) {
 	f, err := os.Open(path) //nolint:gosec // operator-supplied input path
 	if err != nil {
@@ -111,13 +130,16 @@ func (c *Cursor) OpenAt(path string) (*Chunk, error) {
 		return nil, err
 	}
 	size := info.Size()
+	ino, haveIno := fileIno(info)
 	start := c.Offsets[path]
-	if start > size {
-		start = 0 // rotated/truncated -- reread from the top
+
+	rotated := haveIno && ino != 0 && c.Inodes[path] != 0 && c.Inodes[path] != ino
+	if rotated || start > size {
+		start = 0 // replaced (new inode) or truncated -- read the new file from the top
 	}
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
 		_ = f.Close()
 		return nil, err
 	}
-	return &Chunk{f: f, r: io.LimitReader(f, size-start), start: start}, nil
+	return &Chunk{f: f, r: io.LimitReader(f, size-start), start: start, ino: ino}, nil
 }

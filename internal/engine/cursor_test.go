@@ -93,6 +93,53 @@ func TestChunkAdvancesToLastNewline(t *testing.T) {
 	}
 }
 
+// TestChunkDetectsRotationByInode is the A3 regression: when the file is
+// replaced (new inode) and the new file is LONGER than the old offset, the
+// old size-only heuristic (start>size) did not notice and skipped the new
+// file's first bytes. Tracking the inode catches the rotation and reads the
+// new file from 0.
+func TestChunkDetectsRotationByInode(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "audit.log")
+	if err := os.WriteFile(p, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := &Cursor{Offsets: map[string]int64{}, Inodes: map[string]uint64{}}
+
+	ch1, err := c.OpenAt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.ReadAll(ch1)
+	_ = ch1.Close()
+	if ch1.Ino() == 0 {
+		t.Skip("inode not available on this platform")
+	}
+	c.Offsets[p] = ch1.NextOffset() // 4
+	c.Inodes[p] = ch1.Ino()
+
+	// Rotate: replace the file with a new, LONGER file (new inode) -- the
+	// case the old start>size heuristic misses.
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("brand-new-and-longer\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ch2, err := c.OpenAt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch2.Ino() == c.Inodes[p] {
+		t.Skip("OS reused the inode; cannot exercise rotation")
+	}
+	data, _ := io.ReadAll(ch2)
+	_ = ch2.Close()
+	if string(data) != "brand-new-and-longer\n" {
+		t.Errorf("after rotation read %q, want the whole new file (old heuristic skipped its first 4 bytes)", data)
+	}
+}
+
 // TestChunkDoesNotReadPastSize is the A2 regression for duplicate alerts: the
 // Chunk reads only the bytes present when it was opened, so data appended
 // during the scan is neither read now (OLD code read to EOF) nor skipped next
