@@ -33,7 +33,7 @@ import (
 var (
 	payload = flag.String("payload", "", "dir holding distros.json, banken, distrocheck, the units, emulations and fixtures (set by the Nix app)")
 	images  = flag.String("images", "", "JSON map of distro name to its verified image (set by the Nix app)")
-	keep    = flag.Bool("keep", false, "copy every VM's serial log to the current directory, pass or fail")
+	keep    = flag.Bool("keep", false, "keep every VM's work dir (disk overlay, serial log, report) and print where, pass or fail")
 	// bootTimeout bounds one distro end to end: boot, package installs, every objective.
 	bootTimeout = flag.Duration("boot-timeout", 30*time.Minute, "longest one distro may take, boot to report")
 )
@@ -83,8 +83,17 @@ func TestMatrix(t *testing.T) {
 func boot(t *testing.T, d distro, image string, expected map[string][]string) report.Report {
 	t.Helper()
 	dir := t.TempDir()
-	overlay := filepath.Join(dir, "overlay.qcow2") // copy-on-write: the image is never written
-	run(t, "qemu-img", "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", image, overlay, "20G")
+	if *keep {
+		var err error
+		dir, err = os.MkdirTemp("", "banken-"+d.Name+"-")
+		must(t, err)
+		t.Logf("work dir kept: %s", dir)
+	}
+	// Copy-on-write: the image is never written. No size: the overlay takes the
+	// image's own, since a smaller disk than the partition table describes is
+	// rejected by the guest kernel (Amazon Linux's image is 25 GiB).
+	overlay := filepath.Join(dir, "overlay.qcow2")
+	run(t, "qemu-img", "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", image, overlay)
 	seed := writeSeed(t, dir, d, expected)
 	serial := filepath.Join(dir, "serial.log")
 	reportFile := filepath.Join(dir, "report.img")
@@ -109,9 +118,6 @@ func boot(t *testing.T, d distro, image string, expected map[string][]string) re
 	err := qemu.Run()
 
 	log, _ := os.ReadFile(serial)
-	if *keep {
-		_ = os.WriteFile(d.Name+"-serial.log", log, 0o600)
-	}
 	var rep report.Report
 	data, _ := os.ReadFile(reportFile)
 	if end := bytes.IndexByte(data, 0); end >= 0 {
