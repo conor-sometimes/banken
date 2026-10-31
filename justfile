@@ -216,3 +216,28 @@ ocsf-validate:
 		echo "--- not gating (documented pid-less case): ---"
 		findings "$r"
 	done
+
+# Conformance: every standard banken claims (README, Standards), each as a gate
+# that fails when the claim breaks. `conformance` runs anywhere with network:
+# SigmaHQ load coverage, the pySigma differential and the official OCSF
+# validator. `conformance-live` needs KVM: the live distro matrix (every
+# objective on every platform) and the Atomic Red Team range.
+sigma_release := "r2026-07-01"
+
+conformance: sigma-rules ocsf-validate
+	go run ./tools/sigmacov -require-all output/sigma-{{sigma_release}}/rules/linux
+	mkdir -p output && CGO_ENABLED=0 go build -o output/banken .
+	cd conformance && uv run conformance.py ../output/sigma-{{sigma_release}}/rules/linux ../output/banken
+
+conformance-live:
+	nix run .#distro-matrix
+	nix-build tests/attackrange.nix -o output/attackrange
+	cat output/attackrange/scorecard.md
+
+# SigmaHQ's rules at a pinned release, so coverage is measured against a
+# fixed set rather than whatever main holds that day.
+sigma-rules:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	dir=output/sigma-{{sigma_release}}
+	[ -d "$dir" ] || git clone -q --depth 1 --branch {{sigma_release}} https://github.com/SigmaHQ/sigma "$dir"

@@ -30,6 +30,18 @@
         });
       };
 
+      # nix develop .#conformance -c just conformance: the tools the standards
+      # gate needs, NixOS-ready. uv uses Nix's Pythons (3.13 for pySigma, 3.14
+      # for the OCSF schema compiler) instead of downloading generic-Linux
+      # builds NixOS cannot run, and pySigma's google-re2 wheel finds libstdc++
+      # through the loader path.
+      devShells.x86_64-linux.conformance = let pkgs = nixpkgs.legacyPackages.x86_64-linux; in pkgs.mkShell {
+        packages = with pkgs; [ go_1_27 uv just git python3 python314 ];
+        UV_PYTHON_PREFERENCE = "only-system";
+        UV_PYTHON_DOWNLOADS = "never";
+        LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
+      };
+
       # nix flake check: the end-to-end VM test (needs KVM).
       checks.x86_64-linux.vm = import ./tests/vm.nix { pkgs = nixpkgs.legacyPackages.x86_64-linux; };
     };

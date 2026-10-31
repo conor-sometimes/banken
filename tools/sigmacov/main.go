@@ -8,6 +8,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -19,8 +20,10 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: sigmacov <rule-dir>...")
+	requireAll := flag.Bool("require-all", false, "exit 1 unless every rule loads (a conformance gate, not just a report)")
+	flag.Parse()
+	if flag.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "usage: sigmacov [-require-all] <rule-dir>...")
 		os.Exit(2)
 	}
 
@@ -28,7 +31,7 @@ func main() {
 	buckets := map[string]int{}
 	examples := map[string]string{}
 
-	for _, root := range os.Args[1:] {
+	for _, root := range flag.Args() {
 		// #nosec G703 -- walks an operator-supplied rule tree; this is a dev
 		// measurement tool, the same trust boundary as the repo-wide G304 exclude.
 		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -76,6 +79,9 @@ func main() {
 		for _, r := range rejects {
 			fmt.Printf("  %5d  %-26s  e.g. %s\n", r.count, r.name, truncate(examples[r.name], 90))
 		}
+	}
+	if *requireAll && ok < total {
+		os.Exit(1) // after the report above, which says what failed
 	}
 }
 

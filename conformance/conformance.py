@@ -181,6 +181,8 @@ def main():
             print(f"  {name}: pySigma={exp} banken={got}  {json.dumps(event)}")
     else:
         print("\nno divergences")
+    if divergences:
+        sys.exit(1)  # a conformance gate, not just a report
 
 
 if __name__ == "__main__":
