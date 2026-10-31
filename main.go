@@ -2,11 +2,8 @@
 // logs since a saved cursor, matches them against the Sigma rule tree and
 // IOC lists, and alerts. It is one-shot by design -- a systemd timer owns
 // the schedule -- with an optional --watch self-timing loop for a host
-// without a timer. See README.md for the full picture.
-//
-// TODO(banken): the Nix module (module.nix), package and VM test
-// (tests/vm.nix) are intentionally not in this repo yet -- owned by the
-// head session.
+// without a timer. See README.md for the full picture; the NixOS module is
+// module.nix, the package package.nix, and their end-to-end test tests/vm.nix.
 package main
 
 import (

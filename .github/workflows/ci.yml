@@ -35,9 +35,8 @@ jobs:
       - name: just default
         run: just default
 
-      # TODO(banken): the Nix module VM test (tests/vm.nix via nix flake
-      # check) is owned by the head session; add it as a second job once it
-      # lands, mirroring the sibling module repos' CI.
+      # The NixOS module's VM test (tests/vm.nix, `nix flake check`) needs
+      # KVM and runs on the build host, not here.
 
   # Validates every OCSF finding golden against the pinned OCSF schema with
   # the OCSF project's own validator (see `just ocsf-validate` for the pins).

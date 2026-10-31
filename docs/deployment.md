@@ -83,6 +83,8 @@ code-execution vector.
 
 ## NixOS
 
-A first-class NixOS module (`services.banken`) that generates the hardened unit, timer, webhook
-secret wiring and a VM test is on the roadmap (the containment flake will consume banken as an
-input). Until it lands, use the portable unit above on NixOS too.
+First-class: `services.banken` (`module.nix`, exported as `nixosModules.default`) generates the
+config at `/etc/banken/banken.yml`, the unit (this section's hardening, plus no network unless the
+webhook is on), the timer, and by default auditd with banken's audit rules (`audit.enable`,
+`audit.watchPaths`). `services.banken.enable = true` is the whole setup; see the README's
+[Use (NixOS)](../README.md#use-nixos) for options. `tests/vm.nix` proves the module end to end.

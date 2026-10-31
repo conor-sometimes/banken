@@ -169,12 +169,38 @@ outbound connection is the optional webhook POST from the scan process.
 
 ## Use (NixOS)
 
-    services.banken = {
-      enable = true;
-      interval = "2min";
-      rules = [ ./rules ];                       # plus any extra rule trees
-      alerts.webhook.urlFile = "/run/secrets/banken-webhook";
-    };
+NixOS is supported first-class: the module, the package and the end-to-end VM test live in this
+repo. Add the flake and enable it:
+
+```nix
+# flake.nix
+inputs.banken.url = "github:conor-sometimes/banken";
+# your nixosConfiguration's modules
+modules = [ banken.nixosModules.default ];
+```
+
+```nix
+services.banken.enable = true;   # that's the whole setup
+```
+
+`enable` turns on auditd with the rules banken reads (every execve, plus watches on
+`/etc/shadow` and `/etc/gshadow`), a hardened oneshot unit, and a timer that runs a scan every
+two minutes, alerting high and critical hits to the journal. Everything else is optional:
+
+```nix
+services.banken = {
+  enable = true;
+  interval = "30s";
+  extraRules = [ ./my-rules ];                        # Sigma .yml and ioc/ lists, on top of the baseline
+  alerts.jsonl = { enable = true; format = "ocsf"; };  # /var/log/banken, one OCSF finding per line
+  alerts.webhook = { enable = true; urlFile = "/run/secrets/banken-webhook"; style = "slack"; };
+};
+```
+
+Without flakes, import `module.nix` from a pinned checkout (see `default.nix`); the package alone is
+`pkgs.callPackage ./package.nix { }`. The module is tested by `tests/vm.nix` (`nix flake check`):
+a VM runs every emulation in `tests/emulations` against real auditd and asserts exactly the expected
+rules fire, as OCSF findings.
 
 ## Testing
 
@@ -211,14 +237,18 @@ bar is "a malformed input or a hostile rule can degrade a detection, never crash
   | `FuzzParseStubs` | 0.16M | `FuzzSigmaParse` | 0.14M |
 
 - `tests/emulations/<family>.sh` — benign look-alikes of real malware (dummy data, unroutable "C2",
-  cleaned up; see `tests/emulations/README.md`). The VM test runs each end to end and asserts the
-  expected rules fire; their recorded events also seed the fixtures.
+  cleaned up; see `tests/emulations/README.md`). The NixOS VM test (`tests/vm.nix`) runs each as an
+  ordinary user against real auditd and asserts the rules that fire are *exactly* the family's
+  expected set — a miss and a false positive both fail. Its first run found two bugs no fixture
+  could: every exec reported its own binary as a target (so banken's own scan tripped
+  `tamper_banken`), and NixOS's multicall coreutils hid `cat`/`rm`/`base64` behind `exe=coreutils`.
 - **Performance is benchmarked and regression-tracked** — `just bench` / `just bench-compare`
   (`benchstat`) for the matcher and parsers, and `just bench-e2e` (`hyperfine`) for a full binary
   scan over a large synthetic log. See [Performance](#performance).
 - **CI** (`.github/workflows`) runs `go test -race`, `go vet`, `staticcheck`, `golangci-lint`,
-  `errcheck`, `gosec`, `govulncheck`, a short fuzz smoke, the benchmarks, and (soon) `nix flake check`
-  (the module's VM test) on every push.
+  `errcheck`, `gosec`, `govulncheck`, a short fuzz smoke and the benchmarks on every push, and
+  validates the OCSF goldens against the official schema (`just ocsf-validate`). The VM test needs
+  KVM and runs on the project's build host (`nix flake check`).
 
 After cloning, run `just install-hooks` once: it points `core.hooksPath` at the repo's tracked
 `.githooks/`, whose `commit-msg` hook keeps AI-tool attribution out of commit messages.
