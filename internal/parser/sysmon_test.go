@@ -100,3 +100,52 @@ func TestSysmonNeverPanics(t *testing.T) {
 		_, _ = Sysmon{}.Parse(strings.NewReader(in))
 	}
 }
+
+// TestSysmonNoXXE is the log4j question for the XML parser, locked as a
+// regression: a Sysmon source is untrusted bytes, and parsing it must never
+// resolve an external entity (read a file, hit the network) or expand an
+// internal-entity bomb. Go's encoding/xml does not resolve external or custom
+// DTD entities, so these are inert -- this test guarantees it stays that way,
+// and would fail loudly if a refactor ever swapped in a decoder that did.
+func TestSysmonNoXXE(t *testing.T) {
+	cases := map[string]string{
+		"external entity file read": `<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>` +
+			`<Event><EventData><Data Name="Image">&xxe;</Data></EventData></Event>`,
+		"external entity network": `<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/">]>` +
+			`<Event><EventData><Data Name="CommandLine">&xxe;</Data></EventData></Event>`,
+		"parameter entity": `<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY % p SYSTEM "file:///etc/shadow">%p;]>` +
+			`<Event><EventData><Data Name="Image">x</Data></EventData></Event>`,
+		"billion laughs": `<?xml version="1.0"?><!DOCTYPE lol [<!ENTITY a "AAAAAAAAAA">` +
+			`<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;"><!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">` +
+			`<!ENTITY d "&c;&c;&c;&c;&c;&c;&c;&c;&c;&c;"><!ENTITY e "&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;">]>` +
+			`<Event><EventData><Data Name="Image">&e;</Data></EventData></Event>`,
+	}
+	for name, in := range cases {
+		t.Run(name, func(t *testing.T) {
+			done := make(chan []event.Event, 1)
+			go func() { evs, _ := Sysmon{}.Parse(strings.NewReader(in)); done <- evs }()
+			select {
+			case evs := <-done:
+				for _, ev := range evs {
+					all := ev.Image + ev.CommandLine + strings.Join(valuesOf(ev.Raw), " ")
+					if strings.Contains(all, "root:") || strings.Contains(all, "/bin/bash") || strings.Contains(all, "ami-") {
+						t.Fatalf("parser leaked external-entity content: %q", all)
+					}
+					if len(all) > 1<<16 {
+						t.Fatalf("entity expansion: value grew to %d bytes", len(all))
+					}
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("parser hung on an XML entity payload (expansion bomb?)")
+			}
+		})
+	}
+}
+
+func valuesOf(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	return out
+}
