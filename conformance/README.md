@@ -12,7 +12,7 @@ that should fire each rule (and uses the empty event as the negative), and
 checks that **banken's verdict agrees with the pySigma-derived evaluator**. A
 disagreement is a conformance bug — in banken, or (rarely) in the evaluator.
 
-## Result (SigmaHQ `rules/linux`, 211 rules)
+## Result (SigmaHQ `rules/linux` at release `r2026-07-01`, 210 rules)
 
 - **Eval differential: 182/182 checks agree (100%), zero divergences.**
 - process_creation subset: 128/128 (100%).
@@ -25,7 +25,7 @@ Those are harness limits and a roadmap (improve generation; model more fields),
 not banken divergences.
 
 This complements [`tools/sigmacov`](../tools/sigmacov) (which measures the
-*load* rate — 211/211 = 100%): sigmacov says the rules *compile*, this says
+*load* rate — 210/210 = 100%): sigmacov says the rules *compile*, this says
 they *evaluate the same as the reference*.
 
 ## Run
