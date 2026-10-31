@@ -1,0 +1,11 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/lib/systemd/systemd-userwork",
+    "commandLine": "systemd-userwork: processing...",
+    "targetFilename": "/etc/shadow",
+    "user": "0",
+    "pid": 6300,
+    "ppid": 1
+  }
+]
