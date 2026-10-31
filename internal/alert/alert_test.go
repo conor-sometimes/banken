@@ -42,11 +42,13 @@ func TestJournalSinkJournalsOnlyHighAndCritical(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 journalled lines (high, critical), got %d:\n%s", len(lines), out)
 	}
-	// critical -> daemon.crit = 3*8+2 = 26; high -> daemon.err = 3*8+3 = 27
-	if !strings.HasPrefix(lines[0], "<27>") {
+	// sd-daemon(3) levels, which systemd files at that priority: high -> err
+	// (3), critical -> crit (2). Never the syslog <facility*8+level> form,
+	// which systemd leaves in the text at info priority.
+	if !strings.HasPrefix(lines[0], "<3>high ") {
 		t.Errorf("high line priority wrong: %q", lines[0])
 	}
-	if !strings.HasPrefix(lines[1], "<26>") {
+	if !strings.HasPrefix(lines[1], "<2>critical ") {
 		t.Errorf("critical line priority wrong: %q", lines[1])
 	}
 

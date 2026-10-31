@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// syslog severity levels (RFC 5424), the ones banken uses.
+// Log levels (syslog severities, RFC 5424), the ones banken uses.
 const (
 	sevCrit    = 2
 	sevErr     = 3
@@ -15,17 +15,20 @@ const (
 	sevNotice  = 5
 )
 
-// facilityDaemon is the syslog facility banken logs under.
-const facilityDaemon = 3
-
-// JournalSink writes high/critical alerts to the system journal as
-// syslog-priority-prefixed lines, and on Close writes the one-line login
-// summary an admin sees ("banken: N alerts since ..."). Lower-severity
-// alerts are not journalled (they still reach jsonl/webhook) to keep the
-// journal to what warrants a human's attention.
+// JournalSink writes high/critical alerts to the system journal, and on
+// Close writes the one-line summary an admin sees ("banken: N alert(s) this
+// run"). Lower-severity alerts are not journalled (they still reach
+// jsonl/webhook) to keep the journal to what warrants a human's attention.
 //
-// The sink writes to any io.Writer: main points it at a *syslog.Writer (or
-// stderr under systemd, which journals it); tests point it at a buffer.
+// Each line starts with its level in the sd-daemon(3) form, "<2>" for
+// critical: systemd strips it and files the line at that priority, so
+// `journalctl -p err` shows every high and critical alert. It must be the
+// bare level -- systemd leaves a syslog-style <facility*8+level> prefix
+// ("<26>") in the text and files the line at the default info priority.
+// The facility comes from the unit (SyslogFacility=, daemon by default).
+//
+// main points the sink at stderr, which systemd journals; tests point it
+// at a buffer.
 type JournalSink struct {
 	mu      sync.Mutex
 	w       io.Writer
@@ -53,9 +56,8 @@ func (j *JournalSink) Emit(a Alert) error {
 	if !journalled {
 		return nil
 	}
-	pri := facilityDaemon*8 + sev
-	line := fmt.Sprintf("<%d>banken[%s]: %s %s (%s) image=%q cmd=%q user=%q\n",
-		pri, a.Level, a.Rule, a.Title, a.Source, a.Event.Image, a.Event.CommandLine, a.Event.User)
+	line := fmt.Sprintf("<%d>%s %s: %s (%s) image=%q cmd=%q user=%q\n",
+		sev, strings.ToLower(a.Level), a.Rule, a.Title, a.Source, a.Event.Image, a.Event.CommandLine, a.Event.User)
 	_, err := io.WriteString(j.w, line)
 	return err
 }
@@ -67,8 +69,7 @@ func (j *JournalSink) Close() error {
 	if j.count == 0 {
 		return nil
 	}
-	pri := facilityDaemon*8 + sevNotice
-	line := fmt.Sprintf("<%d>banken: %d alert(s) this run (%s)\n", pri, j.count, summaryBreakdown(j.byLevel))
+	line := fmt.Sprintf("<%d>banken: %d alert(s) this run (%s)\n", sevNotice, j.count, summaryBreakdown(j.byLevel))
 	_, err := io.WriteString(j.w, line)
 	return err
 }
