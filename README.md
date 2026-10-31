@@ -66,8 +66,8 @@ is, plus plain IOC lists for bulk feeds:
   credential is `credential-access/` whether AMOS, RedLine or a human did it). The SigmaHQ Linux
   set drops in by the same scheme as a noisy baseline.
 - **Family signatures** are Sigma too (an IOC is just a matched value), kept under `malware/<family>/`.
-- **Bulk IOC feeds** (thousands of values) go in `ioc/*.txt` with a fast set lookup, not one Sigma
-  file each.
+- **Bulk IOC feeds** (thousands of values) go in `ioc/*.txt` as flat lists, one value per line, not
+  one Sigma file each.
 
 banken evaluates the Sigma subset these use — `Image|endswith` / `CommandLine|contains` /
 `TargetFilename|contains` value lists and `and`/`or`/parens conditions — with clear errors on a bad
@@ -140,19 +140,20 @@ a trojan is worse than no detector. The guarantee is layered:
 2. **Response actions are operator policy, never rule-embedded.** A rule only emits a tag; the local
    operator config maps tags to actions (kill, quarantine). A remote rule can never carry its own
    "kill this / delete that."
-3. **Trusted path.** As root, banken distrusts rules from a directory writable by anyone but its
-   owner (the classic local-unprivileged-user-edits-the-rule escalation) and flags it loudly, with an
-   opt-in strict mode to refuse.
-4. **The fetch is deprivileged and can't run code.** Rule sync (a separate command, never the scan)
-   neuters git's code-execution surfaces (hooks, filter drivers, fsmonitor) or uses a plain tarball,
-   and runs as a dedicated low-privilege user — only the scan is root, and the scan never touches the
-   network.
+3. **Trusted path (planned).** As root, banken should distrust rules from a directory writable by
+   anyone but its owner (the classic local-unprivileged-user-edits-the-rule escalation) and flag it,
+   with an opt-in strict mode to refuse. *Not yet implemented* — today banken only loads from the
+   paths it is given; make the rules dir root-owned and `0755` yourself.
+4. **The fetch is deprivileged and can't run code (planned).** When remote rule sync exists it will
+   be a separate command (never the scan), neutering git's code-execution surfaces (hooks, filter
+   drivers, fsmonitor) or using a plain tarball, and running as a dedicated low-privilege user.
+   *There is no fetch today* — rules are local only, so this surface does not exist yet.
 5. **Signed bundles (v2).** Remote rule/config bundles are signature-verified against a locally
    pinned public key with a monotonic version, so a compromised transport or repo host cannot push a
    rogue rule set in the first place.
 
-The scan itself stays offline and one-shot by design, so none of the network surface is reachable
-during detection.
+The scan itself is one-shot and has no inbound or rule-fetch network surface by design; the only
+outbound connection is the optional webhook POST from the scan process.
 
 ## Use (NixOS)
 

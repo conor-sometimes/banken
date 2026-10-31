@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -318,13 +317,7 @@ func scalarString(node *yaml.Node) string {
 	if node.Tag == "!!null" {
 		return ""
 	}
-	v := node.Value
-	// Normalise a quoted integer vs bare integer identically (both land in
-	// Value already); nothing extra to do, but keep the hook explicit.
-	if node.Tag == "!!int" {
-		if _, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return v
-		}
-	}
-	return v
+	// yaml.v3 leaves Value as the literal source text for every scalar kind
+	// (string, int, bool), which is exactly what a matcher wants.
+	return node.Value
 }

@@ -103,8 +103,8 @@ c2.evil.test
 
 banken classifies each by shape — IP (token match), domain (exact or dot-suffix, so `evil.test`
 matches `c2.evil.test` but not `notevil.test`), otherwise a filename/path (substring/basename) — and
-checks them against the event's fields with a fast set lookup. Which field an indicator hit is
-recorded on the alert. File, process and command-line indicators work against the audit sources
+checks them against the event's fields. Which field an indicator hit is recorded on the alert.
+(IP lookups are O(1); domain/path matching is being folded into the same matcher the rules use.) File, process and command-line indicators work against the audit sources
 today; hash and network indicators arrive with the eBPF / network sources.
 
 ## Testing a rule

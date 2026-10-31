@@ -34,8 +34,9 @@ tree (see the README's Testing section).
 ## Rules and the matcher (`internal/sigma`, `internal/ioc`)
 
 Rules are [Sigma](https://github.com/SigmaHQ/sigma) YAML; banken evaluates a subset (see
-[writing-rules.md](writing-rules.md)). Bulk indicator feeds are plain `ioc/*.txt` lists matched by
-set membership — the fast path for thousands of flat values.
+[writing-rules.md](writing-rules.md)). Bulk indicator feeds are plain `ioc/*.txt` lists — the
+bulk path for thousands of flat values (IPs by exact set; domains/paths are being folded into the
+rule matcher).
 
 Matching does **not** loop every rule over every event. `NewMatcher` compiles every string literal
 across every rule into one Aho-Corasick automaton (`ahocorasick.go`) plus an inverted

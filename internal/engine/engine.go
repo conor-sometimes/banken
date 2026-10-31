@@ -8,7 +8,6 @@ package engine
 import (
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/conor-sometimes/banken/internal/alert"
 	"github.com/conor-sometimes/banken/internal/event"
@@ -22,7 +21,6 @@ type Engine struct {
 	matcher *sigma.Matcher
 	iocs    *ioc.Set
 	disp    *alert.Dispatcher
-	now     func() time.Time
 }
 
 // New builds an engine. iocs and disp may be nil (no IOC matching / no
@@ -30,7 +28,7 @@ type Engine struct {
 // returned alerts. The rules are compiled into a prefiltered matcher so the
 // per-event cost does not grow with the rule count.
 func New(rules []*sigma.Rule, iocs *ioc.Set, disp *alert.Dispatcher) *Engine {
-	return &Engine{matcher: sigma.NewMatcher(rules), iocs: iocs, disp: disp, now: time.Now}
+	return &Engine{matcher: sigma.NewMatcher(rules), iocs: iocs, disp: disp}
 }
 
 // Match returns every alert an event produces (Sigma rules first, in rule
