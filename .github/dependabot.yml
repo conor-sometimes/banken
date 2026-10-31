@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # go.mod/go.sum. govulncheck (just default, CI) already covers
+  # known-vulnerable deps; this is the "merely outdated, not vulnerable"
+  # half nothing else checks. banken's direct deps are small (yaml.v3,
+  # rapid), but this catches drift going forward.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # .github/workflows/*.yml action pins (actions/checkout, setup-go,
+  # setup-just) -- a different ecosystem from gomod. Does NOT cover the
+  # lint/test tool versions ci.yml pins via `go install tool@vX.Y.Z` in a
+  # shell step; those stay a manual bump, checked against a clean
+  # `just default` first.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

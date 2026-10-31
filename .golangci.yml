@@ -1,0 +1,37 @@
+version: "2"
+
+# Mirrors the pth project's config: staticcheck/errcheck/govet/unused/gosec
+# run standalone (see the justfile), so this is scoped to the linters that
+# add signal beyond those, not a re-run of the same checks. gosec in
+# particular is run standalone, never here -- golangci-lint's bundled gosec
+# silently truncates a repo-wide scan via its own max-issues caps, which
+# reads as a clean result when it is not (confirmed in pth). `just gosec`
+# uses the standalone binary instead.
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - misspell
+    - nakedret
+    - perfsprint
+    - predeclared
+    - prealloc
+    - tagliatelle
+    - unconvert
+    - whitespace
+  settings:
+    tagliatelle:
+      case:
+        rules:
+          # banken's JSON tag convention is camelCase throughout, matching
+          # the NixOS module's option names (urlFile, retentionDays,
+          # commandLine, targetFilename, currentDirectory, ...). tagliatelle
+          # defaults to camelCase if unconfigured, but set it explicitly so
+          # the convention is documented and enforced, not incidental.
+          json: camel

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  default:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: extractions/setup-just@v4
+
+      # Pinned, not @latest: an upstream tool release shipping a new lint
+      # rule or vuln-DB check must never fail CI on a PR with no code
+      # changes of its own. Bump these deliberately, in their own commit,
+      # checked against a clean `just default` first.
+      - name: Install lint/test tooling
+        run: |
+          go install mvdan.cc/gofumpt@v0.12.0
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+          go install github.com/kisielk/errcheck@v1.20.0
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          go install gotest.tools/gotestsum@v1.13.0
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+
+      - name: just default
+        run: just default
+
+      # TODO(banken): the Nix module VM test (tests/vm.nix via nix flake
+      # check) is owned by the head session; add it as a second job once it
+      # lands, mirroring the sibling module repos' CI.

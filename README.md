@@ -23,6 +23,27 @@ matches, and emits hits. One-shot by design — systemd owns the schedule, no da
 (`banken --watch` for a self-timing daemon is a later add). Laurel stays supported as an input, but
 banken no longer *needs* it: with the auditd parser the end state is `auditd + banken + a timer`.
 
+## Log sources
+
+A parser per source, all behind one interface, each normalising to the common event the rules
+match. A new source is a new parser and nothing else changes.
+
+| Source | What | Status |
+| --- | --- | --- |
+| **auditd** | raw Linux audit log — the multi-line SYSCALL/EXECVE/PATH/CWD/PROCTITLE records stitched back into one event (hex-decoded argv/proctitle, quoted and bare values) | **implemented** |
+| **Laurel** | auditd → JSON ([Laurel](https://github.com/threathunters-io/laurel)), one reassembled event per line | **implemented** |
+| journald | the systemd journal (`_COMM`/`_EXE`/`_CMDLINE`/`_UID`) | stubbed (interface placeholder) |
+| syslog / auth | RFC 3164/5424 — `/var/log/auth.log`, `secure` (sshd / sudo / PAM logins) | stubbed (interface placeholder) |
+| generic JSONL | one pre-normalised event per line, a passthrough for anything that can emit the common event | planned |
+| eBPF / Falco | kernel syscall + network events | planned |
+| network | Zeek / Suricata, for network IOCs | planned |
+
+Both auditd and Laurel are wired up and tested this pass (table + golden + fuzz, see Testing); the
+journald and syslog parsers exist as stubs behind the same interface (they drain their input and
+emit nothing) so slotting the real logic in later touches nothing else. **IOC coverage follows the
+sources:** file, process and command-line IOCs work against the auditd sources today; hash and
+network IOCs arrive with the eBPF / network sources.
+
 ## Rules
 
 Portable [Sigma](https://github.com/SigmaHQ/sigma) YAML, organised so a rule's *home* says what it

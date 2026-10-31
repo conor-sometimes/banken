@@ -13,3 +13,9 @@ coverage.out
 
 # go fuzz corpus cache (seed corpora under testdata/ ARE committed)
 /**/testdata/fuzz/
+
+# rapid's failure-replay cache (property_test.go) -- regenerated on demand
+**/testdata/rapid/
+
+# the built binary
+/output/banken
