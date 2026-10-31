@@ -1,7 +1,6 @@
 package alert
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,15 +23,28 @@ type JSONLSink struct {
 	mu            sync.Mutex
 	dir           string
 	retentionDays int
+	enc           Encoder          // how each alert is rendered (nil = EncodeAlert)
 	now           func() time.Time // injectable clock for tests
 }
 
-// NewJSONLSink creates the directory if needed and prunes stale files.
+// NewJSONLSink creates the directory if needed and prunes stale files. It
+// writes banken's native JSON; NewJSONLSinkEncoded chooses another encoding
+// (e.g. OCSF) over the same per-day files and retention.
 func NewJSONLSink(dir string, retentionDays int) (*JSONLSink, error) {
+	return NewJSONLSinkEncoded(dir, retentionDays, EncodeAlert)
+}
+
+// NewJSONLSinkEncoded is NewJSONLSink with an explicit encoder, so the same
+// file rotation and retention serve either the native shape or OCSF. A nil
+// encoder falls back to EncodeAlert.
+func NewJSONLSinkEncoded(dir string, retentionDays int, enc Encoder) (*JSONLSink, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("jsonl: create dir: %w", err)
 	}
-	s := &JSONLSink{dir: dir, retentionDays: retentionDays, now: time.Now}
+	if enc == nil {
+		enc = EncodeAlert
+	}
+	s := &JSONLSink{dir: dir, retentionDays: retentionDays, enc: enc, now: time.Now}
 	s.prune(s.now())
 	return s, nil
 }
@@ -52,7 +64,11 @@ func (s *JSONLSink) Emit(a Alert) error {
 	}
 	path := filepath.Join(s.dir, "alerts-"+day.UTC().Format(dayLayout)+".jsonl")
 
-	line, err := json.Marshal(a)
+	enc := s.enc
+	if enc == nil {
+		enc = EncodeAlert
+	}
+	line, err := enc(a)
 	if err != nil {
 		return fmt.Errorf("jsonl: marshal: %w", err)
 	}

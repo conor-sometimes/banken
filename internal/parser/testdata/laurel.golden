@@ -8,8 +8,7 @@
     "targetFilename": "/etc/shadow",
     "user": "root",
     "currentDirectory": "/root",
-    "ppid": 1200,
-    "processStart": "0001-01-01T00:00:00Z"
+    "ppid": 1200
   },
   {
     "time": "2021-07-18T12:29:24Z",
@@ -19,8 +18,7 @@
     "parentImage": "",
     "targetFilename": "",
     "user": "u",
-    "currentDirectory": "/home/u",
-    "processStart": "0001-01-01T00:00:00Z"
+    "currentDirectory": "/home/u"
   },
   {
     "time": "2021-07-18T12:29:25.5Z",
@@ -30,7 +28,6 @@
     "parentImage": "",
     "targetFilename": "",
     "user": "1000",
-    "currentDirectory": "",
-    "processStart": "0001-01-01T00:00:00Z"
+    "currentDirectory": ""
   }
 ]

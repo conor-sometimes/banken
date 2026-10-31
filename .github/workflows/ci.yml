@@ -39,6 +39,29 @@ jobs:
       # check) is owned by the head session; add it as a second job once it
       # lands, mirroring the sibling module repos' CI.
 
+  # Validates every OCSF finding golden against the pinned OCSF schema with
+  # the OCSF project's own validator (see `just ocsf-validate` for the pins).
+  # A separate job: it fetches the schema and two pinned tools, none of which
+  # touch go.mod or the binary.
+  ocsf:
+    needs: default
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: extractions/setup-just@v4
+
+      - name: Install uv
+        run: pipx install uv
+
+      - name: just ocsf-validate
+        run: just ocsf-validate
+
   # Performance is tracked, not vibed: every push runs the benchmarks and
   # prints benchstat's delta from the committed baseline into the run summary,
   # and keeps the raw numbers as an artifact. It does NOT fail on a regression

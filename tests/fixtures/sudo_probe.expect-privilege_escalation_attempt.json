@@ -4,6 +4,8 @@
     "image": "/usr/bin/sudo",
     "commandLine": "sudo -n true",
     "user": "1000",
+    "pid": 5100,
+    "ppid": 5099,
     "currentDirectory": "/home/u"
   }
 ]

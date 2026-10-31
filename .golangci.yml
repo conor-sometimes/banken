@@ -35,3 +35,12 @@ linters:
           # defaults to camelCase if unconfigured, but set it explicitly so
           # the convention is documented and enforced, not incidental.
           json: camel
+  exclusions:
+    rules:
+      # OCSF attribute names are snake_case by specification (class_uid,
+      # finding_info, cmd_line, ...). The OCSF mapper is the one file whose
+      # JSON tags spell someone else's schema, so it alone is exempt from the
+      # camelCase rule above.
+      - path: internal/alert/ocsf\.go$
+        linters:
+          - tagliatelle

@@ -1,0 +1,126 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"persistence\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "8cdf182a5aeb46b5de94dcafa218db22",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "8cdf182a5aeb46b5de94dcafa218db22",
+    "title": "Persistence established",
+    "desc": "A program tried to persist across sessions - installing a crontab, writing a systemd user unit or timer, or editing a shell rc / profile / ssh rc. Arranging to run again later, outside of a package manager or a config-management run, is how a compromised process survives a reboot.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "persistence",
+      "uid": "27872ea4-de7d-486f-8813-02ca2926a255"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0003",
+          "name": "Persistence"
+        },
+        "technique": {
+          "uid": "T1053"
+        },
+        "sub_technique": {
+          "uid": "T1053.003"
+        }
+      },
+      {
+        "tactic": {
+          "uid": "TA0003",
+          "name": "Persistence"
+        },
+        "technique": {
+          "uid": "T1543"
+        },
+        "sub_technique": {
+          "uid": "T1543.002"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 4800,
+        "name": "cp",
+        "cmd_line": "cp /home/u/scratch/emul.service /home/u/scratch/.config/systemd/user/emul.service",
+        "file": {
+          "name": "cp",
+          "path": "/usr/bin/cp",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 4799
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "cp /home/u/scratch/emul.service /home/u/scratch/.config/systemd/user/emul.service"
+    },
+    {
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "cp"
+    },
+    {
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/cp"
+    },
+    {
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/cp\",\"commandLine\":\"cp /home/u/scratch/emul.service /home/u/scratch/.config/systemd/user/emul.service\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"/home/u\",\"pid\":4800,\"ppid\":4799}",
+  "unmapped": {
+    "current_directory": "/home/u",
+    "kind": "sigma",
+    "rule": "persistence",
+    "source": "auditd"
+  }
+}

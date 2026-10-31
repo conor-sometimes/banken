@@ -1,8 +1,27 @@
 # OCSF output for banken alerts — design
 
-Status: **design, not implemented**. Written 2026-10-31 against commit `17c1d21`. Nothing in this
-document exists in the code yet; the "today" sections describe the code as it is, the rest is the
-proposal. Review the open questions at the end before any of it is built.
+Status: **implemented** (2026-10-31; prerequisites in `b4a026c`, the mapper and sinks in the
+following commit). Written as a design against commit `17c1d21`; the "today" sections describe the
+code as it was then. Where the build departed from the text below, this list wins:
+
+**As built — decisions and divergences**
+- Open questions answered (Conor): **1** pin 1.3.0; **2** pid/ppid on `Event`, yes; **3** the six
+  rules tagged as proposed, untagged rules emit no `attacks`; **4** deterministic uid; **5**
+  `product.vendor_name` is **`conor-sometimes`** (vendor = who makes it; `product.name` stays
+  `banken`); **6** `desc` plumbed (`Alert.Desc` ← `Rule.Description`, trimmed), `log_name` later;
+  **7** no format in the file name; **8** the compiled schema is regenerated, not checked in;
+  **9, 10, 11** later.
+- **pid/ppid are ints** (`Event.PID`/`PPID`, JSON `pid`/`ppid`, 0 = unknown), not the strings
+  proposed in §4.5: OCSF `process.pid` is an integer, so no conversion. Rules still see
+  `ProcessId`/`ParentProcessId` as strings via `Event.Field`, and the matcher's prefilter scans them.
+- The detection fixtures now carry `pid`/`ppid` (real audit records always do); the documented
+  pid-less case is a dedicated golden, `nopid.expect-reverse_shell.json`.
+- The OCSF encoder turns **HTML escaping off**, so a command line such as `bash -i >& /dev/tcp/...`
+  is written as-is, not as `>&`. (The native encoder is unchanged.)
+- The `ocsf-schema` tags have **no `v` prefix** from 1.3.0 on (`1.3.0`, not `v1.3.0` as the §7.4
+  sketch had); `just ocsf-validate` is the corrected recipe, and CI runs it as the `ocsf` job.
+- jsonl keeps `NewJSONLSink(dir, days)` and gains `NewJSONLSinkEncoded(dir, days, enc)` rather than
+  the config-struct constructor of §6.3: same seam, no churn at existing call sites.
 
 ## TL;DR
 

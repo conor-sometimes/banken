@@ -88,6 +88,13 @@ Pluggable sinks, any combination:
   secret: it comes from `alerts.webhook.urlFile` (sops/agenix or a systemd credential), never inline
   in the Nix store. The service runs as root, so the webhook host just needs to be reachable.
 
+**OCSF.** Both the jsonl and webhook sinks can emit alerts as [OCSF](https://schema.ocsf.io) 1.3.0
+Detection Findings instead of banken's own JSON (`alerts.jsonl.format: ocsf`, `-jsonl-format ocsf`;
+`alerts.webhook.style: ocsf`), so Security Lake, Splunk, Datadog or any OCSF-aware SIEM ingests them
+with no per-product mapping, ATT&CK tactics and techniques included. Every baseline rule has a
+committed finding golden, and CI validates them against the official schema with the OCSF project's
+own validator (`just ocsf-validate`). Design: [docs/design/ocsf-output.md](docs/design/ocsf-output.md).
+
 Matched alerts flow through one dispatch point, so **response actions** (kill a process, revoke a
 key, isolate) slot in later without a redesign. For now: alert only.
 

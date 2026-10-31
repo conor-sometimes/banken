@@ -4,6 +4,8 @@
     "image": "/usr/bin/cp",
     "commandLine": "cp /home/u/scratch/emul.service /home/u/scratch/.config/systemd/user/emul.service",
     "user": "1000",
+    "pid": 4800,
+    "ppid": 4799,
     "currentDirectory": "/home/u"
   },
   {
@@ -11,6 +13,8 @@
     "image": "/usr/bin/tee",
     "commandLine": "tee /home/u/scratch/.bashrc",
     "user": "1000",
+    "pid": 4801,
+    "ppid": 4799,
     "currentDirectory": "/home/u"
   }
 ]

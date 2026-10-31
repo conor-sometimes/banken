@@ -50,6 +50,11 @@ type JSONLConfig struct {
 	Enable        bool   `yaml:"enable"`
 	Dir           string `yaml:"dir"`
 	RetentionDays int    `yaml:"retentionDays"`
+	// Format is the on-disk encoding: "" or "banken" for the native shape,
+	// "ocsf" for OCSF Detection Findings. An unknown value is a startup error
+	// (buildSinks), never a silent fallback -- an operator who asked for OCSF
+	// and got banken JSON would only find out from their SIEM.
+	Format string `yaml:"format"`
 }
 
 // WebhookConfig configures the webhook sink.
@@ -123,6 +128,8 @@ func (w WebhookConfig) WebhookStyle() alert.WebhookStyle {
 		return alert.StyleDiscord
 	case alert.StyleNtfy:
 		return alert.StyleNtfy
+	case alert.StyleOCSF:
+		return alert.StyleOCSF
 	default:
 		return alert.StyleGeneric
 	}

@@ -66,8 +66,9 @@ type Event struct {
 
 	// ProcessStart is the process start time when a source provides it (raw
 	// auditd and Laurel do not today, so it stays zero), for pid-reuse-safe
-	// targeting by a response action.
-	ProcessStart time.Time `json:"processStart,omitempty"`
+	// targeting by a response action. omitzero, not omitempty: omitempty never
+	// omits a struct, so a zero time would be written as 0001-01-01.
+	ProcessStart time.Time `json:"processStart,omitzero"`
 
 	// Raw holds any additional source fields a parser chose to keep for
 	// matching or IOC lookup but that have no dedicated field above. Keyed

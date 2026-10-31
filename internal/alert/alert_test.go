@@ -187,6 +187,23 @@ func TestWebhookSinkGenericAndSlack(t *testing.T) {
 	if !strings.Contains(slack["text"], "Reverse shell spawned") {
 		t.Errorf("slack text = %q", slack["text"])
 	}
+
+	// ocsf: the bare Detection Finding, application/json, carrying the
+	// configured hostname.
+	ws, _ = NewWebhookSink(WebhookConfig{URL: srv.URL, Style: StyleOCSF, OCSF: testOpts})
+	if err := ws.Emit(sampleAlert("critical")); err != nil {
+		t.Fatalf("Emit ocsf: %v", err)
+	}
+	var f OCSFFinding
+	if err := json.Unmarshal(gotBody, &f); err != nil {
+		t.Fatalf("ocsf body not JSON: %v (%s)", err, gotBody)
+	}
+	if f.ClassUID != 2004 || f.FindingInfo.Analytic.Name != "reverse_shell" || f.Device == nil || f.Device.Hostname != "golden-host" {
+		t.Errorf("ocsf body = class %d analytic %q device %+v", f.ClassUID, f.FindingInfo.Analytic.Name, f.Device)
+	}
+	if gotType != "application/json" {
+		t.Errorf("ocsf content-type = %q", gotType)
+	}
 }
 
 func TestWebhookSinkReadsURLFromFile(t *testing.T) {

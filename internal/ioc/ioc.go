@@ -172,6 +172,12 @@ func (s *Set) Add(value, source string) {
 	}
 }
 
+// Classify reports an indicator value's kind from its shape, by the same
+// rule the loader uses. It is exported so an alert consumer (the OCSF
+// encoder) can type an IOC observable from the indicator string alone,
+// without the alert having to carry the Kind.
+func Classify(v string) Kind { return classify(v) }
+
 // classify guesses an indicator's kind from its shape. It is best-effort:
 // a dotted token with no slash (e.g. "loot.tgz") is ambiguous with a
 // domain and is treated as a domain, so filename indicators that could

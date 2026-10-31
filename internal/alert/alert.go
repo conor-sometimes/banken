@@ -26,7 +26,8 @@ type Alert struct {
 	Rule    string      `json:"rule"`             // rule name / indicator feed
 	RuleID  string      `json:"ruleId,omitempty"` // Sigma rule id, if any
 	Title   string      `json:"title"`
-	Level   string      `json:"level"` // critical|high|medium|low
+	Desc    string      `json:"desc,omitempty"` // the rule's description, for OCSF finding_info.desc and the analyst's first read
+	Level   string      `json:"level"`          // critical|high|medium|low
 	Source  string      `json:"source"`
 	Tags    []string    `json:"tags,omitempty"` // the rule's ATT&CK tags (attack.tNNNN...), for OCSF + response selectors
 	IOC     string      `json:"ioc,omitempty"`  // the matched indicator, for KindIOC

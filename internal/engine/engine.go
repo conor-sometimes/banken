@@ -43,6 +43,7 @@ func (e *Engine) Match(ev event.Event) []alert.Alert {
 			Rule:    r.Name,
 			RuleID:  r.ID,
 			Title:   r.Title,
+			Desc:    r.Description,
 			Level:   defaultLevel(r.Level),
 			Source:  ev.Source,
 			Tags:    r.Tags,

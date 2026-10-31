@@ -38,17 +38,18 @@ func main() {
 }
 
 type flags struct {
-	configPath string
-	rules      string
-	statePath  string
-	watch      bool
-	interval   time.Duration
-	journal    bool
-	jsonlDir   string
-	retention  int
-	webhookURL string
-	style      string
-	showVer    bool
+	configPath  string
+	rules       string
+	statePath   string
+	watch       bool
+	interval    time.Duration
+	journal     bool
+	jsonlDir    string
+	jsonlFormat string
+	retention   int
+	webhookURL  string
+	style       string
+	showVer     bool
 }
 
 // logf / logln write progress to a Writer, discarding the write error
@@ -73,9 +74,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs.DurationVar(&f.interval, "interval", 2*time.Minute, "scan interval in --watch mode")
 	fs.BoolVar(&f.journal, "journal", false, "enable the journal sink (to stderr)")
 	fs.StringVar(&f.jsonlDir, "jsonl-dir", "", "enable the jsonl sink, writing per-day files here")
+	fs.StringVar(&f.jsonlFormat, "jsonl-format", "", "jsonl encoding: banken (native) | ocsf (OCSF Detection Finding); default banken")
 	fs.IntVar(&f.retention, "jsonl-retention", 30, "days of jsonl alert files to keep (0 = forever)")
 	fs.StringVar(&f.webhookURL, "webhook-url-file", "", "enable the webhook sink, URL read from this file")
-	fs.StringVar(&f.style, "webhook-style", "generic", "webhook body style: generic|slack|discord|ntfy")
+	fs.StringVar(&f.style, "webhook-style", "generic", "webhook body style: generic|slack|discord|ntfy|ocsf")
 	fs.BoolVar(&f.showVer, "version", false, "print version and exit")
 
 	// Allow repeated -source type:path to add inputs on the command line.
@@ -284,6 +286,9 @@ func buildConfig(f flags, sources multiFlag) (config.Config, error) {
 		cfg.Alerts.JSONL.Dir = f.jsonlDir
 		cfg.Alerts.JSONL.RetentionDays = f.retention
 	}
+	if f.jsonlFormat != "" {
+		cfg.Alerts.JSONL.Format = f.jsonlFormat
+	}
 	if f.webhookURL != "" {
 		cfg.Alerts.Webhook.Enable = true
 		cfg.Alerts.Webhook.URLFile = f.webhookURL
@@ -299,14 +304,25 @@ func buildConfig(f flags, sources multiFlag) (config.Config, error) {
 	return cfg, nil
 }
 
-// buildSinks constructs the enabled sinks.
+// buildSinks constructs the enabled sinks. OCSF options (product version,
+// hostname) are gathered once and shared by any sink configured for OCSF.
 func buildSinks(cfg config.Config, stderr io.Writer) ([]alert.Sink, error) {
+	ocsfOpts := alert.OCSFOptions{
+		ProductVersion: version,
+		Hostname:       ocsfHostname(stderr),
+		Now:            time.Now,
+	}
+
 	var sinks []alert.Sink
 	if cfg.Alerts.Journal.Enable {
 		sinks = append(sinks, alert.NewJournalSink(stderr))
 	}
 	if cfg.Alerts.JSONL.Enable {
-		js, err := alert.NewJSONLSink(cfg.Alerts.JSONL.Dir, cfg.Alerts.JSONL.RetentionDays)
+		enc, err := jsonlEncoder(cfg.Alerts.JSONL.Format, ocsfOpts)
+		if err != nil {
+			return nil, err
+		}
+		js, err := alert.NewJSONLSinkEncoded(cfg.Alerts.JSONL.Dir, cfg.Alerts.JSONL.RetentionDays, enc)
 		if err != nil {
 			return nil, err
 		}
@@ -316,6 +332,7 @@ func buildSinks(cfg config.Config, stderr io.Writer) ([]alert.Sink, error) {
 		ws, err := alert.NewWebhookSink(alert.WebhookConfig{
 			URLFile: cfg.Alerts.Webhook.URLFile,
 			Style:   cfg.Alerts.Webhook.WebhookStyle(),
+			OCSF:    ocsfOpts,
 		})
 		if err != nil {
 			return nil, err
@@ -323,6 +340,33 @@ func buildSinks(cfg config.Config, stderr io.Writer) ([]alert.Sink, error) {
 		sinks = append(sinks, ws)
 	}
 	return sinks, nil
+}
+
+// jsonlEncoder picks the jsonl encoder from the configured format. An unknown
+// value is an error naming it -- never a silent fallback to the native shape,
+// because an operator who asked for ocsf and got banken JSON would only find
+// out from their SIEM.
+func jsonlEncoder(format string, o alert.OCSFOptions) (alert.Encoder, error) {
+	switch format {
+	case "", "banken":
+		return alert.EncodeAlert, nil
+	case "ocsf":
+		return alert.EncodeOCSF(o), nil
+	default:
+		return nil, fmt.Errorf("unknown jsonl format %q (want banken or ocsf)", format)
+	}
+}
+
+// ocsfHostname is the host identity stamped into OCSF findings' device
+// object. A failure or empty result omits the device object (its constraint
+// needs an identifier); the sink still works, so this never fails a run.
+func ocsfHostname(stderr io.Writer) string {
+	h, err := os.Hostname()
+	if err != nil || h == "" {
+		logln(stderr, "banken: os.Hostname() unavailable; OCSF findings will omit device.hostname")
+		return ""
+	}
+	return h
 }
 
 func splitComma(s string) []string {

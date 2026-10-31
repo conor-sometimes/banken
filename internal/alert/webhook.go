@@ -24,6 +24,9 @@ const (
 	StyleDiscord WebhookStyle = "discord"
 	// StyleNtfy posts a plain-text body (ntfy topic).
 	StyleNtfy WebhookStyle = "ntfy"
+	// StyleOCSF posts the OCSF Detection Finding JSON (application/json), for
+	// a generic OCSF HTTP receiver, Datadog log intake, or Splunk HEC /raw.
+	StyleOCSF WebhookStyle = "ocsf"
 )
 
 // WebhookSink POSTs each alert to a URL. The URL is a secret and is read
@@ -35,6 +38,7 @@ type WebhookSink struct {
 	url    string
 	style  WebhookStyle
 	client *http.Client
+	ocsf   OCSFOptions // used only by StyleOCSF
 }
 
 // WebhookConfig configures a WebhookSink.
@@ -48,6 +52,8 @@ type WebhookConfig struct {
 	Style WebhookStyle
 	// Client is the HTTP client (defaults to a 10s-timeout client).
 	Client *http.Client
+	// OCSF is the per-deployment context for StyleOCSF (ignored otherwise).
+	OCSF OCSFOptions
 }
 
 // NewWebhookSink reads the URL from the configured file (or uses the inline
@@ -75,7 +81,7 @@ func NewWebhookSink(cfg WebhookConfig) (*WebhookSink, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &WebhookSink{url: url, style: style, client: client}, nil
+	return &WebhookSink{url: url, style: style, client: client, ocsf: cfg.OCSF}, nil
 }
 
 // Name implements Sink.
@@ -120,6 +126,9 @@ func (s *WebhookSink) shape(a Alert) (body []byte, contentType string, err error
 		return b, "application/json", e
 	case StyleNtfy:
 		return []byte(summaryLine(a)), "text/plain", nil
+	case StyleOCSF:
+		b, e := EncodeOCSF(s.ocsf)(a)
+		return b, "application/json", e
 	default: // generic
 		b, e := json.Marshal(a)
 		return b, "application/json", e

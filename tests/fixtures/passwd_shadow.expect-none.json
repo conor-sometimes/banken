@@ -4,6 +4,8 @@
     "image": "/usr/bin/passwd",
     "commandLine": "passwd",
     "targetFilename": "/etc/shadow",
-    "user": "0"
+    "user": "0",
+    "pid": 4700,
+    "ppid": 4699
   }
 ]

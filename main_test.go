@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/conor-sometimes/banken/internal/alert"
 	"github.com/conor-sometimes/banken/internal/engine"
 	"github.com/conor-sometimes/banken/internal/parser"
 )
@@ -104,6 +106,75 @@ func TestRunOneShotWritesAlertAndAdvancesCursor(t *testing.T) {
 	}
 	if alertLines != firstRunAlerts {
 		t.Errorf("second run should add no new alerts (cursor advanced): was %d, now %d", firstRunAlerts, alertLines)
+	}
+}
+
+// TestRunJSONLFormatOCSF is the OCSF path end to end: flags -> buildSinks ->
+// the jsonl sink's encoder -> a file a SIEM shipper would tail. Every line
+// must be one Detection Finding at the pinned version.
+func TestRunJSONLFormatOCSF(t *testing.T) {
+	dir := t.TempDir()
+	rulesDir := filepath.Join(dir, "rules", "credential-access")
+	if err := os.MkdirAll(rulesDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rulesDir, "smoke.yml"), []byte(smokeRule), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "audit.jsonl")
+	if err := os.WriteFile(logPath, []byte(smokeLaurelNow()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	jsonlDir := filepath.Join(dir, "alerts")
+	args := []string{
+		"-rules", filepath.Join(dir, "rules"),
+		"-state", filepath.Join(dir, "cursor.json"),
+		"-jsonl-dir", jsonlDir,
+		"-jsonl-format", "ocsf",
+		"-source", "laurel:" + logPath,
+	}
+	var stdout, stderr bytes.Buffer
+	if err := run(args, &stdout, &stderr); err != nil {
+		t.Fatalf("run: %v\nstderr:\n%s", err, stderr.String())
+	}
+	entries, err := os.ReadDir(jsonlDir)
+	if err != nil {
+		t.Fatalf("read alert dir: %v", err)
+	}
+	var findings int
+	for _, e := range entries {
+		data, _ := os.ReadFile(filepath.Join(jsonlDir, e.Name()))
+		for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			var f alert.OCSFFinding
+			if err := json.Unmarshal([]byte(l), &f); err != nil {
+				t.Fatalf("line is not JSON: %v\n%s", err, l)
+			}
+			if f.ClassUID != 2004 || f.Metadata.Version != alert.OCSFVersion {
+				t.Errorf("line is not an OCSF %s Detection Finding: class_uid=%d version=%q", alert.OCSFVersion, f.ClassUID, f.Metadata.Version)
+			}
+			findings++
+		}
+	}
+	if findings < 1 {
+		t.Errorf("expected at least one OCSF finding, got %d", findings)
+	}
+}
+
+// TestRunJSONLFormatUnknownIsAnError locks the no-silent-fallback contract:
+// an operator who typos "ocsf" must hear about it at startup, not discover
+// banken JSON in their SIEM.
+func TestRunJSONLFormatUnknownIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	args := []string{
+		"-state", filepath.Join(dir, "cursor.json"),
+		"-jsonl-dir", filepath.Join(dir, "alerts"),
+		"-jsonl-format", "ocfs",
+		"-source", "laurel:" + filepath.Join(dir, "missing.log"),
+	}
+	var stdout, stderr bytes.Buffer
+	err := run(args, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), `"ocfs"`) {
+		t.Fatalf("want an error naming the unknown format, got %v", err)
 	}
 }
 

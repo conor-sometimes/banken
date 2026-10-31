@@ -170,7 +170,7 @@ func Compile(data []byte) (*Rule, error) {
 		Title:       raw.Title,
 		ID:          raw.ID,
 		Level:       raw.Level,
-		Description: raw.Description,
+		Description: strings.TrimSpace(raw.Description), // YAML's folded `>` leaves a trailing newline
 		Tags:        raw.Tags,
 		selections:  map[string]selection{},
 	}
