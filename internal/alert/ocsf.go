@@ -207,8 +207,10 @@ type ocsfObservable struct {
 }
 
 // ocsfOsint is one indicator from threat intelligence (the osint profile):
-// for an IOC alert, the indicator the feed matched.
+// for an IOC alert, the indicator the feed matched. Name is the feed it came
+// from (osint extends _entity, which needs a name or uid).
 type ocsfOsint struct {
+	Name   string `json:"name"`
 	TypeID int    `json:"type_id"`
 	Type   string `json:"type,omitempty"`
 	Value  string `json:"value"`
@@ -488,7 +490,11 @@ func ocsfOsintFor(a Alert) []ocsfOsint {
 	if a.Kind != KindIOC || a.IOC == "" {
 		return nil
 	}
-	o := ocsfOsint{TypeID: 99, Type: "File Name", Value: a.IOC}
+	name := a.Rule // the feed, e.g. evil-c2.txt
+	if name == "" {
+		name = a.IOC
+	}
+	o := ocsfOsint{Name: name, TypeID: 99, Type: "File Name", Value: a.IOC}
 	switch ioc.Classify(a.IOC) {
 	case ioc.KindIP:
 		o.TypeID, o.Type = 1, "IP Address"

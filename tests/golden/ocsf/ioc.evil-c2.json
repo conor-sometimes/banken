@@ -102,6 +102,7 @@
   ],
   "osint": [
     {
+      "name": "evil-c2.txt",
       "type_id": 1,
       "type": "IP Address",
       "value": "192.0.2.44"
