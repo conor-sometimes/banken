@@ -1,0 +1,63 @@
+title: Agent account accessed SSH files
+id: 2ff759c6-22b8-45e6-a241-f20d2012f05e
+status: experimental
+description: >
+  A non-human service or agent account touched an SSH file - a private key, authorized_keys, config
+  or known_hosts. These accounts (an AI coding agent, a CI runner) have no legitimate reason to read
+  SSH material, so any access is signal: a private key is theft, authorized_keys is a backdoor being
+  planted, and config / known_hosts is reconnaissance for where to move next. The rule is scoped by
+  account name because on a human login ssh reads these files constantly - it is the *who*, not the
+  file, that makes it suspicious. Add or remove accounts in the `agent_user` selection.
+
+  This is an "agentic AI detection" rule: a detection written for the behaviour of an autonomous
+  agent, a class SigmaHQ does not yet cover. See rules/agent/README.md.
+references:
+  - https://github.com/conor-sometimes/nixos-agent-containment
+  - https://attack.mitre.org/techniques/T1552/004/
+author: banken
+date: 2026-10-31
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.credential-access
+  - attack.t1552.004
+  - attack.discovery
+  - attack.t1018
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  # The file that was acted on (binary-agnostic: whatever program opened it).
+  ssh_file:
+    TargetFilename|contains:
+      - /.ssh/id_
+      - /.ssh/authorized_keys
+      - /.ssh/config
+      - /.ssh/known_hosts
+      - id_rsa
+      - id_ed25519
+      - id_ecdsa
+  # Or a reader naming an .ssh path on its command line, when no PATH record is present.
+  reader:
+    Image|endswith:
+      - /cat
+      - /less
+      - /more
+      - /head
+      - /tail
+      - /base64
+      - /xxd
+      - /cp
+      - /vi
+      - /vim
+      - /nano
+  reader_ssh:
+    CommandLine|contains: /.ssh/
+  condition: agent_user and (ssh_file or (reader and reader_ssh))
+falsepositives:
+  - An agent account that legitimately uses SSH (a deploy agent). Then this rule is not for that
+    account; take it out of the `agent_user` list.
+level: high

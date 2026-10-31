@@ -1,0 +1,29 @@
+[
+  {
+    "source": "laurel",
+    "image": "/run/current-system/sw/bin/cat",
+    "commandLine": "cat /home/claude/.ssh/config",
+    "targetFilename": "/home/claude/.ssh/config",
+    "user": "claude",
+    "pid": 8100,
+    "ppid": 8099
+  },
+  {
+    "source": "laurel",
+    "image": "/run/current-system/sw/bin/cat",
+    "commandLine": "cat /home/claude/.ssh/known_hosts",
+    "targetFilename": "/home/claude/.ssh/known_hosts",
+    "user": "claude",
+    "pid": 8101,
+    "ppid": 8099
+  },
+  {
+    "source": "laurel",
+    "image": "/run/current-system/sw/bin/tee",
+    "commandLine": "tee -a /home/redteam/.ssh/authorized_keys",
+    "targetFilename": "/home/redteam/.ssh/authorized_keys",
+    "user": "redteam",
+    "pid": 8102,
+    "ppid": 8099
+  }
+]

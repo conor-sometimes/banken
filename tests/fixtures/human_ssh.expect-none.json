@@ -1,0 +1,20 @@
+[
+  {
+    "source": "laurel",
+    "image": "/usr/bin/ssh",
+    "commandLine": "ssh deploy@host",
+    "targetFilename": "/home/conor/.ssh/config",
+    "user": "conor",
+    "pid": 8200,
+    "ppid": 8199
+  },
+  {
+    "source": "laurel",
+    "image": "/usr/bin/cat",
+    "commandLine": "cat /home/conor/.ssh/known_hosts",
+    "targetFilename": "/home/conor/.ssh/known_hosts",
+    "user": "conor",
+    "pid": 8201,
+    "ppid": 8199
+  }
+]
