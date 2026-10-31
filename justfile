@@ -83,6 +83,16 @@ test: fuzz property-deep
 cover:
 	go test ./... -cover -count=1
 
+# Mutation testing on the detection core (periodic, NOT part of `just default`
+# -- it reruns the suite once per mutant). It mutates the code and fails if too
+# few mutants are killed, which proves the tests actually catch regressions
+# rather than merely running green. A handful of surviving mutants are
+# equivalent (a sort over equal keys, an early-return optimization) and do not
+# change behaviour, so the efficacy threshold sits below 100 deliberately.
+# Needs gremlins: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.5.0
+mutation:
+	gremlins unleash --timeout-coefficient 8 --threshold-efficacy 90 --threshold-mcover 75 ./internal/sigma
+
 # --- performance: tracked, not vibed ---
 #
 # bench runs the in-process Go benchmarks (matcher, parsers) with the race
