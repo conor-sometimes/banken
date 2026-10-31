@@ -75,6 +75,13 @@ type Result struct {
 	Events int
 	Alerts int
 	Errors []error
+	// ParseErr is non-nil when the source could not be fully parsed (an I/O
+	// error or a recovered parser panic). The caller uses it to decide
+	// whether to advance the cursor: advancing past bytes that did not parse
+	// cleanly would skip events on the next run. It is a dedicated field
+	// precisely so that decision is made on a real signal, not by matching
+	// the text of an error. It is also included in Errors for logging.
+	ParseErr error
 }
 
 // Process parses r with p, matches every event, and dispatches every
@@ -91,7 +98,8 @@ func (e *Engine) Process(p parser.Parser, r io.Reader) Result {
 	var res Result
 	events, err := e.safeParse(p, r)
 	if err != nil {
-		res.Errors = append(res.Errors, fmt.Errorf("parse %s: %w", p.Name(), err))
+		res.ParseErr = fmt.Errorf("parse %s: %w", p.Name(), err)
+		res.Errors = append(res.Errors, res.ParseErr)
 	}
 	res.Events = len(events)
 	for _, ev := range events {

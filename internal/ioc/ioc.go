@@ -8,9 +8,11 @@ package ioc
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -100,6 +102,38 @@ func LoadTree(dirs ...string) (*Set, error) {
 // NewSet returns an empty Set ready for Read/Add.
 func NewSet() *Set {
 	return &Set{exact: map[string]Indicator{}}
+}
+
+// ReadFS loads every <root>/ioc/*.txt from an fs.FS into the set (for the
+// baseline feeds embedded with //go:embed). A missing ioc dir is fine --
+// feeds are optional. Values duplicated with an on-disk feed are harmless:
+// Match deduplicates hits by (value, field).
+func (s *Set) ReadFS(fsys fs.FS, roots ...string) error {
+	for _, root := range roots {
+		iocDir := path.Join(root, "ioc")
+		err := fs.WalkDir(fsys, iocDir, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return fs.SkipDir
+				}
+				return err
+			}
+			if d.IsDir() || strings.ToLower(path.Ext(p)) != ".txt" {
+				return nil
+			}
+			f, err := fsys.Open(p)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = f.Close() }()
+			s.Read(f, path.Base(p))
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Read parses one indicator list from r, tagging each with source. A blank

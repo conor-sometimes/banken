@@ -10,10 +10,12 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -88,15 +90,29 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	rules, problems := sigma.LoadTree(cfg.Rules...)
+	// Zero-fiddle: with nothing configured, find the host's audit log so a
+	// bare `banken` still does something useful.
+	if len(cfg.Sources) == 0 {
+		cfg.Sources = config.AutoDetectSources(nil)
+		if len(cfg.Sources) == 0 {
+			logln(stderr, "banken: no log source configured or auto-detected; "+
+				"pass -source type:path or set sources in the config (will retry next run)")
+		} else {
+			logf(stderr, "banken: auto-detected source: %s %s\n", cfg.Sources[0].Type, cfg.Sources[0].Path)
+		}
+	}
+
+	rules, problems := loadRules(cfg.Rules)
 	for _, p := range problems {
 		// A malformed rule is surfaced, loudly, never silently dropped.
 		logln(stderr, "banken: rule error:", p.Error())
 	}
 	if len(rules) == 0 {
-		return fmt.Errorf("no rules loaded from %s", strings.Join(cfg.Rules, ", "))
+		// The embedded baseline should always load, so this means the binary
+		// itself is broken, not a misconfiguration.
+		return errors.New("no rules loaded (embedded baseline missing?)")
 	}
-	iocSet, err := ioc.LoadTree(cfg.Rules...)
+	iocSet, err := loadIOCs(cfg.Rules)
 	if err != nil {
 		return fmt.Errorf("loading IOCs: %w", err)
 	}
@@ -150,9 +166,11 @@ func scanOnce(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 			logln(stderr, "banken:", e)
 		}
 		totalAlerts += res.Alerts
-		// Advance the cursor only if the read itself did not fail; bad
-		// content (skipped by the parser) still counts as consumed.
-		if !hasIOError(res.Errors) {
+		// Advance the cursor only if the source parsed cleanly; a parse/read
+		// failure leaves the offset so the next run re-reads those bytes.
+		// Bad content a parser merely skipped (not an error) still counts as
+		// consumed.
+		if res.ParseErr == nil {
 			cursor.Offsets[src.Path] = newOffset
 		}
 		logf(stderr, "banken: %s %s: %d events, %d alerts\n", src.Type, src.Path, res.Events, res.Alerts)
@@ -184,13 +202,53 @@ func watch(eng *engine.Engine, cfg config.Config, interval time.Duration, stderr
 	return nil
 }
 
-func hasIOError(errs []error) bool {
-	for _, e := range errs {
-		if strings.Contains(e.Error(), "parse ") {
-			return true
+// loadRules loads the embedded baseline rule tree and then any on-disk rule
+// dirs that exist, with on-disk rules overriding the baseline on a name
+// clash. A missing on-disk dir is not an error -- the embedded baseline means
+// detection works with nothing on disk (the zero-fiddle goal).
+func loadRules(dirs []string) ([]*sigma.Rule, []sigma.RuleError) {
+	base, problems := sigma.LoadFS(embeddedRules, "rules")
+	byName := make(map[string]*sigma.Rule, len(base))
+	for _, r := range base {
+		byName[r.Name] = r
+	}
+	disk, dprobs := sigma.LoadTree(existingDirs(dirs)...)
+	problems = append(problems, dprobs...)
+	for _, r := range disk {
+		byName[r.Name] = r // on-disk wins
+	}
+	out := make([]*sigma.Rule, 0, len(byName))
+	for _, r := range byName {
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, problems
+}
+
+// loadIOCs loads the on-disk IOC feeds (if any) and the embedded baseline
+// into one set. Duplicate values are harmless -- Match dedups by value+field.
+func loadIOCs(dirs []string) (*ioc.Set, error) {
+	set, err := ioc.LoadTree(existingDirs(dirs)...)
+	if err != nil {
+		return nil, err
+	}
+	if err := set.ReadFS(embeddedRules, "rules"); err != nil {
+		return nil, err
+	}
+	return set, nil
+}
+
+// existingDirs keeps only the paths that exist and are directories, so a
+// default rules dir that was never created is quietly skipped rather than
+// reported as a rule error on every run.
+func existingDirs(dirs []string) []string {
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+			out = append(out, d)
 		}
 	}
-	return false
+	return out
 }
 
 // buildConfig loads the config file (if any) and applies flag overrides.

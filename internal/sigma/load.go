@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -60,6 +61,58 @@ func LoadTree(dirs ...string) ([]*Rule, []RuleError) {
 				problems = append(problems, RuleError{Path: path, Err: perr})
 				return nil
 			}
+			rules = append(rules, rule)
+			return nil
+		})
+	}
+
+	sort.Slice(rules, func(i, j int) bool { return rules[i].Name < rules[j].Name })
+	return rules, problems
+}
+
+// LoadFS is LoadTree over an fs.FS instead of the real filesystem, so the
+// binary can carry a baseline ruleset embedded with //go:embed and still be
+// read by the same compiler. roots are directories within fsys (slash
+// paths). Same contract as LoadTree: every rule that compiled, plus a
+// RuleError per file that did not; ioc/ is skipped.
+func LoadFS(fsys fs.FS, roots ...string) ([]*Rule, []RuleError) {
+	var rules []*Rule
+	var problems []RuleError
+	seen := map[string]bool{}
+
+	for _, root := range roots {
+		_ = fs.WalkDir(fsys, root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				problems = append(problems, RuleError{Path: p, Err: err})
+				return nil
+			}
+			if d.IsDir() {
+				if d.Name() == "ioc" {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			ext := strings.ToLower(path.Ext(p))
+			if ext != ".yml" && ext != ".yaml" {
+				return nil
+			}
+			if seen[p] {
+				return nil
+			}
+			seen[p] = true
+
+			data, rerr := fs.ReadFile(fsys, p)
+			if rerr != nil {
+				problems = append(problems, RuleError{Path: p, Err: rerr})
+				return nil
+			}
+			rule, perr := Compile(data)
+			if perr != nil {
+				problems = append(problems, RuleError{Path: p, Err: perr})
+				return nil
+			}
+			rule.Path = p
+			rule.Name = strings.TrimSuffix(path.Base(p), path.Ext(p))
 			rules = append(rules, rule)
 			return nil
 		})

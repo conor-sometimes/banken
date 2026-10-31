@@ -59,15 +59,45 @@ type WebhookConfig struct {
 	Style   string `yaml:"style"`
 }
 
-// Default returns a config with sensible defaults for a one-shot run.
+// Default returns a config with sensible defaults for a one-shot run. The
+// defaults are the whole point of the zero-fiddle goal: with no config file
+// and no flags, banken loads its embedded baseline rules plus /etc/banken/rules
+// if present, auto-detects the host's log source (see AutoDetectSources),
+// and alerts to the journal.
 func Default() Config {
 	return Config{
-		Rules:     []string{"rules"},
+		Rules:     []string{"/etc/banken/rules"},
 		StatePath: "/var/lib/banken/cursor.json",
 		Alerts: Alerts{
 			Journal: JournalConfig{Enable: true},
 		},
 	}
+}
+
+// candidateSources are the known host log locations, in preference order:
+// Laurel's enriched JSON first, then the raw audit log. They carry the same
+// events (Laurel is auditd -> JSON), so AutoDetectSources picks the first that
+// exists rather than reading both and double-alerting.
+var candidateSources = []Source{
+	{Type: "laurel", Path: "/var/log/laurel/audit.log"},
+	{Type: "auditd", Path: "/var/log/audit/audit.log"},
+}
+
+// AutoDetectSources returns the first candidate log source that exists and is
+// readable, or nil if none do. It is used when neither the config nor the
+// flags name any source, so `banken` with no arguments still finds the host's
+// audit log on a normal system. statFn is injected for testing; pass nil for
+// the real filesystem.
+func AutoDetectSources(statFn func(string) (os.FileInfo, error)) []Source {
+	if statFn == nil {
+		statFn = os.Stat
+	}
+	for _, s := range candidateSources {
+		if fi, err := statFn(s.Path); err == nil && !fi.IsDir() {
+			return []Source{s}
+		}
+	}
+	return nil
 }
 
 // Load reads and parses a YAML config file.

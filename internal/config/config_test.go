@@ -64,3 +64,58 @@ func TestLoadMissingFileIsError(t *testing.T) {
 		t.Error("expected error for missing config file")
 	}
 }
+
+func TestAutoDetectSources(t *testing.T) {
+	// A fake filesystem: only the paths in `present` exist (as files).
+	fake := func(present ...string) func(string) (os.FileInfo, error) {
+		set := map[string]bool{}
+		for _, p := range present {
+			set[p] = true
+		}
+		return func(p string) (os.FileInfo, error) {
+			if set[p] {
+				fi, err := os.Stat(os.DevNull) // a real non-dir FileInfo
+				return fi, err
+			}
+			return nil, os.ErrNotExist
+		}
+	}
+
+	cases := []struct {
+		name    string
+		present []string
+		wantTyp string // "" = expect no source
+	}{
+		{"none", nil, ""},
+		{"laurel only", []string{"/var/log/laurel/audit.log"}, "laurel"},
+		{"auditd only", []string{"/var/log/audit/audit.log"}, "auditd"},
+		{"both prefers laurel", []string{"/var/log/laurel/audit.log", "/var/log/audit/audit.log"}, "laurel"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := AutoDetectSources(fake(tc.present...))
+			if tc.wantTyp == "" {
+				if len(got) != 0 {
+					t.Fatalf("expected no source, got %+v", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0].Type != tc.wantTyp {
+				t.Fatalf("got %+v, want one %q source", got, tc.wantTyp)
+			}
+		})
+	}
+}
+
+func TestAutoDetectSkipsADirectory(t *testing.T) {
+	// A candidate path that exists but is a directory must be skipped.
+	statFn := func(p string) (os.FileInfo, error) {
+		if p == "/var/log/laurel/audit.log" {
+			return os.Stat(t.TempDir()) // a dir
+		}
+		return nil, os.ErrNotExist
+	}
+	if got := AutoDetectSources(statFn); len(got) != 0 {
+		t.Fatalf("a directory candidate should be skipped, got %+v", got)
+	}
+}
