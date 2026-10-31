@@ -29,6 +29,8 @@ func main() {
 	examples := map[string]string{}
 
 	for _, root := range os.Args[1:] {
+		// #nosec G703 -- walks an operator-supplied rule tree; this is a dev
+		// measurement tool, the same trust boundary as the repo-wide G304 exclude.
 		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return nil //nolint:nilerr // walk errors are not the measurement
