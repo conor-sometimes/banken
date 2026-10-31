@@ -21,6 +21,15 @@
         default = banken;
       });
 
+      # nix run .#distro-matrix: every distro in tests/distros live under KVM, no
+      # manual steps (needs KVM and network for the guests' package installs).
+      apps.x86_64-linux.distro-matrix = {
+        type = "app";
+        program = nixpkgs.lib.getExe (nixpkgs.legacyPackages.x86_64-linux.callPackage ./tests/distros {
+          banken = self.packages.x86_64-linux.banken;
+        });
+      };
+
       # nix flake check: the end-to-end VM test (needs KVM).
       checks.x86_64-linux.vm = import ./tests/vm.nix { pkgs = nixpkgs.legacyPackages.x86_64-linux; };
     };
