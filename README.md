@@ -8,6 +8,9 @@ The goal is **SentinelOne for the masses**: install it in one command, no fiddli
 ruleset, the log source auto-detected, a hardened unit and timer, enabled. Everything below is in
 service of that (and of never lying about what's detected).
 
+Deeper docs are in [`docs/`](docs/): [architecture](docs/architecture.md),
+[writing rules](docs/writing-rules.md), [deployment](docs/deployment.md).
+
 Not an agent thing: banken watches the *whole host*. A contained AI agent, a cron job, a logged-in
 user — if it does something a rule flags, banken alerts. (The
 [agent containment](https://github.com/conor-sometimes/nixos-agent-containment) is one consumer: it
@@ -113,6 +116,12 @@ Naive matching grows linearly with the rule count; the compiled matcher stays fl
 the whole SigmaHQ Linux set, and its allocations per event are **constant** regardless of rule count.
 (Parallelising across events with a goroutine pool is a later, complementary lever — the matcher is
 read-only and so trivially parallel — but the algorithm is what makes rule count cheap.)
+
+**Detection latency** — the number that matters for an EDR. `BenchmarkDetectionLatency` times a real
+threat from log line to alert (parse one malicious record, match it against the full embedded
+baseline): **~10 µs** per threat event (≈8 µs for a clean event). End-to-end latency in a deployment
+is that compute plus at most one timer interval — the one-shot model's tradeoff — which `--watch` or
+a shorter interval shrinks. So the interval, not the matching, is the latency knob.
 
 ## Security model
 
