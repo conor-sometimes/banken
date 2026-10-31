@@ -11,9 +11,9 @@ func TestCursorRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "cursor.json")
 
-	c, err := LoadCursor(path) // missing -> empty, not an error
-	if err != nil {
-		t.Fatalf("LoadCursor missing: %v", err)
+	c, corrupted := LoadCursor(path) // missing -> fresh, not corrupt
+	if corrupted {
+		t.Fatal("missing cursor reported corrupted")
 	}
 	if len(c.Offsets) != 0 {
 		t.Errorf("fresh cursor should be empty, got %v", c.Offsets)
@@ -22,9 +22,9 @@ func TestCursorRoundTrip(t *testing.T) {
 	if err := c.Save(path); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	c2, err := LoadCursor(path)
-	if err != nil {
-		t.Fatalf("LoadCursor: %v", err)
+	c2, corrupted := LoadCursor(path)
+	if corrupted {
+		t.Fatal("round-tripped cursor reported corrupted")
 	}
 	if c2.Offsets["/var/log/audit.log"] != 4096 {
 		t.Errorf("offset not persisted: %v", c2.Offsets)
@@ -71,13 +71,43 @@ func TestCursorOpenAtSeeksAndHandlesRotation(t *testing.T) {
 	}
 }
 
-func TestCursorParseError(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "cursor.json")
-	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
+// LoadCursor must never fail: every bad cursor shape — missing, empty,
+// whitespace, truncated, corrupt JSON, binary garbage — is recovered to a
+// usable fresh cursor so banken keeps detecting (never die, always
+// recoverable). Only a non-empty unparseable file reports corrupted=true.
+func TestCursorAlwaysRecoverable(t *testing.T) {
+	cases := []struct {
+		name      string
+		write     bool
+		content   string
+		corrupted bool
+	}{
+		{"missing", false, "", false},
+		{"empty", true, "", false},
+		{"whitespace", true, "   \n\t", false},
+		{"corrupt", true, "{not json", true},
+		{"truncated", true, `{"offsets":{"a":1`, true},
+		{"garbage", true, "\x00\xff\xfe binary \x01", true},
 	}
-	if _, err := LoadCursor(path); err == nil {
-		t.Error("expected parse error for malformed cursor file")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "cursor.json")
+			if tc.write {
+				if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			c, corrupted := LoadCursor(path)
+			if c == nil || c.Offsets == nil {
+				t.Fatal("LoadCursor returned an unusable cursor")
+			}
+			if len(c.Offsets) != 0 {
+				t.Errorf("recovered cursor should be empty, got %v", c.Offsets)
+			}
+			if corrupted != tc.corrupted {
+				t.Errorf("corrupted = %v, want %v", corrupted, tc.corrupted)
+			}
+		})
 	}
 }

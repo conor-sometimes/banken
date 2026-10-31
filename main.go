@@ -126,9 +126,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 // scanOnce reads every source from its cursor, processes it, and advances
 // the cursor only for sources that read without an I/O error.
 func scanOnce(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
-	cursor, err := engine.LoadCursor(cfg.StatePath)
-	if err != nil {
-		return err
+	cursor, corrupted := engine.LoadCursor(cfg.StatePath)
+	if corrupted {
+		logf(stderr, "banken: cursor at %s was unreadable, starting fresh (re-reading sources this pass)\n", cfg.StatePath)
 	}
 	reg := parser.Registry()
 	totalAlerts := 0

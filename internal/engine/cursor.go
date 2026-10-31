@@ -1,8 +1,8 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,24 +17,27 @@ type Cursor struct {
 	Offsets map[string]int64 `json:"offsets"`
 }
 
-// LoadCursor reads a cursor from path. A missing file yields an empty
-// cursor (first run), not an error.
-func LoadCursor(path string) (*Cursor, error) {
+// LoadCursor reads a cursor from path and never fails: it always returns a
+// usable cursor. A missing, empty, or unreadable file is a silent fresh start
+// (first run). A non-empty file that does not parse is also recovered to a
+// fresh cursor but reports corrupted=true so the caller can warn. This is the
+// EDR-availability rule — losing the cursor means at worst re-reading a log
+// once (a possible duplicate alert, self-healed by the next Save), whereas
+// halting on a bad byte would silently stop protection.
+func LoadCursor(path string) (c *Cursor, corrupted bool) {
+	fresh := &Cursor{Offsets: map[string]int64{}}
 	data, err := os.ReadFile(path) //nolint:gosec // operator-supplied state path
-	if errors.Is(err, os.ErrNotExist) {
-		return &Cursor{Offsets: map[string]int64{}}, nil
+	if err != nil || len(bytes.TrimSpace(data)) == 0 {
+		return fresh, false // missing / unreadable / empty -> fresh, nothing to warn about
 	}
-	if err != nil {
-		return nil, fmt.Errorf("cursor: read %s: %w", path, err)
+	var loaded Cursor
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		return fresh, true // corrupt content -> fresh + signal; re-read from the top this pass
 	}
-	var c Cursor
-	if err := json.Unmarshal(data, &c); err != nil {
-		return nil, fmt.Errorf("cursor: parse %s: %w", path, err)
+	if loaded.Offsets == nil {
+		loaded.Offsets = map[string]int64{}
 	}
-	if c.Offsets == nil {
-		c.Offsets = map[string]int64{}
-	}
-	return &c, nil
+	return &loaded, false
 }
 
 // Save atomically writes the cursor to path (write-temp-then-rename), so a
