@@ -19,17 +19,18 @@ import (
 
 // Engine matches events and dispatches alerts.
 type Engine struct {
-	rules []*sigma.Rule
-	iocs  *ioc.Set
-	disp  *alert.Dispatcher
-	now   func() time.Time
+	matcher *sigma.Matcher
+	iocs    *ioc.Set
+	disp    *alert.Dispatcher
+	now     func() time.Time
 }
 
 // New builds an engine. iocs and disp may be nil (no IOC matching / no
 // dispatch), which keeps the matcher usable in tests that only inspect the
-// returned alerts.
+// returned alerts. The rules are compiled into a prefiltered matcher so the
+// per-event cost does not grow with the rule count.
 func New(rules []*sigma.Rule, iocs *ioc.Set, disp *alert.Dispatcher) *Engine {
-	return &Engine{rules: rules, iocs: iocs, disp: disp, now: time.Now}
+	return &Engine{matcher: sigma.NewMatcher(rules), iocs: iocs, disp: disp, now: time.Now}
 }
 
 // Match returns every alert an event produces (Sigma rules first, in rule
@@ -37,20 +38,18 @@ func New(rules []*sigma.Rule, iocs *ioc.Set, disp *alert.Dispatcher) *Engine {
 // event and rule set.
 func (e *Engine) Match(ev event.Event) []alert.Alert {
 	var alerts []alert.Alert
-	for _, r := range e.rules {
-		if r.Match(ev) {
-			alerts = append(alerts, alert.Alert{
-				Time:    ev.Time,
-				Kind:    alert.KindSigma,
-				Rule:    r.Name,
-				RuleID:  r.ID,
-				Title:   r.Title,
-				Level:   defaultLevel(r.Level),
-				Source:  ev.Source,
-				Message: fmt.Sprintf("rule %q matched", r.Name),
-				Event:   ev,
-			})
-		}
+	for _, r := range e.matcher.Match(ev) {
+		alerts = append(alerts, alert.Alert{
+			Time:    ev.Time,
+			Kind:    alert.KindSigma,
+			Rule:    r.Name,
+			RuleID:  r.ID,
+			Title:   r.Title,
+			Level:   defaultLevel(r.Level),
+			Source:  ev.Source,
+			Message: fmt.Sprintf("rule %q matched", r.Name),
+			Event:   ev,
+		})
 	}
 	if e.iocs != nil {
 		for _, m := range e.iocs.Match(ev) {
@@ -82,15 +81,26 @@ type Result struct {
 // alert. A parser I/O error is returned in Result.Errors but processing of
 // whatever events were parsed still happens. If the engine has no
 // dispatcher, alerts are counted but not delivered.
+//
+// Both the parse and each event's match run under a panic guard: a bug (or
+// a crafted input designed to trip one) takes out at most that one source
+// or that one event, never the whole scan. Blinding the detector by feeding
+// it one pathological record is precisely the attack this prevents, so a
+// recovered panic is surfaced as an error, not swallowed.
 func (e *Engine) Process(p parser.Parser, r io.Reader) Result {
 	var res Result
-	events, err := p.Parse(r)
+	events, err := e.safeParse(p, r)
 	if err != nil {
 		res.Errors = append(res.Errors, fmt.Errorf("parse %s: %w", p.Name(), err))
 	}
 	res.Events = len(events)
 	for _, ev := range events {
-		for _, a := range e.Match(ev) {
+		alerts, perr := e.safeMatch(ev)
+		if perr != nil {
+			res.Errors = append(res.Errors, perr)
+			continue
+		}
+		for _, a := range alerts {
 			res.Alerts++
 			if e.disp != nil {
 				res.Errors = append(res.Errors, e.disp.Dispatch(a)...)
@@ -98,6 +108,30 @@ func (e *Engine) Process(p parser.Parser, r io.Reader) Result {
 		}
 	}
 	return res
+}
+
+// safeParse runs the parser under a recover so a parser bug on one source
+// cannot abort the whole run.
+func (e *Engine) safeParse(p parser.Parser, r io.Reader) (events []event.Event, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			events = nil
+			err = fmt.Errorf("parser %s panicked (recovered): %v", p.Name(), rec)
+		}
+	}()
+	return p.Parse(r)
+}
+
+// safeMatch runs the matcher under a recover so one event can never crash
+// the scan.
+func (e *Engine) safeMatch(ev event.Event) (alerts []alert.Alert, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			alerts = nil
+			err = fmt.Errorf("match panicked (recovered) on event from %s: %v", ev.Source, rec)
+		}
+	}()
+	return e.Match(ev), nil
 }
 
 // defaultLevel supplies a level for a rule that declared none.

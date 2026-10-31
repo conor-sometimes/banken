@@ -9,25 +9,43 @@ import (
 
 // condNode is a node in a parsed condition expression. eval is given a
 // resolver that reports whether a named selection matched.
+//
+// upperBound is the prefilter's sound over-approximation (see matcher.go):
+// given could(name) = "selection name could possibly match, judged only
+// from which literals are present in the event", it returns an upper bound
+// on eval -- true whenever eval could be true. It must never return false
+// where eval could be true (that would skip a real detection), so a `not`
+// subtree, whose truth a literal-presence test cannot lower-bound, counts
+// as true. upperBound(cond) >= eval(cond) always holds, which is what makes
+// skipping a rule whose upperBound is false safe.
 type condNode interface {
 	eval(sel func(name string) bool) bool
+	upperBound(could func(name string) bool) bool
 }
 
 type condRef struct{ name string }
 
-func (c condRef) eval(sel func(string) bool) bool { return sel(c.name) }
+func (c condRef) eval(sel func(string) bool) bool         { return sel(c.name) }
+func (c condRef) upperBound(could func(string) bool) bool { return could(c.name) }
 
 type condNot struct{ x condNode }
 
-func (c condNot) eval(sel func(string) bool) bool { return !c.x.eval(sel) }
+func (c condNot) eval(sel func(string) bool) bool   { return !c.x.eval(sel) }
+func (c condNot) upperBound(func(string) bool) bool { return true } // cannot lower-bound the child
 
 type condAnd struct{ l, r condNode }
 
 func (c condAnd) eval(sel func(string) bool) bool { return c.l.eval(sel) && c.r.eval(sel) }
+func (c condAnd) upperBound(could func(string) bool) bool {
+	return c.l.upperBound(could) && c.r.upperBound(could)
+}
 
 type condOr struct{ l, r condNode }
 
 func (c condOr) eval(sel func(string) bool) bool { return c.l.eval(sel) || c.r.eval(sel) }
+func (c condOr) upperBound(could func(string) bool) bool {
+	return c.l.upperBound(could) || c.r.upperBound(could)
+}
 
 // condQuant is "N of <pattern>" / "all of <pattern>": it matches when at
 // least n (or every, for all) of the selections whose name matches pattern
@@ -41,6 +59,17 @@ type condQuant struct {
 }
 
 func (c condQuant) eval(sel func(string) bool) bool {
+	return c.count(sel)
+}
+
+// upperBound counts selections that *could* match: an "n of" quantifier can
+// only fire if at least n of its selections could match, so a found-literal
+// count below n safely eliminates the rule.
+func (c condQuant) upperBound(could func(string) bool) bool {
+	return c.count(could)
+}
+
+func (c condQuant) count(pred func(string) bool) bool {
 	need := c.n
 	if c.all {
 		need = len(c.names)
@@ -50,7 +79,7 @@ func (c condQuant) eval(sel func(string) bool) bool {
 	}
 	got := 0
 	for _, name := range c.names {
-		if sel(name) {
+		if pred(name) {
 			got++
 			if got >= need {
 				return true

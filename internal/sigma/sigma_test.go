@@ -8,7 +8,7 @@ import (
 )
 
 // compileOK compiles rule YAML and fails the test if it does not.
-func compileOK(t *testing.T, yml string) *Rule {
+func compileOK(t testing.TB, yml string) *Rule {
 	t.Helper()
 	r, err := Compile([]byte(yml))
 	if err != nil {
