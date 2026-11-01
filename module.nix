@@ -17,25 +17,37 @@ let
   cfg = config.services.banken;
   yaml = pkgs.formats.yaml { };
 
+  # A live sensor (mimi or Sysmon-for-Linux) turns banken into a long-running daemon (--watch) that
+  # follows the sensor's stream continuously instead of the one-shot timer; the floor logic below
+  # keys off this.
+  streamEnabled = cfg.mimi.enable || cfg.sysmon.enable;
+
+  # The file banken tails for the sysmon source. On a journald-only host (no /var/log/syslog, the
+  # NixOS default and RHEL/Fedora/Amazon) banken tails the journal->file bridge below; otherwise it
+  # tails the syslog file Sysmon's events land in directly.
+  sysmonSourcePath = if cfg.sysmon.fromJournal then cfg.sysmon.bridgePath else cfg.sysmon.logPath;
+
   settings = {
     rules = [ "/etc/banken/rules" ] ++ map (p: "${p}") cfg.extraRules; # interpolation copies the tree to the store
     optionalRules = cfg.optionalRules;
     observeRules = cfg.observeRules;
     statePath = "/var/lib/banken/cursor.json";
-    # With the mimi sensor on, banken follows its OCSF event stream as a `mimi` source (added here so
-    # it needs no manual sources entry); the sensor itself is brought up below.
+    # With a live sensor on, banken follows its stream as a source (added here so it needs no manual
+    # sources entry): mimi's OCSF stream as a `mimi` source, and/or Sysmon-for-Linux as a `sysmon`
+    # source tailing the syslog file or the journal bridge. The sensors themselves are brought up below.
     #
-    # banken auto-detects the audit log only when `sources` is empty. Naming the mimi stream makes
+    # banken auto-detects the audit log only when `sources` is empty. Naming a sensor stream makes
     # the list non-empty, which would suppress that auto-detect and silently leave banken with no
-    # auditd floor -- the opposite of the soft-dependency intent (mimi adds to the floor, never
-    # replaces it). So when the sensor is on and the operator gave no sources of their own, name the
+    # auditd floor -- the opposite of the soft-dependency intent (a sensor adds to the floor, never
+    # replaces it). So when a sensor is on and the operator gave no sources of their own, name the
     # audit log explicitly alongside the stream, keeping the floor.
     sources =
       cfg.sources
-      ++ lib.optionals (cfg.mimi.enable && cfg.sources == [ ] && cfg.audit.enable) [
+      ++ lib.optionals (streamEnabled && cfg.sources == [ ] && cfg.audit.enable) [
         { type = "auditd"; path = "/var/log/audit/audit.log"; }
       ]
-      ++ lib.optional cfg.mimi.enable { type = "mimi"; path = cfg.mimi.streamPath; };
+      ++ lib.optional cfg.mimi.enable { type = "mimi"; path = cfg.mimi.streamPath; }
+      ++ lib.optional cfg.sysmon.enable { type = "sysmon"; path = sysmonSourcePath; };
     alerts = {
       journal.enable = cfg.alerts.journal.enable;
       jsonl = {
@@ -142,6 +154,60 @@ in
           Where mimi writes its OCSF event stream and banken tails it (a `mimi` source). A durable
           file, so a banken restart never loses events; banken's cursor resumes. banken polls it on
           the timer today; the continuous low-latency push path is a planned refinement.
+        '';
+      };
+    };
+
+    sysmon = {
+      enable = lib.mkEnableOption ''
+        Microsoft Sysmon-for-Linux as a live telemetry source. Like mimi it is additive: banken
+        follows Sysmon's event stream as a `sysmon` source and keeps the auditd floor underneath, so
+        Sysmon dying never takes banken down. Sysmon maps its ProcessCreate/network/file events onto
+        the SAME field names the large body of Windows Sysmon Sigma rules already key on, so enabling
+        it lights up those rules on Linux.
+
+        This module does NOT install Sysmon: Microsoft's sysmonforlinux is an EULA binary, not in
+        nixpkgs, and needs root + eBPF + kernel BTF. The operator installs and configures it (with a
+        Sysmon config that logs at least ProcessCreate); this switch only points banken at the events
+        it produces and, on a journald-only host, bridges them to a file banken can tail
+      '';
+      fromJournal = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Read Sysmon's events from the systemd journal rather than a syslog file. This is the right
+          setting on a journald-only host -- the NixOS default, and RHEL/Rocky/Alma/Fedora/Amazon
+          Linux -- where there is no /var/log/syslog and Sysmon logs to the journal under the syslog
+          identifier `journalIdentifier`. A tiny `journalctl -f -o cat -t <identifier>` service
+          (banken-sysmon-journal, below) appends those entries to `bridgePath`, which banken tails
+          with its normal file path (cursor, rotation, inotify follow) -- no journal client or cgo in
+          banken itself. Set false on Debian/Ubuntu/openSUSE, where Sysmon's events already land in
+          `logPath` (/var/log/syslog) and banken tails that file directly, skipping the other lines
+          sharing it.
+        '';
+      };
+      journalIdentifier = lib.mkOption {
+        type = lib.types.str;
+        default = "sysmon";
+        description = ''
+          The journal SYSLOG_IDENTIFIER Sysmon-for-Linux logs under (used only when fromJournal).
+          journalctl filters to this identifier so the bridge file carries Sysmon events only.
+        '';
+      };
+      bridgePath = lib.mkOption {
+        type = lib.types.str;
+        default = "/var/log/banken-sysmon/sysmon.log";
+        description = ''
+          Where the journal bridge writes Sysmon events and banken tails them (a `sysmon` source),
+          used only when fromJournal. The bridge owns this file; banken (root) reads it.
+        '';
+      };
+      logPath = lib.mkOption {
+        type = lib.types.str;
+        default = "/var/log/syslog";
+        description = ''
+          The syslog file Sysmon's events land in, tailed directly when fromJournal is false
+          (Debian/Ubuntu/openSUSE). banken skips the non-Sysmon lines sharing the file.
         '';
       };
     };
@@ -286,22 +352,30 @@ in
     systemd.services.banken = {
       description = "banken host EDR scan";
       documentation = [ "https://github.com/conor-sometimes/banken" ];
-      # Soft dependency on the sensor when it is on: order after it and want it, never require it,
-      # so a mimi failure degrades banken to the auditd floor rather than taking it down.
-      after = [ "auditd.service" ] ++ lib.optional cfg.mimi.enable "mimi.service";
-      wants = [ "auditd.service" ] ++ lib.optional cfg.mimi.enable "mimi.service";
-      # The daemon (sensor on) starts at boot; the one-shot (sensor off) is started by the timer.
-      wantedBy = lib.mkIf cfg.mimi.enable [ "multi-user.target" ];
+      # Soft dependency on each sensor when it is on: order after it and want it, never require it,
+      # so a sensor failure degrades banken to the auditd floor rather than taking it down. Sysmon is
+      # operator-installed and not managed here, so banken only ORDERS after sysmon.service (harmless
+      # if that unit is absent) and never Wants it; the journal bridge, which banken does own on a
+      # journald-only host, it both wants and orders after (banken needs the bridge file being fed).
+      after = [ "auditd.service" ]
+        ++ lib.optional cfg.mimi.enable "mimi.service"
+        ++ lib.optional cfg.sysmon.enable "sysmon.service"
+        ++ lib.optional (cfg.sysmon.enable && cfg.sysmon.fromJournal) "banken-sysmon-journal.service";
+      wants = [ "auditd.service" ]
+        ++ lib.optional cfg.mimi.enable "mimi.service"
+        ++ lib.optional (cfg.sysmon.enable && cfg.sysmon.fromJournal) "banken-sysmon-journal.service";
+      # The daemon (a sensor on) starts at boot; the one-shot (no sensor) is started by the timer.
+      wantedBy = lib.mkIf streamEnabled [ "multi-user.target" ];
       serviceConfig = {
-        # With the sensor on, banken runs as a long-running daemon (--watch): it follows the mimi
-        # stream continuously and scans the auditd floor on banken's own interval, one process, one
-        # alert path. Without it, the one-shot + timer below is the floor. Only the daemon restarts
-        # on failure (the one-shot is driven by the timer). (--watch uses banken's built-in scan
-        # interval for the floor; services.banken.interval drives the timer, the no-sensor path.)
-        Type = if cfg.mimi.enable then "exec" else "oneshot";
-        ExecStart = "${lib.getExe cfg.package}${lib.optionalString cfg.mimi.enable " --watch"} -config /etc/banken/banken.yml";
-        Restart = lib.mkIf cfg.mimi.enable "on-failure";
-        RestartSec = lib.mkIf cfg.mimi.enable 2;
+        # With a sensor on, banken runs as a long-running daemon (--watch): it follows each sensor
+        # stream (mimi, sysmon) continuously and scans the auditd floor on banken's own interval, one
+        # process, one alert path. Without it, the one-shot + timer below is the floor. Only the
+        # daemon restarts on failure (the one-shot is driven by the timer). (--watch uses banken's
+        # built-in scan interval for the floor; services.banken.interval drives the timer, no-sensor.)
+        Type = if streamEnabled then "exec" else "oneshot";
+        ExecStart = "${lib.getExe cfg.package}${lib.optionalString streamEnabled " --watch"} -config /etc/banken/banken.yml";
+        Restart = lib.mkIf streamEnabled "on-failure";
+        RestartSec = lib.mkIf streamEnabled 2;
         StateDirectory = "banken";
         StateDirectoryMode = "0700";
         LogsDirectory = lib.mkIf (cfg.alerts.jsonl.enable && cfg.alerts.jsonl.dir == "/var/log/banken") "banken";
@@ -342,15 +416,64 @@ in
       };
     };
 
-    # The periodic timer drives the one-shot floor. With the sensor on, banken is a long-running
+    # The periodic timer drives the one-shot floor. With a sensor on, banken is a long-running
     # daemon instead (it scans on its own interval), so the timer is not used.
-    systemd.timers.banken = lib.mkIf (!cfg.mimi.enable) {
+    systemd.timers.banken = lib.mkIf (!streamEnabled) {
       description = "Run a banken scan every ${cfg.interval}";
       wantedBy = [ "timers.target" ];
       timerConfig = {
         OnBootSec = "1min";
         OnUnitActiveSec = cfg.interval;
         AccuracySec = "5s";
+      };
+    };
+
+    # The journal->file bridge for the sysmon source on a journald-only host (no /var/log/syslog):
+    # `journalctl -f -o cat -t <identifier>` follows the journal and emits just the MESSAGE field
+    # (the raw Sysmon <Event> XML, no syslog prefix), appended to bridgePath, which banken tails as a
+    # normal file source. This is the whole of "banken reads the journal there": a thin, supported
+    # journalctl pipe rather than a journal client or cgo in banken itself, so banken keeps its single
+    # file+cursor+inotify reading path. The bridge runs unprivileged (DynamicUser) with only
+    # journal-read access. Note: a bridge restart resumes at the journal tail (-n0), so events during
+    # its sub-second downtime are not bridged; the auditd floor still records process exec meanwhile.
+    systemd.services.banken-sysmon-journal = lib.mkIf (cfg.sysmon.enable && cfg.sysmon.fromJournal) {
+      description = "Bridge the systemd journal '${cfg.sysmon.journalIdentifier}' identifier to a file banken tails";
+      documentation = [ "https://github.com/conor-sometimes/banken" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "exec";
+        ExecStart = "${config.systemd.package}/bin/journalctl -f -n0 -o cat -t ${cfg.sysmon.journalIdentifier}";
+        StandardOutput = "append:${cfg.sysmon.bridgePath}";
+        Restart = "on-failure";
+        RestartSec = 2;
+        # Unprivileged: a dynamic user that can only read the journal and write its own LogsDirectory.
+        DynamicUser = true;
+        SupplementaryGroups = [ "systemd-journal" ];
+        LogsDirectory = lib.mkIf (lib.hasPrefix "/var/log/banken-sysmon/" cfg.sysmon.bridgePath) "banken-sysmon";
+        OOMScoreAdjust = -900;
+        NoNewPrivileges = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        PrivateNetwork = true;
+        RestrictAddressFamilies = [ "AF_UNIX" ];
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectKernelLogs = true;
+        ProtectControlGroups = true;
+        ProtectClock = true;
+        ProtectHostname = true;
+        ProtectProc = "invisible";
+        RestrictNamespaces = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
+        LockPersonality = true;
+        MemoryDenyWriteExecute = true;
+        SystemCallArchitectures = "native";
+        SystemCallFilter = [ "@system-service" ];
+        SystemCallErrorNumber = "EPERM";
+        UMask = "0077";
       };
     };
     }
