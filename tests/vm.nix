@@ -19,9 +19,17 @@ let
   parse = f: builtins.match "([^.]+)\\.expect-(.+)\\.json" f;
   families = map (f: lib.removeSuffix ".sh" f)
     (builtins.filter (lib.hasSuffix ".sh") (builtins.attrNames (builtins.readDir ./emulations)));
-  expected = lib.genAttrs families (fam:
+  expectedAll = lib.genAttrs families (fam:
     map (f: builtins.elemAt (parse f) 1)
       (builtins.filter (f: parse f != null && builtins.elemAt (parse f) 0 == fam) fixtures));
+  # Three classes of rule cannot be proven in a stock module VM (the same exclusion
+  # tests/distros/matrix_test.go makes, for the same reasons): account-scoped agent rules
+  # (rules/agent/, keyed on an agent login auid the emulations never carry), honeytoken_access
+  # (needs decoy files and audit watches only a containment host has), and the optional rules
+  # (netcat, password_cracker: off by default, so the default posture never loads them). Each is
+  # proven instead by the engine golden/replay tests. Drop those families from the live expectation.
+  unprovable = r: lib.hasPrefix "agent_" r || r == "honeytoken_access" || r == "netcat" || r == "password_cracker";
+  expected = lib.filterAttrs (_: rules: !(lib.any unprovable rules)) expectedAll;
 in
 pkgs.testers.runNixOSTest {
   name = "banken";
@@ -37,7 +45,7 @@ pkgs.testers.runNixOSTest {
     systemd.timers.banken.wantedBy = lib.mkForce [ ];
 
     users.users.alice.isNormalUser = true;
-    environment.systemPackages = with pkgs; [ curl python3 netcat-gnu procps gnutar audit ];
+    environment.systemPackages = with pkgs; [ curl python3 netcat-gnu procps gnutar audit nmap tcpdump openssl zip ];
     environment.etc."banken-emulations".source = ./emulations;
   };
 
@@ -55,11 +63,20 @@ pkgs.testers.runNixOSTest {
         out = machine.succeed("cat /var/log/banken/alerts-*.jsonl 2>/dev/null || true")
         return [l for l in out.splitlines() if l.strip()]
 
+    # A login-style PATH so the emulations find tools in the system profile and the wrappers (sudo
+    # lives there); runuser's bare PATH would miss them, as it does on the real distros.
+    loginpath = "/run/wrappers/bin:/run/current-system/sw/bin:/usr/bin:/bin"
+
     failures = []
     for family in sorted(expected):
         before = len(lines())
         # runuser, not su/sudo: those would (rightly) fire privilege_escalation_attempt.
-        machine.succeed(f"runuser -u alice -- bash /etc/banken-emulations/{family}.sh")
+        out = machine.succeed(f"runuser -u alice -- env PATH={loginpath} bash /etc/banken-emulations/{family}.sh")
+        # An emulation whose tool is not installable on this image prints a skip marker (e.g. no
+        # nmap): skip that family rather than count a miss, exactly as the distro matrix does.
+        if "BANKEN-EMUL-SKIP" in out:
+            print(f"{family}: skipped ({out.strip().splitlines()[-1]})")
+            continue
         machine.succeed("systemctl start banken.service")
         new = [json.loads(l) for l in lines()[before:]]
         for f in new:
