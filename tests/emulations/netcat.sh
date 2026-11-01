@@ -12,12 +12,14 @@
 # Expected rules: netcat
 set -u
 
-# 192.0.2.2 is TEST-NET-1 (RFC 5737): unroutable; the probe times out with no peer.
+# 192.0.2.2 is TEST-NET-1 (RFC 5737): unroutable; the connect times out with no peer.
+# A plain connect (no -z) is used on purpose: the -z zero-I/O form would also trip the
+# network_service_scan rule, and this script must fire only `netcat`.
 # --- TTP: netcat/socat runs (any invocation) -> netcat (tool: Image match) ---
 if command -v nc >/dev/null 2>&1; then
-	timeout 2 nc -z -w1 192.0.2.2 9 >/dev/null 2>&1 || true
+	timeout 2 nc -w1 192.0.2.2 9 </dev/null >/dev/null 2>&1 || true
 elif command -v ncat >/dev/null 2>&1; then
-	timeout 2 ncat -z -w1 192.0.2.2 9 >/dev/null 2>&1 || true
+	timeout 2 ncat -w1 192.0.2.2 9 </dev/null >/dev/null 2>&1 || true
 elif command -v socat >/dev/null 2>&1; then
 	timeout 2 socat -T1 - TCP:192.0.2.2:9 </dev/null >/dev/null 2>&1 || true
 fi

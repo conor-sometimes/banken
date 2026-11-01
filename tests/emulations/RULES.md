@@ -1,4 +1,4 @@
-# Own rule → emulation script map
+# Own rule -> emulation script map
 
 Every one of banken's **own** Sigma rules (under `rules/`, each `status: experimental` with a
 `falsepositives:` block) has a benign emulation script here that trips it - a "here's how to set it
@@ -35,13 +35,22 @@ anything that would touch the live host) is documented in `./README.md` and in e
 | `rules/defense-evasion/timestomp.yml` | `stomp.sh` | T1070.006 | `touch -t <past>` and `touch -r /bin/sh` on dummy scratch files. |
 | `rules/discovery/network_sniffing.yml` | `sniff.sh` | T1040 | Invoke `tcpdump`/`tshark`/ with `--version` only - no capture. |
 | `rules/execution/pipe_to_shell.yml` | `xmrig.sh` | T1059.004 | `curl  \| sh` from TEST-NET (pre-existing). |
-| `rules/optional/netcat.yml` | `netcat.sh` | T1095 | `nc -z` connect probe to TEST-NET with a short timeout. |
-| `rules/optional/password_cracker.yml` | `johncrack.sh` | T1110 | Invoke `john`/`hashcat`/ with `--version` only - cracks nothing. |
+| `rules/optional/netcat.yml` | `netcat.sh` | T1095 | Plain `nc` connect (no `-z`) to TEST-NET with a short timeout. |
+| `rules/optional/password_cracker.yml` | `johncrack.sh` | T1110 | Invoke `john`/`hashcat`/etc. with `--version` only - cracks nothing. |
 | `rules/persistence/account_creation.yml` | `newuser.sh` | T1136.001 | `useradd banken-emul-dummy`, **unprivileged-only** (cannot write `/etc/passwd`). |
 | `rules/persistence/persistence.yml` | `persist.sh` | T1053.003 / T1543.002 | systemd user unit + shell rc, all in a scratch `$HOME` (pre-existing). |
 | `rules/persistence/trap_persistence.yml` | `trap.sh` | T1546.005 | `bash -c 'trap "true" EXIT; true'`. |
 | `rules/privilege-escalation/privilege_escalation_attempt.yml` | `sudo_probe.sh` | T1548.003 | non-interactive `sudo -n` / `doas -n` probe (pre-existing). |
 | `rules/privilege-escalation/setuid_bit_set.yml` | `setuid.sh` | T1548.001 | `chmod u+xs` / `chmod 4755` on a dummy scratch file. |
+| `rules/defense-evasion/audit_config_tamper.yml` | `auditconf.sh` | T1562.006 | `cp` the real `/etc/audit/auditd.conf` + `/etc/rsyslog.conf` to scratch (read-only); edit lands only on the scratch copy. |
+| `rules/defense-evasion/disable_mac.yml` | `setenforce0.sh` | T1562.001 | `sed SELINUX=disabled` on a scratch selinux config + `systemctl stop` a nonexistent `apparmor-emul-dummy`; `setenforce 0` only if present and unprivileged. |
+| `rules/defense-evasion/masquerading.yml` | `masqdaemon.sh` | T1036.005 | Copy `true` into a `/tmp` scratch dir as `crond` and into a `...` dir, then exec (both just exit 0). |
+| `rules/defense-evasion/permission_modification.yml` | `permtamper.sh` | T1222.002 | `chmod 777` + `chattr -i` on a dummy scratch file. |
+| `rules/discovery/network_service_scan.yml` | `portscan.sh` | T1046 | Invoke `nmap`/`masscan`/etc. with `--version` only - no scan (the `nc -z` form is avoided to not cross-fire `netcat`). |
+| `rules/persistence/kernel_module_load.yml` | `insmodload.sh` | T1547.006 / T1014 | `modprobe` / `insmod` a nonexistent dummy module - loads nothing. |
+| `rules/privilege-escalation/ld_preload_hijack.yml` | `ldpreload.sh` | T1574.006 | `env LD_PRELOAD=/nonexistent.so true` + `cp` the real `/etc/ld.so.preload` to scratch (read-only). |
+| `rules/privilege-escalation/sudoers_modification.yml` | `sudoersedit.sh` | T1548.003 | `cp` the real `/etc/sudoers` to scratch (read-only); NOPASSWD edit lands only on a scratch drop-in (`visudo -c`). |
+| `rules/impact/data_destruction.yml` | `diskwipe.sh` | T1485 | `rm -rf --no-preserve-root` a scratch dir; `dd`/`mkfs.ext4` to a nonexistent `/dev/sdz`, unprivileged-only, `count=0`. |
 
 ## Caveats (dependencies outside `tests/emulations/`)
 
@@ -58,4 +67,15 @@ anything that would touch the live host) is documented in `./README.md` and in e
   `environment.systemPackages` to fire: `openssh` (`agentssh` tee / `sshout` / `remotecopy` / `tunnel`),
   `openssl` + `zip` (`stage`), `tcpdump`/`tshark` (`sniff`), `john`/`hashcat` (`johncrack`),
   `cloudflared`/`ngrok` (`tunnel`), `git` (`destructive`/`exfil`/`gitpersist`), `shadow`'s `useradd`
-  (`newuser`). Each is `command -v`-guarded and no-ops harmlessly when absent.
+  (`newuser`), `nmap` or another scanner (`portscan`), `e2fsprogs`'s `mkfs.ext4` and `kmod`'s
+  `modprobe`/`insmod` (`diskwipe` / `insmodload`). Each is `command -v`-guarded and no-ops harmlessly
+  when absent.
+- **`nc -z` trips two rules.** The new `network_service_scan` rule matches `nc -z` / `ncat -z`, the same
+  as the optional `netcat` rule. So `netcat.sh` deliberately uses a plain `nc` connect (no `-z`) to
+  fire only `netcat`, and `portscan.sh` uses scanner binaries (not `nc`) to fire only
+  `network_service_scan`. If both the `netcat` optional rule and `network_service_scan` are active, a
+  single `nc -z` would fire both; keep the two scripts off that overlap.
+- **Unprivileged-only scripts.** `killfw`, `newuser`, `diskwipe`, and the `setenforce` branch of
+  `setenforce0` run their dangerous verb only when `id -u != 0` (and against nonexistent targets where
+  possible), so the exec is logged but nothing real is changed. Run as root they would do real harm, so
+  they self-skip - the VM runs emulations unprivileged (`alice`), which is exactly where they fire.
