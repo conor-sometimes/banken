@@ -94,6 +94,7 @@ func Registry() map[string]Parser {
 		journaldName: Journald{},
 		syslogName:   Syslog{},
 		genericName:  Generic{},
+		mimiName:     Mimi{},
 	}
 }
 

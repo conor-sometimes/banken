@@ -22,6 +22,12 @@ alias all := default
 
 default: fmt vet lint golangci errcheck gosec vulncheck test cover
 
+# The sensor<->brain contract: banken must still parse the shared mimi fixture to the expected
+# event. mimi tests the same file from its side (`just contract` there); the two repos' copies of
+# the fixture must stay byte-identical, so a schema change has to move both.
+contract:
+	go test ./internal/parser/ -run Mimi -v
+
 # Reports files that aren't gofumpt'd without rewriting them. git ls-files,
 # not a `.` walk: gofmt/gofumpt aren't module-boundary-aware, so a nested
 # go.mod (e.g. a leftover agent worktree) would otherwise be walked into.
