@@ -1,0 +1,117 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 3,
+  "severity": "Medium",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"trap_persistence\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "6f8bd9553eb5100133c2b39692cb0ac4",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "6f8bd9553eb5100133c2b39692cb0ac4",
+    "title": "Shell trap set to run a command",
+    "desc": "A shell trap was armed to run a command on a signal or on exit - `trap \"<cmd>\" EXIT`, SIGINT, DEBUG, ERR. A trap re-runs its command every time the shell catches that event, so it is a tidy persistence/triggered-execution foothold (MITRE T1546.005) that survives inside any shell the attacker gets. A bare `trap` that only lists or clears handlers is not matched; a trap that binds a command to a signal is.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "trap_persistence",
+      "uid": "c042f758-a479-4203-a27e-8c151796b564"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0003",
+          "name": "Persistence"
+        },
+        "technique": {
+          "uid": "T1546"
+        },
+        "sub_technique": {
+          "uid": "T1546.005"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 9801,
+        "name": "bash",
+        "cmd_line": "bash -c 'trap \"nohup sh /tmp/evil.sh\" EXIT'",
+        "file": {
+          "name": "bash",
+          "path": "/run/current-system/sw/bin/bash",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 9800
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "bash -c 'trap \"nohup sh /tmp/evil.sh\" EXIT'"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "bash"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/run/current-system/sw/bin/bash"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/run/current-system/sw/bin/bash\",\"commandLine\":\"bash -c 'trap \\\"nohup sh /tmp/evil.sh\\\" EXIT'\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"\",\"pid\":9801,\"ppid\":9800}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "trap_persistence",
+    "source": "laurel"
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 3,
+  "severity": "Medium",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"account_creation\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "472008195ce14b51ddbe75664b13be38",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "472008195ce14b51ddbe75664b13be38",
+    "title": "Local account created",
+    "desc": "A new local user account was created - useradd, adduser, newusers, or BSD pw useradd. A fresh account is a durable backdoor (a way back in, a second identity to pivot through), and it is a rare, deliberate administrative act, so on most hosts any creation is worth a look (MITRE T1136.001). An account created with uid/gid 0, or a home of /root, is escalation and worse. usermod/passwd on an existing account are left to the credential and privilege rules.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "account_creation",
+      "uid": "8af89ddd-ccfb-4a80-9740-54e1cc3cbcc5"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0003",
+          "name": "Persistence"
+        },
+        "technique": {
+          "uid": "T1136"
+        },
+        "sub_technique": {
+          "uid": "T1136.001"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 9804,
+        "name": "useradd",
+        "cmd_line": "useradd -M -r -s /bin/bash evil_user",
+        "file": {
+          "name": "useradd",
+          "path": "/usr/sbin/useradd",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 9800
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "useradd -M -r -s /bin/bash evil_user"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "useradd"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/sbin/useradd"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/usr/sbin/useradd\",\"commandLine\":\"useradd -M -r -s /bin/bash evil_user\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"\",\"pid\":9804,\"ppid\":9800}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "account_creation",
+    "source": "laurel"
+  }
+}

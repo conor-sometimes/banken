@@ -1,0 +1,28 @@
+title: Shell trap set to run a command
+id: c042f758-a479-4203-a27e-8c151796b564
+status: experimental
+description: >
+  A shell trap was armed to run a command on a signal or on exit - `trap "<cmd>" EXIT`, SIGINT,
+  DEBUG, ERR. A trap re-runs its command every time the shell catches that event, so it is a tidy
+  persistence/triggered-execution foothold (MITRE T1546.005) that survives inside any shell the
+  attacker gets. A bare `trap` that only lists or clears handlers is not matched; a trap that binds
+  a command to a signal is.
+references:
+  - https://attack.mitre.org/techniques/T1546/005/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.persistence
+  - attack.t1546.005
+  - attack.privilege-escalation
+detection:
+  trap:
+    CommandLine|re: '\btrap\s+["''].+["'']\s+(EXIT|SIGINT|INT|SIGTERM|TERM|DEBUG|ERR|SIGHUP|HUP|[0-9]+)\b'
+  condition: trap
+falsepositives:
+  - A build or install script that legitimately traps EXIT to clean up a temp dir; the trapped
+    command shows what it runs.
+level: medium

@@ -1,0 +1,18 @@
+[
+ {
+  "image": "/usr/bin/touch",
+  "commandLine": "touch -m -t 197001010000.00 /tmp/dropped",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 9802,
+  "ppid": 9800
+ },
+ {
+  "image": "/usr/bin/touch",
+  "commandLine": "touch -acmr /bin/sh /tmp/ref",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 9803,
+  "ppid": 9800
+ }
+]

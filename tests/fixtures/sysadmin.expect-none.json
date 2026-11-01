@@ -46,5 +46,21 @@
   "user": "1000",
   "pid": 9616,
   "ppid": 9611
+ },
+ {
+  "source": "laurel",
+  "image": "/usr/bin/touch",
+  "commandLine": "touch /tmp/newfile",
+  "user": "1000",
+  "pid": 9620,
+  "ppid": 9611
+ },
+ {
+  "source": "laurel",
+  "image": "/usr/bin/rsync",
+  "commandLine": "rsync -a /src/ /backup/",
+  "user": "1000",
+  "pid": 9621,
+  "ppid": 9611
  }
 ]

@@ -1,0 +1,32 @@
+title: Remote file copy over SSH transport
+id: d9ca0608-74ae-4554-bcab-3df7afee928d
+status: experimental
+description: >
+  A file was copied to or from a remote host with scp, rsync or sftp (a remote `user@host:path` or
+  `host:path` spec). This is ingress or egress tool transfer (MITRE T1105) - pulling a tool in or
+  pushing collected data out over an SSH channel. download_ip_to_tmp covers an HTTP fetch of an IP
+  literal; this covers the SSH-transport copies. On a host where these accounts do not deploy, a
+  remote copy is the transfer step of an intrusion.
+references:
+  - https://attack.mitre.org/techniques/T1105/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.command-and-control
+  - attack.t1105
+detection:
+  tool:
+    Image|endswith:
+      - /scp
+      - /rsync
+      - /sftp
+  remote_spec:
+    CommandLine|re: '(^|\s)([a-zA-Z0-9._-]+@)?[a-zA-Z0-9.-]+:(/|~|[a-zA-Z0-9._-])|rsync://|ssh://'
+  condition: tool and remote_spec
+falsepositives:
+  - A deploy or backup agent that legitimately uses scp/rsync over SSH; scope those accounts out, as
+    with agent_ssh_outbound. A purely local rsync (no remote spec) does not match.
+level: medium

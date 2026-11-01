@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/usr/bin/scp",
+  "commandLine": "scp /tmp/loot victim@10.0.0.5:/tmp/",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 9805,
+  "ppid": 9800
+ }
+]

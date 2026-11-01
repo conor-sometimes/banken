@@ -1,0 +1,33 @@
+title: Local account created
+id: 8af89ddd-ccfb-4a80-9740-54e1cc3cbcc5
+status: experimental
+description: >
+  A new local user account was created - useradd, adduser, newusers, or BSD pw useradd. A fresh
+  account is a durable backdoor (a way back in, a second identity to pivot through), and it is a
+  rare, deliberate administrative act, so on most hosts any creation is worth a look (MITRE
+  T1136.001). An account created with uid/gid 0, or a home of /root, is escalation and worse.
+  usermod/passwd on an existing account are left to the credential and privilege rules.
+references:
+  - https://attack.mitre.org/techniques/T1136/001/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.persistence
+  - attack.t1136.001
+detection:
+  create:
+    Image|endswith:
+      - /useradd
+      - /adduser
+      - /newusers
+  pw_create:
+    Image|endswith: /pw
+    CommandLine|contains: useradd
+  condition: create or pw_create
+falsepositives:
+  - A provisioning or configuration-management run that creates service accounts; expected on a
+    build or orchestration host, notable on a workstation or an agent box.
+level: medium

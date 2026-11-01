@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/usr/sbin/useradd",
+  "commandLine": "useradd -M -r -s /bin/bash evil_user",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 9804,
+  "ppid": 9800
+ }
+]

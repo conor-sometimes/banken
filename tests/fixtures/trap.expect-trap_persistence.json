@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/run/current-system/sw/bin/bash",
+  "commandLine": "bash -c 'trap \"nohup sh /tmp/evil.sh\" EXIT'",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 9801,
+  "ppid": 9800
+ }
+]
