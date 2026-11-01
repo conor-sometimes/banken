@@ -73,7 +73,7 @@ in
       type = lib.types.listOf (lib.types.submodule {
         options = {
           type = lib.mkOption {
-            type = lib.types.enum [ "laurel" "auditd" "generic" "mimi" ];
+            type = lib.types.enum [ "laurel" "auditd" "generic" "mimi" "sysmon" ];
             description = "Parser for this log.";
           };
           path = lib.mkOption {

@@ -106,6 +106,7 @@ func Registry() map[string]Parser {
 		syslogName:   Syslog{},
 		genericName:  Generic{},
 		mimiName:     Mimi{},
+		sysmonName:   Sysmon{},
 	}
 }
 

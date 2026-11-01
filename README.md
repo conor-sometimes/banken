@@ -118,7 +118,8 @@ match. A new source is a new parser and nothing else changes.
 | journald | the systemd journal (`_COMM`/`_EXE`/`_CMDLINE`/`_UID`) | stubbed (interface placeholder) |
 | syslog / auth | RFC 3164/5424 - `/var/log/auth.log`, `secure` (sshd / sudo / PAM logins) | stubbed (interface placeholder) |
 | **generic JSONL** | one pre-normalised event per line - the universal adapter any external collector emits to (`-source generic:PATH`) | **implemented** |
-| eBPF / Falco | kernel syscall + network events (via a helper → generic JSONL) | planned |
+| **mimi** | the [mimi](https://github.com/conor-sometimes/mimi) eBPF sensor's OCSF exec stream, followed continuously as a live push feed (`-source mimi:PATH` with `--follow`) | **implemented** |
+| **Sysmon for Linux** | Microsoft's sysmonforlinux XML events over syslog (ProcessCreate and friends); the EventData field names are Windows Sysmon's, so Windows Sigma rules apply unchanged (`-source sysmon:PATH`) | **implemented** |
 | network | Zeek / Suricata, for network IOCs | planned |
 
 Both auditd and Laurel are wired up and tested this pass (table + golden + fuzz, see Testing); the
