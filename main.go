@@ -341,8 +341,14 @@ func runDaemon(ctx context.Context, eng *engine.Engine, cfg config.Config, inter
 }
 
 // isStreamSource reports whether a source is a continuous push stream (a live sensor) rather than a
-// log scanned on an interval. mimi is banken's eBPF sensor; its stream is followed, never polled.
-func isStreamSource(typ string) bool { return typ == "mimi" }
+// log scanned on an interval. mimi is banken's own eBPF sensor; sysmon is Microsoft's
+// Sysmon-for-Linux, which writes a process/network/file event the moment the kernel reports it. Both
+// are live host sensors, so banken follows them (inotify, capture-to-match latency) instead of
+// polling on the timer -- the whole point of a sensor is that its events reach a rule without waiting
+// for the next scan. The followed path is a file either way: the sysmon source tails the syslog file
+// the events land in (/var/log/syslog on Debian/Ubuntu/openSUSE) or the journal->file bridge the
+// NixOS module sets up on journald-only hosts (see module.nix services.banken.sysmon).
+func isStreamSource(typ string) bool { return typ == "mimi" || typ == "sysmon" }
 
 // streamStatePath gives a followed stream source its own cursor file, so its continuous writer never
 // races the periodic scanner's cursor (they run in separate goroutines).
