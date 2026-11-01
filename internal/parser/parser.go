@@ -60,7 +60,7 @@ func scanLines(r io.Reader, emit func([]byte)) error {
 			if !skip && len(line)+len(chunk) <= maxLineBytes {
 				line = append(line, chunk...)
 				if t := trimLineEnd(line); len(t) > 0 {
-					emit(t)
+					safeEmit(emit, t)
 				}
 			}
 			if errors.Is(err, io.EOF) {
@@ -77,6 +77,17 @@ func scanLines(r io.Reader, emit func([]byte)) error {
 			return err // a real I/O error -- the stream is unreadable
 		}
 	}
+}
+
+// safeEmit runs emit under a recover, so a parser callback that panics on one crafted line drops
+// only that line and scanLines keeps going -- rather than the panic unwinding through Parse to the
+// engine's per-source recover, which would discard every event of the source AND leave the cursor
+// stuck on the poisoned bytes, re-reading them until the file rotates (blinding that source for
+// hours). A panicking line is treated like any other line the parser cannot understand: skipped.
+// The engine's per-source recover stays as a backstop for a panic outside emit.
+func safeEmit(emit func([]byte), line []byte) {
+	defer func() { _ = recover() }()
+	emit(line)
 }
 
 func trimLineEnd(b []byte) []byte {
