@@ -89,6 +89,35 @@ func FuzzParseStubs(f *testing.F) {
 	})
 }
 
+func fuzzSeedsMimi(f *testing.F) {
+	for _, s := range []string{
+		"",
+		"{}",
+		"null",
+		`{"schema":"mimi/2","process":{"pid":1,"name":"x","file":{"path":"/x"}}}`,
+		`{"schema":"mimi/2","process":{"pid":"notanint","user":{"uid":"0"},"parent_process":{"pid":2}},"ancestry":[{"pid":1,"name":"a"}]}`,
+		`{"schema":"mimi/99","process":{"pid":1}}`, // unknown schema: must be skipped, not misread
+		`{"schema":"mimi/2","time":"not-a-time","process":{}}`,
+		`{"schema":"mimi/2","process":{"cmd_line":"` + strings.Repeat("A", 400) + `"}}`,
+		`{"schema":"mimi/2","process":"bad","ancestry":"bad"}`,
+		"{ broken json",
+		string([]byte{'{', '"', 0, 255, '"', ':', '1', '}'}),
+	} {
+		f.Add(s)
+	}
+}
+
+// FuzzParseMimi holds the mimi sensor parser to the same bar: the sensor stream is untrusted
+// bytes, so a crafted event must never panic the brain, must normalise deterministically, and must
+// always carry Source "mimi" (never the source the line claims).
+func FuzzParseMimi(f *testing.F) {
+	fuzzSeedsMimi(f)
+	p := Mimi{}
+	f.Fuzz(func(t *testing.T, data string) {
+		checkParser(t, p, data)
+	})
+}
+
 // checkParser runs the never-panic / deterministic / correct-source
 // invariants shared by both real parsers.
 func checkParser(t *testing.T, p Parser, data string) {

