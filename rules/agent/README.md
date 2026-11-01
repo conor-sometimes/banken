@@ -23,6 +23,8 @@ gives each agent its own uid and audits it, which is where the account names com
 - `agent_proxy_bypass` — unset/overrode the egress proxy, `--noproxy`, proxychains.
 - `agent_git_config_persistence` — a git config or hook that runs code or steals credentials.
 - `agent_self_config_modification` — wrote its own harness config: settings, hooks, skills, CLAUDE.md.
+- `agent_decode` — the agent decoded encoded data (base64/base32/xxd/uudecode/openssl -d): unpacking
+  an obfuscated payload (T1140). `deobfuscate_and_run` catches a decode piped into a shell host-wide.
 - `honeytoken_access` — any process opened a planted decoy credential (host-wide, critical).
 
 More ideas, ranked and grounded in banken's telemetry, are in

@@ -1,0 +1,120 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 3,
+  "severity": "Medium",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"agent_decode\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "f653f8ada817ab7b758163f8007e32f5",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "f653f8ada817ab7b758163f8007e32f5",
+    "title": "Agent account decoded encoded data",
+    "desc": "A non-human service or agent account ran a decoder - base64 -d, base32 -d, xxd -r, uudecode, or openssl with a decode flag. Decoding encoded bytes is how an obfuscated payload is unpacked before it runs (MITRE T1140): an attacker who has driven the agent off its task, or a prompt injection, stages the next stage as base64/hex so it slips past a reviewer reading the session. On a human login decoding is routine; by the agent it is off-pattern, so the rule is scoped by account name - it is the *who* that makes it signal. deobfuscate_and_run catches a decode piped straight into a shell host-wide (a stronger, everyone signal); this catches the agent decoding at all.\nThis is an \"agentic AI detection\" rule: a detection written for the behaviour of an autonomous agent, a class SigmaHQ does not yet cover. See rules/agent/README.md.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "agent_decode",
+      "uid": "919b00d4-151c-43ae-a4c6-febd1a6a0dc4"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0005",
+          "name": "Defense Evasion"
+        },
+        "technique": {
+          "uid": "T1140"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 8310,
+        "name": "base64",
+        "cmd_line": "base64 -d /tmp/stage.b64",
+        "file": {
+          "name": "base64",
+          "path": "/usr/bin/base64",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "name": "claude"
+        },
+        "parent_process": {
+          "pid": 8300
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "base64 -d /tmp/stage.b64"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "base64"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/base64"
+    },
+    {
+      "name": "evidences.process.user.name",
+      "type_id": 4,
+      "type": "User Name",
+      "value": "claude"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/usr/bin/base64\",\"commandLine\":\"base64 -d /tmp/stage.b64\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"claude\",\"currentDirectory\":\"\",\"pid\":8310,\"ppid\":8300}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "agent_decode",
+    "source": "laurel"
+  }
+}

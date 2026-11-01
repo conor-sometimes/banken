@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/usr/bin/base64",
+  "commandLine": "base64 -d /tmp/stage.b64",
+  "source": "laurel",
+  "user": "claude",
+  "pid": 8310,
+  "ppid": 8300
+ }
+]

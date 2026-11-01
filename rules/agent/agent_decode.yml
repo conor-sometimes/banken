@@ -1,0 +1,51 @@
+title: Agent account decoded encoded data
+id: 919b00d4-151c-43ae-a4c6-febd1a6a0dc4
+status: experimental
+description: >
+  A non-human service or agent account ran a decoder - base64 -d, base32 -d, xxd -r, uudecode, or
+  openssl with a decode flag. Decoding encoded bytes is how an obfuscated payload is unpacked before
+  it runs (MITRE T1140): an attacker who has driven the agent off its task, or a prompt injection,
+  stages the next stage as base64/hex so it slips past a reviewer reading the session. On a human
+  login decoding is routine; by the agent it is off-pattern, so the rule is scoped by account name -
+  it is the *who* that makes it signal. deobfuscate_and_run catches a decode piped straight into a
+  shell host-wide (a stronger, everyone signal); this catches the agent decoding at all.
+
+  This is an "agentic AI detection" rule: a detection written for the behaviour of an autonomous
+  agent, a class SigmaHQ does not yet cover. See rules/agent/README.md.
+references:
+  - https://github.com/conor-sometimes/nixos-agent-containment
+  - https://attack.mitre.org/techniques/T1140/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1140
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  # base64/base32/xxd only decode with an explicit flag (-d / -r); without it
+  # they encode, which is not the signal.
+  flag_decoder:
+    Image|endswith:
+      - /base64
+      - /base32
+      - /xxd
+  decode_flag:
+    CommandLine|re: '(^|\s)(-d|--decode|-r|--revert)\b'
+  # uudecode always decodes; no flag needed.
+  always_decoder:
+    Image|endswith: /uudecode
+  openssl_decode:
+    Image|endswith: /openssl
+    CommandLine|re: '\b(base64|enc)\b.*(-d|-a\s+-d|-base64\s+-d)\b'
+  condition: agent_user and ((flag_decoder and decode_flag) or always_decoder or openssl_decode)
+falsepositives:
+  - An agent whose task legitimately decodes data (a build that unpacks a base64 blob). Then this
+    rule is not for that account; take it out of the agent_user list, or scope by the task's path.
+level: medium

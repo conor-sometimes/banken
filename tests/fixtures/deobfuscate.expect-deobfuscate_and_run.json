@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/usr/bin/bash",
+  "commandLine": "bash -c \"echo ZWNobyBwd25lZAo= | base64 -d | bash\"",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 8410,
+  "ppid": 8400
+ }
+]
