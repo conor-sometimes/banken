@@ -1,0 +1,1 @@
+[{"source":"auditd","image":"/usr/bin/ufw","commandLine":"ufw disable","user":"1000","pid":9602,"ppid":9500}]

@@ -1,0 +1,44 @@
+title: Tunnelling or relay tool
+id: 6cdc3540-936f-44d0-97be-7530aa765e4d
+status: experimental
+description: >
+  A program ran a tunnelling, relay or reverse-proxy tool - ngrok, cloudflared, a dev/VSCode tunnel,
+  frp, gost, chisel, bore, or an SSH port-forward (-L/-R/-D/-W). These punch an inbound path through
+  NAT and the firewall to expose a local service or relay traffic (MITRE T1572), which is a classic
+  way to reach a host the egress controls were meant to contain. reverse_shell covers an interactive
+  shell back out; this covers the tunnels and relays.
+references:
+  - https://attack.mitre.org/techniques/T1572/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.command-and-control
+  - attack.t1572
+detection:
+  tools:
+    Image|endswith:
+      - /ngrok
+      - /cloudflared
+      - /devtunnel
+      - /frpc
+      - /frps
+      - /gost
+      - /chisel
+      - /bore
+      - /pagekite
+      - /localtunnel
+      - /tailscaled
+  vscode_tunnel:
+    Image|endswith: /code
+    CommandLine|contains: ' tunnel'
+  ssh_forward:
+    Image|endswith: /ssh
+    CommandLine|re: '(^|\s)-[a-zA-Z]*[LRDW]\s*[0-9]'
+  condition: tools or vscode_tunnel or ssh_forward
+falsepositives:
+  - A developer who legitimately uses an SSH port-forward or a tunnel for their own work; scope by
+    the account (an agent or service account has no such need).
+level: high

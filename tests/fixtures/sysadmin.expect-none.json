@@ -1,0 +1,5 @@
+[{"source":"auditd","image":"/usr/bin/systemctl","commandLine":"systemctl restart nginx","user":"1000","pid":9611,"ppid":9500},
+ {"source":"auditd","image":"/usr/sbin/iptables","commandLine":"iptables -L -n","user":"1000","pid":9612,"ppid":9500},
+ {"source":"auditd","image":"/usr/bin/chmod","commandLine":"chmod 644 /etc/myapp.conf","user":"1000","pid":9613,"ppid":9500},
+ {"source":"auditd","image":"/usr/bin/ssh","commandLine":"ssh deploy@host uptime","user":"1000","pid":9614,"ppid":9500},
+ {"source":"auditd","image":"/usr/bin/systemctl","commandLine":"systemctl status auditd","user":"1000","pid":9615,"ppid":9500}]

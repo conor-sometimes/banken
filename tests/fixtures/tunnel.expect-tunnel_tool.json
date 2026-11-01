@@ -1,0 +1,1 @@
+[{"source":"auditd","image":"/run/current-system/sw/bin/cloudflared","commandLine":"cloudflared tunnel --url localhost:8080","user":"1000","pid":9604,"ppid":9500}]

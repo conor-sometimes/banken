@@ -1,0 +1,34 @@
+title: Network packet capture
+id: 24440117-5cfe-4fa3-bcd0-f8c2ff3f833a
+status: experimental
+description: >
+  A program started capturing network traffic - tcpdump, tshark/dumpcap, ngrep, or a raw-socket
+  sniffer. Packet capture on a host is how an attacker harvests credentials and data in transit
+  (MITRE T1040); it is rarely something an application does in the course of its own work, so on a
+  server or an agent account it is a clean signal.
+references:
+  - https://attack.mitre.org/techniques/T1040/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.credential-access
+  - attack.t1040
+  - attack.discovery
+detection:
+  sniffer:
+    Image|endswith:
+      - /tcpdump
+      - /tshark
+      - /dumpcap
+      - /ngrep
+      - /wireshark
+      - /tfshark
+      - /netsniff-ng
+  condition: sniffer
+falsepositives:
+  - A network-diagnostics tool or a monitoring agent that legitimately captures; scope those out by
+    host, or by the account that has no business sniffing.
+level: medium

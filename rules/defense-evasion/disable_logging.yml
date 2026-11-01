@@ -1,0 +1,39 @@
+title: Host logging disabled
+id: 381c79b2-5676-49c0-b44e-691d0bf6d9fa
+status: experimental
+description: >
+  A program stopped, disabled or neutered a logging service - journald, rsyslog, syslog-ng, auditd,
+  or a named EDR agent - or edited journald's config to stop storing logs. Turning off the logging
+  the host (and banken) depend on is a deliberate, high-signal defense-evasion step (MITRE T1562.001
+  / T1565): an attacker blinds the host before acting. tamper_banken covers attacks on banken and
+  auditd specifically; this covers the rest of the logging stack.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1562.001
+detection:
+  systemctl:
+    Image|endswith: /systemctl
+    CommandLine|re: '\b(stop|disable|mask|kill)\b.*\b(systemd-journald|rsyslog|syslog-ng|syslog|auditd|laurel|falcon-sensor|falcon|sysmon|auditbeat|filebeat|osqueryd|wazuh|cbdaemon|carbonblack)\b'
+  service:
+    Image|endswith: /service
+    CommandLine|re: '\b(rsyslog|syslogd?|auditd|cbdaemon|falcon-sensor)\b.*\b(stop|disable)\b'
+  rc:
+    Image|endswith:
+      - /sysrc
+      - /chkconfig
+    CommandLine|re: 'syslogd?|rsyslog|auditd'
+  # sed/editing journald to drop stored logs (Storage=none)
+  journald_conf:
+    CommandLine|re: 'journald\.conf\b.*Storage=|Storage=none'
+  condition: systemctl or service or rc or journald_conf
+falsepositives:
+  - An admin restarting the logging stack during maintenance; the command line shows it, and stop +
+    disable together are rarely routine.
+level: high

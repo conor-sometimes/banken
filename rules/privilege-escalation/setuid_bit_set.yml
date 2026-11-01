@@ -1,0 +1,33 @@
+title: Setuid or setgid bit set on a file
+id: 68e2552f-15f2-4f22-b556-9243a8f11127
+status: experimental
+description: >
+  A program set the setuid or setgid bit on a file - chmod u+s / g+s, or a numeric mode with the
+  high bit (4xxx / 2xxx / 6xxx). A setuid binary runs with its owner's privileges whoever executes
+  it, so setting the bit (especially owned by root) is a way to plant a privilege-escalation
+  backdoor (MITRE T1548.001). privilege_escalation_attempt catches using sudo/su/pkexec; this
+  catches creating the mechanism.
+references:
+  - https://attack.mitre.org/techniques/T1548/001/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.privilege-escalation
+  - attack.t1548.001
+detection:
+  chmod:
+    Image|endswith: /chmod
+  symbolic:
+    CommandLine|re: '\b[ug]\+[a-z]*s|\b[ug]\+s\b'
+  # a 4-digit octal mode whose leading digit has the setuid (4) or setgid (2)
+  # bit set: 4755, 2755, 6755 ... (0755 / 1755 sticky do not match).
+  numeric:
+    CommandLine|re: '(^|\s)[2-7][0-7]{3}(\s|$)'
+  condition: chmod and (symbolic or numeric)
+falsepositives:
+  - An installer or package build that legitimately sets a setuid helper; rare for an interactive or
+    agent account, and the file being chmod'd shows what it is.
+level: high

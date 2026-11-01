@@ -1,0 +1,42 @@
+title: Host firewall disabled or flushed
+id: 4786adf7-22bb-496e-8250-2a8e1b53aaf0
+status: experimental
+description: >
+  A program disabled or flushed the host firewall - ufw disable, systemctl stop/disable of
+  ufw/firewalld/nftables, a pf stop, or iptables flushing its rules or setting the default policy to
+  ACCEPT. Taking the firewall down opens the host to inbound access and clears the egress controls
+  that would otherwise contain an implant (MITRE T1562.004). agent_tamper_wall_or_proxy catches an
+  agent flushing iptables; this is the host-wide view.
+references:
+  - https://attack.mitre.org/techniques/T1562/004/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1562.004
+detection:
+  ufw:
+    Image|endswith: /ufw
+    CommandLine|re: '\b(disable|reset)\b|\blogging\s+off\b'
+  systemctl:
+    Image|endswith: /systemctl
+    CommandLine|re: '\b(stop|disable|mask)\b.*\b(ufw|firewalld|nftables|iptables)\b'
+  service:
+    Image|endswith: /service
+    CommandLine|re: '\b(pf|ipfw|firewalld|ufw)\b.*\b(stop|disable)\b'
+  iptables:
+    Image|endswith:
+      - /iptables
+      - /ip6tables
+    CommandLine|re: '(^|\s)-F\b|(^|\s)-X\b|(^|\s)-P\s+(INPUT|OUTPUT|FORWARD)\s+ACCEPT\b'
+  nft_flush:
+    Image|endswith: /nft
+    CommandLine|re: '\bflush\s+ruleset\b|\bdelete\s+table\b'
+  condition: ufw or systemctl or service or iptables or nft_flush
+falsepositives:
+  - A config-management run that rebuilds the ruleset (flush then re-add); the surrounding commands
+    show it. A one-off flush with no re-add is the signal.
+level: high

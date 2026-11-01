@@ -1,0 +1,117 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"disable_logging\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "b33b86fbf8bc95005897d39172b9db2e",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "b33b86fbf8bc95005897d39172b9db2e",
+    "title": "Host logging disabled",
+    "desc": "A program stopped, disabled or neutered a logging service - journald, rsyslog, syslog-ng, auditd, or a named EDR agent - or edited journald's config to stop storing logs. Turning off the logging the host (and banken) depend on is a deliberate, high-signal defense-evasion step (MITRE T1562.001 / T1565): an attacker blinds the host before acting. tamper_banken covers attacks on banken and auditd specifically; this covers the rest of the logging stack.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "disable_logging",
+      "uid": "381c79b2-5676-49c0-b44e-691d0bf6d9fa"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0005",
+          "name": "Defense Evasion"
+        },
+        "technique": {
+          "uid": "T1562"
+        },
+        "sub_technique": {
+          "uid": "T1562.001"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 9601,
+        "name": "systemctl",
+        "cmd_line": "systemctl stop systemd-journald",
+        "file": {
+          "name": "systemctl",
+          "path": "/usr/bin/systemctl",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 9500
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "systemctl stop systemd-journald"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "systemctl"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/systemctl"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/systemctl\",\"commandLine\":\"systemctl stop systemd-journald\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"\",\"pid\":9601,\"ppid\":9500}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "disable_logging",
+    "source": "auditd"
+  }
+}

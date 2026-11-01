@@ -1,0 +1,114 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"tunnel_tool\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "5da29d199a4a0bc90e0145fb8b600984",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "5da29d199a4a0bc90e0145fb8b600984",
+    "title": "Tunnelling or relay tool",
+    "desc": "A program ran a tunnelling, relay or reverse-proxy tool - ngrok, cloudflared, a dev/VSCode tunnel, frp, gost, chisel, bore, or an SSH port-forward (-L/-R/-D/-W). These punch an inbound path through NAT and the firewall to expose a local service or relay traffic (MITRE T1572), which is a classic way to reach a host the egress controls were meant to contain. reverse_shell covers an interactive shell back out; this covers the tunnels and relays.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "tunnel_tool",
+      "uid": "6cdc3540-936f-44d0-97be-7530aa765e4d"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0011",
+          "name": "Command and Control"
+        },
+        "technique": {
+          "uid": "T1572"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 9604,
+        "name": "cloudflared",
+        "cmd_line": "cloudflared tunnel --url localhost:8080",
+        "file": {
+          "name": "cloudflared",
+          "path": "/run/current-system/sw/bin/cloudflared",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 9500
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "cloudflared tunnel --url localhost:8080"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "cloudflared"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/run/current-system/sw/bin/cloudflared"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/run/current-system/sw/bin/cloudflared\",\"commandLine\":\"cloudflared tunnel --url localhost:8080\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"\",\"pid\":9604,\"ppid\":9500}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "tunnel_tool",
+    "source": "auditd"
+  }
+}

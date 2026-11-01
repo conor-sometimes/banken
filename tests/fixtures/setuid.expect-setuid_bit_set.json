@@ -1,0 +1,1 @@
+[{"source":"auditd","image":"/usr/bin/chmod","commandLine":"chmod u+xs /tmp/evilBinary","user":"1000","pid":9605,"ppid":9500}]
