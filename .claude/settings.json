@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "task project:banken ready 2>/dev/null | head -30" }
+        ]
+      }
+    ]
+  }
+}

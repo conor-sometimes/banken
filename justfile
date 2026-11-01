@@ -20,7 +20,31 @@
 
 alias all := default
 
-default: fmt vet lint golangci errcheck gosec vulncheck test cover
+# `just` (bare, or `just all`) is the fast code gate: static analysis + the unit suite + coverage,
+# no VMs or network. `just test` is the WHOLE battery (everything, in one command): this gate, then
+# the banken+mimi integration VM tests, conformance, the live distro matrix and the attack range.
+default: fmt vet lint golangci errcheck gosec vulncheck unit cover
+
+# THE one command: test everything. The fast gate (above), then the banken+mimi integration VM
+# tests, conformance (in its own toolchain shell), the live distro matrix (also the deployment test)
+# and the attack range. Needs KVM and network; takes a while by design -- it is the full proof.
+test:
+	just default
+	just integration
+	nix develop .#conformance --command just conformance
+	just distros
+	just attackrange
+
+# Integration: the NixOS-module VM tests, via `nix flake check` -- vm (banken alone on the module)
+# and the banken+mimi switch suite (switch / switch-floor / switch-restart). Needs KVM.
+integration:
+	nix flake check
+
+# Deployment + distro matrix: install banken on every distro from its own repos and prove, before
+# and after, that it installs cleanly then loads and detects CORRECTLY -- on the auditd floor (Test
+# A) and with the mimi eBPF sensor on that distro's own kernel (Test B, M1-M5). Needs KVM + network.
+distros:
+	nix run .#distro-matrix-mimi
 
 # The sensor<->brain contract: banken must still parse the shared mimi fixture to the expected
 # event. mimi tests the same file from its side (`just contract` there); the two repos' copies of
@@ -237,6 +261,12 @@ conformance: sigma-rules ocsf-validate
 
 conformance-live:
 	nix run .#distro-matrix
+	nix-build tests/attackrange.nix -o output/attackrange
+	cat output/attackrange/scorecard.md
+
+# The Atomic Red Team range on its own (a step of `just test`): ~200 atomics live under KVM, scored
+# per MITRE technique. Needs KVM.
+attackrange:
 	nix-build tests/attackrange.nix -o output/attackrange
 	cat output/attackrange/scorecard.md
 
