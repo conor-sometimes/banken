@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/usr/bin/dd",
+  "commandLine": "dd if=/proc/1234/mem of=/tmp/T1003.007.bin ibs=1 skip=140000000 count=4096",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 10120,
+  "ppid": 10000
+ }
+]

@@ -1,0 +1,52 @@
+title: Shell history file read for credentials
+id: 2b9e5f41-7a08-4d36-85c1-6f3a0d9c72e4
+status: experimental
+description: >
+  A program read a shell or client history file - cat/grep/strings over ~/.bash_history,
+  ~/.zsh_history, ~/.mysql_history, ~/.psql_history and friends. Command history is a rich source of
+  credentials: passwords typed on a command line, connection strings, `-p` arguments and ssh
+  targets all end up there, so sweeping history for them is a known credential-access step
+  (MITRE T1552.003). history_tamper covers wiping history to cover tracks; this covers reading it to
+  steal. A program reading the file is matched; the shell's own builtin `history` is not an exec and
+  cannot be seen.
+references:
+  - https://attack.mitre.org/techniques/T1552/003/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.credential-access
+  - attack.t1552.003
+detection:
+  reader:
+    Image|endswith:
+      - /cat
+      - /less
+      - /more
+      - /head
+      - /tail
+      - /strings
+      - /base64
+      - /xxd
+      - /grep
+      - /egrep
+      - /fgrep
+  histfile:
+    CommandLine|contains:
+      - .bash_history
+      - .zsh_history
+      - .sh_history
+      - .ksh_history
+      - .mysql_history
+      - .psql_history
+      - .rediscli_history
+      - .python_history
+      - .lesshst
+      - .local/share/fish/fish_history
+  condition: reader and histfile
+falsepositives:
+  - A user inspecting their own history, or a dotfile tool; scope to the accounts that have no
+    business reading history, as with the other credential rules. The command line shows the file.
+level: medium

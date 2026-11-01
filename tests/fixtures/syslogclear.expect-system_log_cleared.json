@@ -1,0 +1,18 @@
+[
+ {
+  "image": "/usr/bin/rm",
+  "commandLine": "rm -rf /var/log/messages",
+  "source": "laurel",
+  "user": "0",
+  "pid": 10020,
+  "ppid": 10000
+ },
+ {
+  "image": "/usr/bin/journalctl",
+  "commandLine": "journalctl --vacuum-time=0",
+  "source": "laurel",
+  "user": "0",
+  "pid": 10021,
+  "ppid": 10000
+ }
+]

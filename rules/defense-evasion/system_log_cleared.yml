@@ -1,0 +1,39 @@
+title: System log files cleared
+id: 7d3a9f14-2e6b-4c58-91af-0b8c5e7d61a2
+status: experimental
+description: >
+  A program deleted, truncated or shredded a system log, or vacuumed the systemd journal - wiping
+  /var/log/messages, syslog, secure, auth.log, wtmp/btmp, the audit log or the journal. Destroying
+  the logs that record what happened on the host is a deliberate anti-forensics step after an
+  intrusion (MITRE T1070.002): it removes the evidence a responder would read. history_tamper
+  covers a user's shell history; this covers the host's own logs. A rotate of an application's own
+  log (logrotate truncating /var/log/myapp.log) is not matched; the named system logs are.
+references:
+  - https://attack.mitre.org/techniques/T1070/002/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1070.002
+detection:
+  wiper:
+    Image|endswith:
+      - /rm
+      - /shred
+      - /truncate
+      - /unlink
+      - /tee
+      - /dd
+  syslog_path:
+    CommandLine|re: '/var/log/(messages|syslog|secure|auth\.log|kern\.log|cron|maillog|mail\.log|wtmp|btmp|lastlog|faillog|dmesg|boot\.log|audit/|journal/)|/var/spool/mail/'
+  journalctl_vacuum:
+    Image|endswith: /journalctl
+    CommandLine|re: '--vacuum-(time|size|files)|--rotate'
+  condition: (wiper and syslog_path) or journalctl_vacuum
+falsepositives:
+  - A maintenance or rotation step that truncates a named system log; rare interactively, and the
+    command line shows which log. An application log under /var/log is not matched.
+level: high
