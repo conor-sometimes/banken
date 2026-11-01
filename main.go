@@ -48,21 +48,22 @@ func main() {
 }
 
 type flags struct {
-	configPath  string
-	rules       string
-	optional    string
-	observe     string
-	statePath   string
-	watch       bool
-	follow      bool
-	interval    time.Duration
-	journal     bool
-	jsonlDir    string
-	jsonlFormat string
-	retention   int
-	webhookURL  string
-	style       string
-	showVer     bool
+	configPath   string
+	rules        string
+	optional     string
+	observe      string
+	statePath    string
+	watch        bool
+	follow       bool
+	interval     time.Duration
+	journal      bool
+	jsonlDir     string
+	jsonlFormat  string
+	retention    int
+	webhookURL   string
+	style        string
+	otlpEndpoint string
+	showVer      bool
 }
 
 // logf / logln write progress to a Writer, discarding the write error
@@ -115,6 +116,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs.IntVar(&f.retention, "jsonl-retention", 30, "days of jsonl alert files to keep (0 = forever)")
 	fs.StringVar(&f.webhookURL, "webhook-url-file", "", "enable the webhook sink, URL read from this file")
 	fs.StringVar(&f.style, "webhook-style", "generic", "webhook body style: generic|slack|discord|ntfy|ocsf")
+	fs.StringVar(&f.otlpEndpoint, "otlp-endpoint", "", "enable the OTLP/HTTP log exporter, POSTing findings to this OpenTelemetry logs URL (e.g. http://collector:4318/v1/logs)")
 	fs.BoolVar(&f.showVer, "version", false, "print version and exit")
 
 	// Allow repeated -source type:path to add inputs on the command line.
@@ -531,6 +533,10 @@ func buildConfig(f flags, sources multiFlag) (config.Config, error) {
 		cfg.Alerts.Webhook.URLFile = f.webhookURL
 		cfg.Alerts.Webhook.Style = f.style
 	}
+	if f.otlpEndpoint != "" {
+		cfg.Alerts.OTLP.Enable = true
+		cfg.Alerts.OTLP.Endpoint = f.otlpEndpoint
+	}
 	for _, s := range sources {
 		typ, path, ok := strings.Cut(s, ":")
 		if !ok {
@@ -575,6 +581,18 @@ func buildSinks(cfg config.Config, stderr io.Writer) ([]alert.Sink, error) {
 			return nil, err
 		}
 		sinks = append(sinks, ws)
+	}
+	if cfg.Alerts.OTLP.Enable {
+		osink, err := alert.NewOTLPSink(alert.OTLPConfig{
+			Endpoint: cfg.Alerts.OTLP.Endpoint,
+			Headers:  cfg.Alerts.OTLP.Headers,
+			Host:     ocsfOpts.Hostname,
+			Version:  version,
+		})
+		if err != nil {
+			return nil, err
+		}
+		sinks = append(sinks, osink)
 	}
 	return sinks, nil
 }

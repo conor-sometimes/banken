@@ -53,6 +53,17 @@ type Alerts struct {
 	Journal JournalConfig `yaml:"journal"`
 	JSONL   JSONLConfig   `yaml:"jsonl"`
 	Webhook WebhookConfig `yaml:"webhook"`
+	OTLP    OTLPConfig    `yaml:"otlp"`
+}
+
+// OTLPConfig configures the OpenTelemetry (OTLP/HTTP) log exporter. OCSF is the schema, OTLP the
+// pipe: point Endpoint at a collector's logs URL and any OTel backend ingests banken's findings.
+type OTLPConfig struct {
+	Enable   bool   `yaml:"enable"`
+	Endpoint string `yaml:"endpoint"` // full logs URL, e.g. http://collector:4318/v1/logs
+	// Headers are optional request headers (e.g. auth for a hosted collector). A secret here comes
+	// from the operator's config/credential, never the Nix store.
+	Headers map[string]string `yaml:"headers"`
 }
 
 // JournalConfig configures the journal sink.

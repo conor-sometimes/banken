@@ -45,6 +45,9 @@ let
         inherit (cfg.alerts.webhook) enable style;
         urlFile = if cfg.alerts.webhook.urlFile == null then "" else toString cfg.alerts.webhook.urlFile;
       };
+      otlp = {
+        inherit (cfg.alerts.otlp) enable endpoint headers;
+      };
     };
   };
 in
@@ -214,6 +217,30 @@ in
           description = "Body shape for the receiver.";
         };
       };
+
+      otlp = {
+        enable = lib.mkEnableOption "the OTLP/HTTP log exporter (findings to an OpenTelemetry collector)";
+        endpoint = lib.mkOption {
+          type = lib.types.str;
+          default = "";
+          example = "http://collector:4318/v1/logs";
+          description = ''
+            The collector's OTLP/HTTP logs URL. OCSF is banken's schema, OTLP the pipe: any OTel
+            backend (Grafana, Datadog, Splunk, Elastic) then ingests the findings with no glue.
+          '';
+        };
+        headers = lib.mkOption {
+          type = lib.types.attrsOf lib.types.str;
+          default = { };
+          example = {
+            Authorization = "Bearer REDACTED";
+          };
+          description = ''
+            Optional request headers, such as auth for a hosted collector. A real secret belongs in a
+            systemd credential the operator wires in, not in the Nix store.
+          '';
+        };
+      };
     };
   };
 
@@ -221,6 +248,9 @@ in
     assertions = [{
       assertion = cfg.alerts.webhook.enable -> cfg.alerts.webhook.urlFile != null;
       message = "services.banken.alerts.webhook.enable needs alerts.webhook.urlFile.";
+    } {
+      assertion = cfg.alerts.otlp.enable -> cfg.alerts.otlp.endpoint != "";
+      message = "services.banken.alerts.otlp.enable needs alerts.otlp.endpoint.";
     }];
 
     environment.systemPackages = [ cfg.package ];
@@ -280,8 +310,9 @@ in
         ProtectHome = true;
         PrivateTmp = true;
         PrivateDevices = true;
-        PrivateNetwork = !cfg.alerts.webhook.enable;
-        RestrictAddressFamilies = [ "AF_UNIX" ] ++ lib.optionals cfg.alerts.webhook.enable [ "AF_INET" "AF_INET6" ];
+        # The webhook and OTLP sinks are the only egress; without them banken needs no network.
+        PrivateNetwork = !(cfg.alerts.webhook.enable || cfg.alerts.otlp.enable);
+        RestrictAddressFamilies = [ "AF_UNIX" ] ++ lib.optionals (cfg.alerts.webhook.enable || cfg.alerts.otlp.enable) [ "AF_INET" "AF_INET6" ];
         ProtectKernelTunables = true;
         ProtectKernelModules = true;
         ProtectKernelLogs = true;
