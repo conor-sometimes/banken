@@ -212,18 +212,25 @@ a trojan is worse than no detector. The guarantee is layered:
    patterns). Every parser is fuzzed to tens of millions of executions with zero crashes, and the
    "never fail the batch on content" contract means a malformed or adversarial line is skipped, not
    a way to blind the detector.
-3. **Response actions are operator policy, never rule-embedded.** A rule only emits a tag; the local
+3. **Memory-safe, no kernel component.** banken is pure Go — no `unsafe`, no cgo, no C anywhere — so
+   whole bug classes that plague EDRs are structurally impossible: no buffer overflow, no
+   use-after-free, no out-of-bounds read of the untrusted bytes it parses. It is one static binary
+   with no kernel module and no driver, so, unlike the agents it takes after, it **cannot panic your
+   kernel or blue-screen the host** — the worst a banken bug does is a missed or wrong detection in
+   userspace, caught by the panic guards, never a downed machine. CodeQL's data-flow analysis runs on
+   every push on top of gosec and staticcheck.
+4. **Response actions are operator policy, never rule-embedded.** A rule only emits a tag; the local
    operator config maps tags to actions (kill, quarantine). A remote rule can never carry its own
    "kill this / delete that."
-4. **Trusted path (planned).** As root, banken should distrust rules from a directory writable by
+5. **Trusted path (planned).** As root, banken should distrust rules from a directory writable by
    anyone but its owner (the classic local-unprivileged-user-edits-the-rule escalation) and flag it,
    with an opt-in strict mode to refuse. *Not yet implemented* — today banken only loads from the
    paths it is given; make the rules dir root-owned and `0755` yourself.
-5. **The fetch is deprivileged and can't run code (planned).** When remote rule sync exists it will
+6. **The fetch is deprivileged and can't run code (planned).** When remote rule sync exists it will
    be a separate command (never the scan), neutering git's code-execution surfaces (hooks, filter
    drivers, fsmonitor) or using a plain tarball, and running as a dedicated low-privilege user.
    *There is no fetch today* — rules are local only, so this surface does not exist yet.
-6. **Signed bundles (v2).** Remote rule/config bundles are signature-verified against a locally
+7. **Signed bundles (v2).** Remote rule/config bundles are signature-verified against a locally
    pinned public key with a monotonic version, so a compromised transport or repo host cannot push a
    rogue rule set in the first place.
 
