@@ -77,9 +77,10 @@ type JSONLConfig struct {
 	Dir           string `yaml:"dir"`
 	RetentionDays int    `yaml:"retentionDays"`
 	// Format is the on-disk encoding: "" or "banken" for the native shape,
-	// "ocsf" for OCSF Detection Findings. An unknown value is a startup error
-	// (buildSinks), never a silent fallback -- an operator who asked for OCSF
-	// and got banken JSON would only find out from their SIEM.
+	// "ocsf" for OCSF Detection Findings, "ecs" for Elastic Common Schema. An
+	// unknown value is a startup error (buildSinks), never a silent fallback --
+	// an operator who asked for OCSF and got banken JSON would only find out
+	// from their SIEM.
 	Format string `yaml:"format"`
 }
 

@@ -112,7 +112,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs.DurationVar(&f.interval, "interval", 2*time.Minute, "scan interval in --watch mode")
 	fs.BoolVar(&f.journal, "journal", false, "enable the journal sink (to stderr)")
 	fs.StringVar(&f.jsonlDir, "jsonl-dir", "", "enable the jsonl sink, writing per-day files here")
-	fs.StringVar(&f.jsonlFormat, "jsonl-format", "", "jsonl encoding: banken (native) | ocsf (OCSF Detection Finding); default banken")
+	fs.StringVar(&f.jsonlFormat, "jsonl-format", "", "jsonl encoding: banken (native) | ocsf (OCSF Detection Finding) | ecs (Elastic Common Schema); default banken")
 	fs.IntVar(&f.retention, "jsonl-retention", 30, "days of jsonl alert files to keep (0 = forever)")
 	fs.StringVar(&f.webhookURL, "webhook-url-file", "", "enable the webhook sink, URL read from this file")
 	fs.StringVar(&f.style, "webhook-style", "generic", "webhook body style: generic|slack|discord|ntfy|ocsf")
@@ -608,8 +608,10 @@ func jsonlEncoder(format string, o alert.OCSFOptions) (alert.Encoder, error) {
 		return alert.EncodeAlert, nil
 	case "ocsf":
 		return alert.EncodeOCSF(o), nil
+	case "ecs":
+		return alert.EncodeECS(o), nil
 	default:
-		return nil, fmt.Errorf("unknown jsonl format %q (want banken or ocsf)", format)
+		return nil, fmt.Errorf("unknown jsonl format %q (want banken, ocsf or ecs)", format)
 	}
 }
 
