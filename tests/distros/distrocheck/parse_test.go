@@ -28,6 +28,31 @@ baseurl=http://dl.fedoraproject.org/pub/fedora/linux/releases/$releasever/Everyt
 	}
 }
 
+func TestParseMimi(t *testing.T) {
+	out := `M1 PASS bundle deployed
+not an objective line
+M2 PASS has /sys/kernel/btf/vmlinux
+M3 FAIL mimi did not load/stream: permission denied
+M5 PASS reverse_shell detected, data_sources=[mimi]
+`
+	got := parseMimi(out)
+	if len(got) != 4 {
+		t.Fatalf("parsed %d results, want 4: %v", len(got), got)
+	}
+	if r := got["M1"]; !r.pass || r.detail != "bundle deployed" {
+		t.Errorf("M1 = %+v, want {pass:true, detail:%q}", r, "bundle deployed")
+	}
+	if r := got["M3"]; r.pass || r.detail != "mimi did not load/stream: permission denied" {
+		t.Errorf("M3 = %+v, want a FAIL with the reason", r)
+	}
+	if r := got["M5"]; !r.pass || r.detail != "reverse_shell detected, data_sources=[mimi]" {
+		t.Errorf("M5 = %+v, want the detection detail", r)
+	}
+	if _, ok := got["M4"]; ok {
+		t.Error("M4 was never printed; it must be absent (mimi() records it as not reported)")
+	}
+}
+
 func TestContainsRule(t *testing.T) {
 	lines := []string{
 		"banken: auto-detected source: auditd /var/log/audit/audit.log",

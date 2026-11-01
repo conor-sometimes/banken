@@ -181,7 +181,11 @@ func (c *checker) objectives() []string {
 	for _, f := range c.families() {
 		ids = append(ids, "B1/"+f)
 	}
-	return append(ids, "B2", "C1", "C2", "A4", "D1", "D2", "E1")
+	ids = append(ids, "B2", "C1", "C2", "A4", "D1", "D2", "E1")
+	if c.hasMimi() {
+		ids = append(ids, mimiIDs...)
+	}
+	return ids
 }
 
 func (c *checker) families() []string {
@@ -214,6 +218,7 @@ func (c *checker) run() {
 	c.sandbox()
 	c.mac()
 	c.testSuite()
+	c.mimi()
 }
 
 // --- commands ---
@@ -777,6 +782,67 @@ func (c *checker) testSuite() {
 	c.rep.Info["test_packages"] = strconv.Itoa(len(bins))
 	c.check("E1", len(failed) == 0, fmt.Sprintf("%d of %d packages failed: %s",
 		len(failed), len(bins), strings.Join(failed, "; ")))
+}
+
+// --- banken + mimi (M1-M5) ---
+
+// mimiIDs are the banken + mimi objectives, in run order (tests/distros/README.md, Test B).
+var mimiIDs = []string{"M1", "M2", "M3", "M4", "M5"}
+
+// hasMimi reports whether this seed carries the mimi bundle and its driver, i.e. the matrix was
+// built with a mimi bundle (default.nix mimiBundle). A banken-raw matrix has neither, so M1-M5 are
+// not objectives at all and banken's own `nix run .#distro-matrix` is unchanged.
+func (c *checker) hasMimi() bool {
+	_, err := os.Stat(filepath.Join(c.seed, "mimicheck.sh"))
+	return err == nil
+}
+
+type mimiResult struct {
+	pass   bool
+	detail string
+}
+
+// mimi (M1-M5) is the banken + mimi half: it runs mimicheck.sh from the seed, which deploys the
+// portable mimi sensor, loads its eBPF probe on THIS distro's kernel (CO-RE off its BTF), and checks
+// banken --watch detects a reverse shell on the mimi-sourced event -- the integration, proven per
+// distro. mimicheck.sh prints one "<id> PASS|FAIL <detail>" line per objective, which this records.
+// A kernel with no BTF fails M2 and reports M3-M5 as not reached (CO-RE needs it); that a distro
+// kernel ships no BTF is itself a recorded result, not a harness error.
+func (c *checker) mimi() {
+	if !c.hasMimi() {
+		return
+	}
+	out, err := c.sh(8*time.Minute, "bash", filepath.Join(c.seed, "mimicheck.sh"), c.seed)
+	results := parseMimi(out)
+	for _, id := range mimiIDs {
+		r, ok := results[id]
+		if !ok {
+			detail := "mimicheck.sh did not report " + id + ": " + lastLines(out, 3)
+			if err != nil {
+				detail = fmt.Sprintf("mimicheck.sh failed before %s (%v): %s", id, err, lastLines(out, 3))
+			}
+			c.check(id, false, detail)
+			continue
+		}
+		c.check(id, r.pass, r.detail)
+	}
+}
+
+// parseMimi reads mimicheck.sh's "<id> PASS|FAIL <detail>" lines into a map keyed by id.
+func parseMimi(out string) map[string]mimiResult {
+	res := map[string]mimiResult{}
+	for _, line := range nonEmpty(out) {
+		parts := strings.SplitN(strings.TrimSpace(line), " ", 3)
+		if len(parts) < 2 || (parts[1] != "PASS" && parts[1] != "FAIL") {
+			continue
+		}
+		detail := ""
+		if len(parts) == 3 {
+			detail = parts[2]
+		}
+		res[parts[0]] = mimiResult{pass: parts[1] == "PASS", detail: detail}
+	}
+	return res
 }
 
 // --- files ---

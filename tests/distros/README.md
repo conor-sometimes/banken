@@ -44,7 +44,7 @@ NixOS is tested through its own module by `tests/vm.nix` (`nix flake check`).
 ## Objectives
 
 The matrix's contract: every objective passes on every distro. Each has a stable ID and is one
-subtest. Status as of 2026-10-31.
+subtest. Status as of 2026-11-01.
 
 | ID | Objective | Checked by | Status |
 | --- | --- | --- | --- |
@@ -71,10 +71,49 @@ subtest. Status as of 2026-10-31.
 | E2 | The full Atomic Red Team range, scored per technique on this distro's telemetry | every Linux atomic run live | to build |
 | E3 | SigmaHQ's Linux rules on the normal-day workload: the false-positive count | measured per distro | to build |
 | E4 | Every live alert passes the official OCSF validator | ocsf-toolkit over the distro's own alerts | to build |
+| **M. banken + mimi (the eBPF sensor on this distro's kernel)** | | | |
+| M1 | The portable mimi bundle deploys and runs with no `/nix` in the guest | bundle (sensor + loader + glibc) copied from the seed, executable | built |
+| M2 | The distro's own kernel exposes BTF (CO-RE prerequisite) | `/sys/kernel/btf/vmlinux` present (M3-M5 skipped, and recorded, if not) | built |
+| M3 | mimi loads its probe, resolving `task_struct` offsets from THIS kernel's BTF | probe attaches and the OCSF stream starts | built |
+| M4 | mimi captures a real exec into its stream | a canary exec appears in the mimi stream | built |
+| M5 | banken `--watch` on the mimi stream detects a reverse shell | an alert fires with `data_sources=["mimi"]` | built |
 
 Recorded per distro (logged, not judged): OS, kernel, systemd version, the LSM and SELinux mode,
 packages the install needed, audit rule count and status, whether the distro ships a
 `-a task,never` audit rule (which turns syscall auditing off), and the exposure score.
+
+## banken + mimi (Test B: M1-M5)
+
+The A-E objectives test banken on the auditd floor. The M objectives add banken's eBPF sensor
+(mimi) on top: on each distro, mimi loads its probe against that distro's own kernel BTF (CO-RE),
+and banken reads mimi's OCSF stream as a `--watch` daemon. This proves the sensor-to-brain
+integration on real vendor kernels, not just the nixpkgs kernels of mimi's own CO-RE matrix.
+
+banken's flake stays decoupled from mimi: `nix run .#distro-matrix` is banken-raw (A-E only).
+[`default.nix`](default.nix) takes an optional `mimiBundle` argument; when it is set, the payload
+carries the portable mimi bundle and [`mimicheck.sh`](mimicheck.sh), and `distrocheck` runs M1-M5.
+A small throwaway flake supplies the bundle (built from mimi's package plus the glibc loader) and
+calls `default.nix` with it:
+
+```nix
+mimiBundle = pkgs.runCommand "mimi-bundle" { } ''
+  mkdir -p $out
+  cp ${mimi.packages.x86_64-linux.default}/bin/mimi $out/mimi
+  cp ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 $out/ld.so
+  cp ${pkgs.glibc}/lib/libc.so.6 $out/libc.so.6
+  cp ${pkgs.stdenv.cc.cc.lib}/lib/libgcc_s.so.1 $out/libgcc_s.so.1
+  chmod -R u+w $out
+'';
+distro-matrix = pkgs.callPackage (banken + "/tests/distros/default.nix") {
+  banken = pkgs.callPackage (banken + "/package.nix") { };
+  inherit mimiBundle;
+};
+```
+
+mimi is built dynamically (a fully static glibc build is not possible with proc-macro crates on
+one triple), so the bundle ships its interpreter and libraries alongside the binary. The guest
+runs mimi as root, so it has the capabilities and the DAC access the probe needs with no extra
+hardening to work around.
 
 ## Network
 

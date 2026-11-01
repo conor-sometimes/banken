@@ -163,6 +163,17 @@ func writeSeed(t *testing.T, dir string, d distro, expected map[string][]string)
 		copyFile(t, b, filepath.Join(root, "suite", filepath.Base(b)))
 	}
 	copyFile(t, filepath.Join(*payload, "src.tar"), filepath.Join(root, "src.tar"))
+	// Test B (banken + mimi): the portable mimi bundle and its in-guest driver, present only when
+	// the matrix was built with a mimi bundle (default.nix mimiBundle). Absent -> distrocheck sees no
+	// mimicheck.sh and skips the M1-M5 objectives, so banken's own banken-raw matrix is unchanged.
+	if _, err := os.Stat(filepath.Join(*payload, "mimicheck.sh")); err == nil {
+		copyFile(t, filepath.Join(*payload, "mimicheck.sh"), filepath.Join(root, "mimicheck.sh"))
+		must(t, os.MkdirAll(filepath.Join(root, "mimi-bundle"), 0o755))
+		bundle, _ := filepath.Glob(filepath.Join(*payload, "mimi-bundle", "*"))
+		for _, b := range bundle {
+			copyFile(t, b, filepath.Join(root, "mimi-bundle", filepath.Base(b)))
+		}
+	}
 	cfg, err := json.Marshal(report.Config{
 		Distro: d.Name, PM: d.PM, Packages: d.Packages, Proxy: guestProxy(), Expected: expected,
 	})

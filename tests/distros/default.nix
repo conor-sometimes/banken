@@ -10,7 +10,11 @@
 # An app, not a `nix flake check`: the guests install auditd from their
 # distros' own repos -- the install path under test -- and the check sandbox
 # has no network. Everything Nix builds here is pure; only the VM run is not.
-{ lib, buildGo127Module, fetchurl, runCommand, writeText, writeShellApplication, qemu, xorriso, banken }:
+# mimiBundle (optional) is a directory holding the portable mimi sensor and the three shared objects
+# it needs to run with no /nix in a guest (mimi, ld.so, libc.so.6, libgcc_s.so.1). Supplied, the
+# payload carries it plus mimicheck.sh and distrocheck runs the banken + mimi objectives (M1-M5) on
+# every distro; omitted (banken's own `nix run .#distro-matrix`), the matrix is banken-raw only.
+{ lib, buildGo127Module, fetchurl, runCommand, writeText, writeShellApplication, qemu, xorriso, banken, mimiBundle ? null }:
 
 let
   distros = builtins.fromJSON (builtins.readFile ./distros.json);
@@ -70,6 +74,11 @@ let
     cp ${harness}/bin/distrocheck $out/distrocheck
     cp -r ${harness}/suite $out/suite
     tar -C ${src} -cf $out/src.tar .
+    ${lib.optionalString (mimiBundle != null) ''
+      cp ${./mimicheck.sh} $out/mimicheck.sh
+      mkdir -p $out/mimi-bundle
+      cp ${mimiBundle}/mimi ${mimiBundle}/ld.so ${mimiBundle}/libc.so.6 ${mimiBundle}/libgcc_s.so.1 $out/mimi-bundle/
+    ''}
   '';
 in
 writeShellApplication {
