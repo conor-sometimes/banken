@@ -36,15 +36,20 @@ valid OCSF and the sandbox. `nix run .#distro-matrix` runs it.
 | --- | --- | --- |
 | Rocky Linux 9 (RHEL 9) | all 15 objectives pass, SELinux enforcing | 2026-10-31 |
 | AlmaLinux 10 (RHEL 10) | all 15 objectives pass, SELinux enforcing | 2026-10-31 |
-| Fedora 44 | all 15 objectives pass, SELinux enforcing (remove the stock `-a task,never`; banken warns) | 2026-10-31 |
+| Fedora 44 | all 15 objectives pass, SELinux enforcing † | 2026-10-31 |
 | Debian 13 | all 15 objectives pass, AppArmor active | 2026-10-31 |
 | Ubuntu 24.04 LTS | all 15 objectives pass, AppArmor active | 2026-10-31 |
-| openSUSE Leap 16 | all 15 objectives pass, SELinux enforcing (remove the stock `-a task,never`; banken warns) | 2026-10-31 |
+| openSUSE Leap 16 | all 15 objectives pass, SELinux enforcing † | 2026-10-31 |
 | Arch Linux | all 15 objectives pass | 2026-10-31 |
 | NixOS | module VM test passes ([`tests/vm.nix`](tests/vm.nix)) | 2026-10-31 |
 | Amazon Linux 2023 | all 15 objectives pass | 2026-10-31 |
 
 x86_64; aarch64 builds but is not yet tested.
+
+† Fedora and openSUSE ship a stock `-a task,never` auditd rule — it tells auditd never to record
+events for newly created tasks, which blinds banken to process execs. banken detects it and warns at
+startup (`auditcheck`), and removing that one rule restores full detection; the matrix test does so
+before scoring, so the 15 objectives pass on a correctly-configured host.
 
 ## Standards
 
