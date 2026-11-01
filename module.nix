@@ -22,9 +22,20 @@ let
     optionalRules = cfg.optionalRules;
     observeRules = cfg.observeRules;
     statePath = "/var/lib/banken/cursor.json";
-    # With the mimi sensor on, banken tails its OCSF event stream as a `mimi` source (added here so
+    # With the mimi sensor on, banken follows its OCSF event stream as a `mimi` source (added here so
     # it needs no manual sources entry); the sensor itself is brought up below.
-    sources = cfg.sources ++ lib.optional cfg.mimi.enable { type = "mimi"; path = cfg.mimi.streamPath; };
+    #
+    # banken auto-detects the audit log only when `sources` is empty. Naming the mimi stream makes
+    # the list non-empty, which would suppress that auto-detect and silently leave banken with no
+    # auditd floor -- the opposite of the soft-dependency intent (mimi adds to the floor, never
+    # replaces it). So when the sensor is on and the operator gave no sources of their own, name the
+    # audit log explicitly alongside the stream, keeping the floor.
+    sources =
+      cfg.sources
+      ++ lib.optionals (cfg.mimi.enable && cfg.sources == [ ] && cfg.audit.enable) [
+        { type = "auditd"; path = "/var/log/audit/audit.log"; }
+      ]
+      ++ lib.optional cfg.mimi.enable { type = "mimi"; path = cfg.mimi.streamPath; };
     alerts = {
       journal.enable = cfg.alerts.journal.enable;
       jsonl = {
@@ -239,9 +250,18 @@ in
       # so a mimi failure degrades banken to the auditd floor rather than taking it down.
       after = [ "auditd.service" ] ++ lib.optional cfg.mimi.enable "mimi.service";
       wants = [ "auditd.service" ] ++ lib.optional cfg.mimi.enable "mimi.service";
+      # The daemon (sensor on) starts at boot; the one-shot (sensor off) is started by the timer.
+      wantedBy = lib.mkIf cfg.mimi.enable [ "multi-user.target" ];
       serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${lib.getExe cfg.package} -config /etc/banken/banken.yml";
+        # With the sensor on, banken runs as a long-running daemon (--watch): it follows the mimi
+        # stream continuously and scans the auditd floor on banken's own interval, one process, one
+        # alert path. Without it, the one-shot + timer below is the floor. Only the daemon restarts
+        # on failure (the one-shot is driven by the timer). (--watch uses banken's built-in scan
+        # interval for the floor; services.banken.interval drives the timer, the no-sensor path.)
+        Type = if cfg.mimi.enable then "exec" else "oneshot";
+        ExecStart = "${lib.getExe cfg.package}${lib.optionalString cfg.mimi.enable " --watch"} -config /etc/banken/banken.yml";
+        Restart = lib.mkIf cfg.mimi.enable "on-failure";
+        RestartSec = lib.mkIf cfg.mimi.enable 2;
         StateDirectory = "banken";
         StateDirectoryMode = "0700";
         LogsDirectory = lib.mkIf (cfg.alerts.jsonl.enable && cfg.alerts.jsonl.dir == "/var/log/banken") "banken";
@@ -281,7 +301,9 @@ in
       };
     };
 
-    systemd.timers.banken = {
+    # The periodic timer drives the one-shot floor. With the sensor on, banken is a long-running
+    # daemon instead (it scans on its own interval), so the timer is not used.
+    systemd.timers.banken = lib.mkIf (!cfg.mimi.enable) {
       description = "Run a banken scan every ${cfg.interval}";
       wantedBy = [ "timers.target" ];
       timerConfig = {
