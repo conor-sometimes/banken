@@ -13,11 +13,17 @@
 set -u
 
 # --- TTP: a port/service scanner runs (any invocation) -> network_service_scan (scanner: Image match) ---
+found=0
 for tool in nmap masscan zmap rustscan naabu unicornscan; do
 	if command -v "$tool" >/dev/null 2>&1; then
 		timeout 5 "$tool" --version >/dev/null 2>&1 || true
+		found=1
 		break
 	fi
 done
+
+# No scanner installable on this image (e.g. a distro with no nmap in its default repos): tell the
+# matrix harness to skip rather than record a miss - the rule is still proven by the replay fixture.
+[ "$found" = 0 ] && echo "BANKEN-EMUL-SKIP: no port scanner (nmap/masscan/zmap/rustscan/naabu) available"
 
 exit 0

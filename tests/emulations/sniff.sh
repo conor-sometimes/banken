@@ -11,11 +11,17 @@
 set -u
 
 # --- TTP: a packet sniffer runs (any invocation) -> network_sniffing (sniffer: Image match) ---
+found=0
 for tool in tcpdump tshark dumpcap ngrep netsniff-ng; do
 	if command -v "$tool" >/dev/null 2>&1; then
 		timeout 5 "$tool" --version >/dev/null 2>&1 || true
+		found=1
 		break
 	fi
 done
+
+# No sniffer installable on this image: tell the matrix harness to skip rather than record a miss -
+# the rule is still proven by the replay fixture.
+[ "$found" = 0 ] && echo "BANKEN-EMUL-SKIP: no packet sniffer (tcpdump/tshark/dumpcap/ngrep) available"
 
 exit 0

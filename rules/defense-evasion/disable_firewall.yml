@@ -28,9 +28,16 @@ detection:
     Image|endswith: /service
     CommandLine|re: '\b(pf|ipfw|firewalld|ufw)\b.*\b(stop|disable)\b'
   iptables:
+    # On nft-backed distros iptables/ip6tables are symlinks to xtables-nft-multi (xtables-multi /
+    # xtables-legacy-multi on others), so the exec'd binary - what the audit record's exe= names -
+    # is the multiplexer, not "iptables". Match both: the CommandLine still carries argv[0]=iptables
+    # so the flag regex below is unaffected.
     Image|endswith:
       - /iptables
       - /ip6tables
+      - /xtables-nft-multi
+      - /xtables-legacy-multi
+      - /xtables-multi
     CommandLine|re: '(^|\s)-F\b|(^|\s)-X\b|(^|\s)-P\s+(INPUT|OUTPUT|FORWARD)\s+ACCEPT\b'
   nft_flush:
     Image|endswith: /nft

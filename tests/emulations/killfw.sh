@@ -18,6 +18,12 @@ if [ "$(id -u)" -eq 0 ]; then
 	exit 0
 fi
 
+# --- TTP: systemctl stop the firewall service -> disable_firewall (systemctl) ---
+# The universal trigger: systemctl is on every systemd distro, so this execs (and the audit record
+# the rule keys on is written) even where no iptables/ufw/nft CLI is installed - openSUSE Leap and
+# other firewalld-only images. Unprivileged it is refused, so no firewall actually changes.
+systemctl stop firewalld >/dev/null 2>&1 || true
+
 # --- TTP: iptables flush -> disable_firewall (iptables) ---
 if command -v iptables >/dev/null 2>&1; then
 	iptables -F >/dev/null 2>&1 || true

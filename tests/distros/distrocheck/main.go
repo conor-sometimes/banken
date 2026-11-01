@@ -251,9 +251,16 @@ func (c *checker) shIn(dir string, timeout time.Duration, name string, args ...s
 }
 
 // asUser runs a shell command as the test user. runuser, not su or sudo: those
-// would (rightly) fire privilege_escalation_attempt.
-func (c *checker) asUser(command string) {
-	_, _ = c.sh(time.Minute, "runuser", "-u", testUser, "--", "bash", "-c", command)
+// would (rightly) fire privilege_escalation_attempt. It forces a login-style PATH that
+// includes the sbin dirs: an admin (and plenty of distros' own login shells) has them, and
+// several emulations invoke tools that live there - useradd/modprobe in /usr/sbin - which a
+// bare runuser PATH omits on openSUSE and Fedora, so the exec never happens and the rule
+// never fires. Finding the binary is part of faithfully emulating the act.
+func (c *checker) asUser(command string) string {
+	const loginPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	out, _ := c.sh(time.Minute, "runuser", "-u", testUser, "--", "bash", "-c",
+		"export PATH="+loginPath+":$PATH; "+command)
+	return out
 }
 
 func have(cmd string) bool {
@@ -288,6 +295,51 @@ func alertLines() []string {
 		}
 	}
 	return lines
+}
+
+// auditLineN is the current line count of the raw audit log, a cursor for auditExecsSince.
+func auditLineN() int {
+	data, err := os.ReadFile(auditLog) //nolint:gosec // the audit log, inside the test VM
+	if err != nil {
+		return 0
+	}
+	return len(nonEmpty(string(data)))
+}
+
+// auditExecsSince names the distinct programs exec'd since line n (from SYSCALL records' exe=...),
+// a diagnostic for a B1 miss: it distinguishes "the emulation's tool never ran" (the program is
+// absent from the list) from "it ran but no rule matched" (it is present).
+func auditExecsSince(n int) string {
+	data, err := os.ReadFile(auditLog) //nolint:gosec // the audit log, inside the test VM
+	if err != nil {
+		return ""
+	}
+	lines := nonEmpty(string(data))
+	if n > len(lines) {
+		n = len(lines)
+	}
+	seen := map[string]bool{}
+	var exes []string
+	for _, line := range lines[n:] {
+		i := strings.Index(line, " exe=")
+		if i < 0 {
+			continue
+		}
+		v := line[i+5:]
+		v = strings.TrimPrefix(v, "\"")
+		if j := strings.IndexByte(v, '"'); j >= 0 {
+			v = v[:j]
+		} else if j := strings.IndexByte(v, ' '); j >= 0 {
+			v = v[:j]
+		}
+		base := v[strings.LastIndexByte(v, '/')+1:]
+		if base != "" && !seen[base] {
+			seen[base] = true
+			exes = append(exes, base)
+		}
+	}
+	sort.Strings(exes)
+	return strings.Join(exes, " ")
 }
 
 // --- install (A1) ---
@@ -347,42 +399,66 @@ func (c *checker) installPackages() error {
 			return fmt.Errorf("configure %s for the proxy: %w", c.cfg.PM, err)
 		}
 	}
-	var missing []string
+	var missing, optMissing []string
 	for cmd, pkg := range c.cfg.Packages {
-		if !have(cmd) {
+		if have(cmd) {
+			continue
+		}
+		if optionalCmd[cmd] {
+			optMissing = append(optMissing, pkg)
+		} else {
 			missing = append(missing, pkg)
 		}
 	}
-	if len(missing) == 0 {
-		return nil
-	}
 	sort.Strings(missing)
-	c.rep.Info["installed"] = strings.Join(missing, " ")
-	var out string
-	var err error
-	switch c.cfg.PM {
-	case "dnf":
-		out, err = c.sh(15*time.Minute, "dnf", append([]string{"-y", "install"}, missing...)...)
-	case "apt":
-		if out, err = c.sh(15*time.Minute, "apt-get", "update"); err == nil {
-			out, err = c.sh(15*time.Minute, "apt-get", append([]string{"install", "-y"}, missing...)...)
+	sort.Strings(optMissing)
+	if len(missing) > 0 {
+		c.rep.Info["installed"] = strings.Join(missing, " ")
+		if out, err := c.pmInstall(missing); err != nil {
+			return fmt.Errorf("install %s: %w: %s", strings.Join(missing, " "), err, lastLines(out, 3))
 		}
-	case "zypper":
-		out, err = c.sh(15*time.Minute, "zypper", append([]string{"-n", "--gpg-auto-import-keys", "install"}, missing...)...)
-	case "pacman":
-		out, err = c.sh(15*time.Minute, "pacman", append([]string{"-Sy", "--noconfirm", "--needed"}, missing...)...)
-	default:
-		return fmt.Errorf("unknown package manager %q", c.cfg.PM)
+		for cmd := range c.cfg.Packages {
+			if !optionalCmd[cmd] && !have(cmd) {
+				return fmt.Errorf("%s still missing after installing %s", cmd, strings.Join(missing, " "))
+			}
+		}
 	}
-	if err != nil {
-		return fmt.Errorf("install %s: %w: %s", strings.Join(missing, " "), err, lastLines(out, 3))
-	}
-	for cmd := range c.cfg.Packages {
-		if !have(cmd) {
-			return fmt.Errorf("%s still missing after installing %s", cmd, strings.Join(missing, " "))
+	// Optional emulation tools (nmap, tcpdump) are best effort: where a distro's repos lack them
+	// (openSUSE Leap has no nmap provider) or an image ships a broken optional repo, the dependent
+	// emulation (portscan, sniff) prints a skip marker and the matrix skips it, the rule staying
+	// proven by its replay fixture. An attack tool that will not install must not fail the distro.
+	if len(optMissing) > 0 {
+		if out, err := c.pmInstall(optMissing); err != nil {
+			c.rep.Info["optional_unavailable"] = strings.Join(optMissing, " ") + ": " + lastLines(out, 2)
+		} else {
+			c.rep.Info["installed_optional"] = strings.Join(optMissing, " ")
 		}
 	}
 	return nil
+}
+
+// optionalCmd marks packages that are nice-to-have for an emulation but not required for banken to
+// run: their absence makes the dependent family skip, never fail (see installPackages).
+var optionalCmd = map[string]bool{"nmap": true, "tcpdump": true}
+
+// pmInstall installs packages with the distro's package manager. For dnf it passes
+// skip_if_unavailable so one broken optional repo in an image (Fedora's cisco-openh264, whose
+// metalink can 404) does not sink installs of packages available from the other repos.
+func (c *checker) pmInstall(pkgs []string) (string, error) {
+	switch c.cfg.PM {
+	case "dnf":
+		return c.sh(15*time.Minute, "dnf", append([]string{"-y", "--setopt=*.skip_if_unavailable=1", "install"}, pkgs...)...)
+	case "apt":
+		if out, err := c.sh(15*time.Minute, "apt-get", "update"); err != nil {
+			return out, err
+		}
+		return c.sh(15*time.Minute, "apt-get", append([]string{"install", "-y"}, pkgs...)...)
+	case "zypper":
+		return c.sh(15*time.Minute, "zypper", append([]string{"-n", "--gpg-auto-import-keys", "install"}, pkgs...)...)
+	case "pacman":
+		return c.sh(15*time.Minute, "pacman", append([]string{"-Sy", "--noconfirm", "--needed"}, pkgs...)...)
+	}
+	return "", fmt.Errorf("unknown package manager %q", c.cfg.PM)
 }
 
 // useProxy points the package manager at the host's proxy and, for dnf and
@@ -437,6 +513,14 @@ func (c *checker) loadAuditRules() error {
 	}
 	_, _ = c.sh(time.Minute, "auditctl", "-e", "1")
 	rules, rerr := c.sh(time.Minute, "auditctl", "-l")
+	// augenrules can compile rules.d without loading ours (seen on Fedora: it reports "No rules"
+	// and auditctl -l stays empty of banken-exec). Fall back to loading the file straight into the
+	// kernel, which is what the operator does when augenrules misbehaves. Idempotent: if the rules
+	// are already loaded this is a no-op bar a harmless "rule exists".
+	if !strings.Contains(rules, "banken-exec") {
+		_, _ = c.sh(2*time.Minute, "auditctl", "-R", "/etc/audit/rules.d/banken.rules")
+		rules, rerr = c.sh(time.Minute, "auditctl", "-l")
+	}
 	status, serr := c.sh(time.Minute, "auditctl", "-s")
 	if rerr != nil || serr != nil {
 		c.rep.Info["auditctl_error"] = fmt.Sprintf("-l: %v; -s: %v", rerr, serr)
@@ -509,9 +593,15 @@ func (c *checker) timerFires() {
 	c.check("A3", false, "the timer did not journal pipe_to_shell within 200s of the attack")
 }
 
-func (c *checker) runFamily(family string) {
-	c.asUser("bash " + filepath.Join(c.seed, "emulations", family+".sh"))
+// emulSkip is what an emulation prints when the tool it needs is not installable on this distro;
+// the detection loop then skips that family rather than recording a miss (the rule stays proven by
+// its replay fixture).
+const emulSkip = "BANKEN-EMUL-SKIP"
+
+func (c *checker) runFamily(family string) string {
+	out := c.asUser("bash " + filepath.Join(c.seed, "emulations", family+".sh"))
 	time.Sleep(time.Second) // let auditd write the family's records
+	return out
 }
 
 // detection (B1, C1, C2): with the jsonl sink on (config at the default path,
@@ -524,12 +614,26 @@ func (c *checker) detection() {
 			c.unitFailures = append(c.unitFailures, "write config: "+err.Error())
 		}
 	}
+	// Quiet background services that trip detections on their own schedule: fwupd loads kernel
+	// modules via modprobe, which fires kernel_module_load and, landing in whatever family's scan
+	// window it happens to, gets misattributed (seen on Ubuntu). A test VM needs no firmware updates.
+	for _, unit := range []string{"fwupd.service", "fwupd-refresh.service", "fwupd-refresh.timer"} {
+		_, _ = c.sh(time.Minute, "systemctl", "mask", "--now", unit)
+	}
 	c.scan() // drain the A2/A3 activity
 	host, _ := os.Hostname()
 	var badOCSF, unjournalled []string
 	for _, family := range c.families() {
-		before, beforeJ := len(alertLines()), len(c.journal("err"))
-		c.runFamily(family)
+		c.scan() // drain any inter-family or concurrent-service activity so only this family's own
+		before, beforeJ := len(alertLines()), len(c.journal("err")) // events count toward it
+		auditBefore := auditLineN()
+		out := c.runFamily(family)
+		if strings.Contains(out, emulSkip) {
+			// The emulation could not run (its tool is not installable on this image); skip rather
+			// than count a miss. Recorded so the skip is visible in the report, not silent.
+			c.rep.Info["B1_skipped/"+family] = firstLine(strings.TrimSpace(out))
+			continue
+		}
 		c.scan()
 		fired := map[string]bool{}
 		journalled := from(c.journal("err"), beforeJ)
@@ -545,7 +649,16 @@ func (c *checker) detection() {
 		}
 		got := keys(fired)
 		want := c.cfg.Expected[family]
-		c.check("B1/"+family, equal(got, want), fmt.Sprintf("fired %v, expected %v", got, want))
+		msg := fmt.Sprintf("fired %v, expected %v", got, want)
+		if !equal(got, want) {
+			// Say what the emulation actually exec'd, so a miss is diagnosable from the matrix log
+			// alone: "fired [] expected [account_creation]; execs: [bash]" means useradd never ran
+			// (tool/PATH), where "execs: [useradd]" would point at the rule or the parser instead.
+			if execs := auditExecsSince(auditBefore); execs != "" {
+				msg += "; execs: " + execs
+			}
+		}
+		c.check("B1/"+family, equal(got, want), msg)
 	}
 	c.check("C1", len(badOCSF) == 0, strings.Join(badOCSF, "; "))
 	c.check("C2", len(unjournalled) == 0, "high/critical alerts missing from the journal: "+strings.Join(unjournalled, ", "))
@@ -563,7 +676,10 @@ var benignWorkload = struct{ user, root []string }{
 	},
 	root: []string{
 		"systemctl status auditd --no-pager", "journalctl -n 20 --no-pager", "ip addr", "ss -tln",
-		"useradd -M benign-tmp && userdel benign-tmp", "logger banken benign-day check",
+		// Account creation is deliberately NOT here: it is a rare, notable admin act that
+		// account_creation (T1136.001) pages on by design, and newuser.sh exercises it as an attack
+		// emulation. A benign-day admin mutation that no rule flags takes its place instead.
+		"mkdir -p /tmp/benign.d && rmdir /tmp/benign.d", "logger banken benign-day check",
 		"cp /etc/hosts /tmp/hosts.bak && rm /tmp/hosts.bak",
 	},
 }

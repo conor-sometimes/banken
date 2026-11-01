@@ -1,138 +1,154 @@
 [
-  {
-    "name": "rocky-9",
-    "url": "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.8-20260525.0.x86_64.qcow2",
-    "sha256": "92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8",
-    "pm": "dnf",
-    "packages": {
-      "auditd": "audit",
-      "sudo": "sudo",
-      "curl": "curl",
-      "bash": "bash",
-      "python3": "python3",
-      "runuser": "util-linux",
-      "pkill": "procps-ng",
-      "tar": "tar",
-      "auditctl": "audit"
-    }
-  },
-  {
-    "name": "alma-10",
-    "url": "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-10.2-20261012.0.x86_64.qcow2",
-    "sha256": "cbee4726fc0f5a60694bb4f289003cc221e715dfbacebcce76b54daf386d8eca",
-    "pm": "dnf",
-    "packages": {
-      "auditd": "audit",
-      "sudo": "sudo",
-      "curl": "curl",
-      "bash": "bash",
-      "python3": "python3",
-      "runuser": "util-linux",
-      "pkill": "procps-ng",
-      "tar": "tar",
-      "auditctl": "audit-rules"
-    }
-  },
-  {
-    "name": "fedora-44",
-    "url": "https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2",
-    "sha256": "28680fe5b371a5a82ebf43a31926e086a168e59949d03969c5093e7071f90b7f",
-    "pm": "dnf",
-    "packages": {
-      "auditd": "audit",
-      "sudo": "sudo",
-      "curl": "curl",
-      "bash": "bash",
-      "python3": "python3",
-      "runuser": "util-linux",
-      "pkill": "procps-ng",
-      "tar": "tar",
-      "auditctl": "audit-rules"
-    }
-  },
-  {
-    "name": "amazonlinux-2023",
-    "url": "https://cdn.amazonlinux.com/al2023/os-images/2023.12.20261102.0/kvm/al2023-kvm-2023.12.20261102.0-kernel-6.1-x86_64.xfs.gpt.qcow2",
-    "sha256": "0b7457a24a9467ad0e923822c14f2ab706bbc5cbd68544e00af0d8247f225b4a",
-    "pm": "dnf",
-    "packages": {
-      "auditd": "audit",
-      "sudo": "sudo",
-      "curl": "curl-minimal",
-      "bash": "bash",
-      "python3": "python3",
-      "runuser": "util-linux",
-      "pkill": "procps-ng",
-      "tar": "tar",
-      "auditctl": "audit"
-    }
-  },
-  {
-    "name": "debian-13",
-    "url": "https://cloud.debian.org/images/cloud/trixie/20261026-2643/debian-13-genericcloud-amd64-20261026-2643.qcow2",
-    "sha512": "3ace18e33bdd036edb49d1f79342bd01d2ab980e35194edb0b410435cd543538d286a0bd13bbb0835f7862306e3d385ce2f6a70d8ecf0bd961111166adbc1b8e",
-    "pm": "apt",
-    "packages": {
-      "auditd": "auditd",
-      "sudo": "sudo",
-      "curl": "curl",
-      "bash": "bash",
-      "python3": "python3",
-      "runuser": "util-linux",
-      "pkill": "procps",
-      "tar": "tar",
-      "auditctl": "auditd"
-    }
-  },
-  {
-    "name": "ubuntu-24.04",
-    "url": "https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-amd64.img",
-    "sha256": "04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94",
-    "pm": "apt",
-    "packages": {
-      "auditd": "auditd",
-      "sudo": "sudo",
-      "curl": "curl",
-      "bash": "bash",
-      "python3": "python3",
-      "runuser": "util-linux",
-      "pkill": "procps",
-      "tar": "tar",
-      "auditctl": "auditd"
-    }
-  },
-  {
-    "name": "opensuse-leap-16",
-    "url": "https://downloadcontent.opensuse.org/distribution/leap/16.0/appliances/Leap-16.0-Minimal-VM.x86_64-Cloud-Build18.88.qcow2",
-    "sha256": "e2c0554c70739cf820aef343543d3aa8d4b32159b407d8b3935322e1346ea337",
-    "pm": "zypper",
-    "packages": {
-      "auditd": "audit",
-      "sudo": "sudo",
-      "curl": "curl",
-      "bash": "bash",
-      "python3": "python3",
-      "runuser": "util-linux",
-      "pkill": "procps",
-      "tar": "tar",
-      "auditctl": "audit"
-    }
-  },
-  {
-    "name": "arch",
-    "url": "https://geo.mirror.pkgbuild.com/images/v20261015.611680/Arch-Linux-x86_64-cloudimg-20261015.611680.qcow2",
-    "sha256": "08754e28d91b1680086c6211ef4df13559e766fff7cdb4006489b14b5d281f08",
-    "pm": "pacman",
-    "packages": {
-      "auditd": "audit",
-      "sudo": "sudo",
-      "curl": "curl",
-      "bash": "bash",
-      "python3": "python",
-      "runuser": "util-linux",
-      "pkill": "procps-ng",
-      "tar": "tar",
-      "auditctl": "audit"
-    }
+ {
+  "name": "rocky-9",
+  "url": "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.8-20260525.0.x86_64.qcow2",
+  "sha256": "92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8",
+  "pm": "dnf",
+  "packages": {
+   "auditd": "audit",
+   "sudo": "sudo",
+   "curl": "curl",
+   "bash": "bash",
+   "python3": "python3",
+   "runuser": "util-linux",
+   "pkill": "procps-ng",
+   "tar": "tar",
+   "auditctl": "audit",
+   "nmap": "nmap",
+   "tcpdump": "tcpdump"
   }
+ },
+ {
+  "name": "alma-10",
+  "url": "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-10.2-20261012.0.x86_64.qcow2",
+  "sha256": "cbee4726fc0f5a60694bb4f289003cc221e715dfbacebcce76b54daf386d8eca",
+  "pm": "dnf",
+  "packages": {
+   "auditd": "audit",
+   "sudo": "sudo",
+   "curl": "curl",
+   "bash": "bash",
+   "python3": "python3",
+   "runuser": "util-linux",
+   "pkill": "procps-ng",
+   "tar": "tar",
+   "auditctl": "audit-rules",
+   "nmap": "nmap",
+   "tcpdump": "tcpdump"
+  }
+ },
+ {
+  "name": "fedora-44",
+  "url": "https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2",
+  "sha256": "28680fe5b371a5a82ebf43a31926e086a168e59949d03969c5093e7071f90b7f",
+  "pm": "dnf",
+  "packages": {
+   "auditd": "audit",
+   "sudo": "sudo",
+   "curl": "curl",
+   "bash": "bash",
+   "python3": "python3",
+   "runuser": "util-linux",
+   "pkill": "procps-ng",
+   "tar": "tar",
+   "auditctl": "audit-rules",
+   "nmap": "nmap",
+   "tcpdump": "tcpdump"
+  }
+ },
+ {
+  "name": "amazonlinux-2023",
+  "url": "https://cdn.amazonlinux.com/al2023/os-images/2023.12.20261102.0/kvm/al2023-kvm-2023.12.20261102.0-kernel-6.1-x86_64.xfs.gpt.qcow2",
+  "sha256": "0b7457a24a9467ad0e923822c14f2ab706bbc5cbd68544e00af0d8247f225b4a",
+  "pm": "dnf",
+  "packages": {
+   "auditd": "audit",
+   "sudo": "sudo",
+   "curl": "curl-minimal",
+   "bash": "bash",
+   "python3": "python3",
+   "runuser": "util-linux",
+   "pkill": "procps-ng",
+   "tar": "tar",
+   "auditctl": "audit",
+   "nmap": "nmap",
+   "tcpdump": "tcpdump"
+  }
+ },
+ {
+  "name": "debian-13",
+  "url": "https://cloud.debian.org/images/cloud/trixie/20261026-2643/debian-13-genericcloud-amd64-20261026-2643.qcow2",
+  "sha512": "3ace18e33bdd036edb49d1f79342bd01d2ab980e35194edb0b410435cd543538d286a0bd13bbb0835f7862306e3d385ce2f6a70d8ecf0bd961111166adbc1b8e",
+  "pm": "apt",
+  "packages": {
+   "auditd": "auditd",
+   "sudo": "sudo",
+   "curl": "curl",
+   "bash": "bash",
+   "python3": "python3",
+   "runuser": "util-linux",
+   "pkill": "procps",
+   "tar": "tar",
+   "auditctl": "auditd",
+   "nmap": "nmap",
+   "tcpdump": "tcpdump"
+  }
+ },
+ {
+  "name": "ubuntu-24.04",
+  "url": "https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-amd64.img",
+  "sha256": "04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94",
+  "pm": "apt",
+  "packages": {
+   "auditd": "auditd",
+   "sudo": "sudo",
+   "curl": "curl",
+   "bash": "bash",
+   "python3": "python3",
+   "runuser": "util-linux",
+   "pkill": "procps",
+   "tar": "tar",
+   "auditctl": "auditd",
+   "nmap": "nmap",
+   "tcpdump": "tcpdump"
+  }
+ },
+ {
+  "name": "opensuse-leap-16",
+  "url": "https://downloadcontent.opensuse.org/distribution/leap/16.0/appliances/Leap-16.0-Minimal-VM.x86_64-Cloud-Build18.88.qcow2",
+  "sha256": "e2c0554c70739cf820aef343543d3aa8d4b32159b407d8b3935322e1346ea337",
+  "pm": "zypper",
+  "packages": {
+   "auditd": "audit",
+   "sudo": "sudo",
+   "curl": "curl",
+   "bash": "bash",
+   "python3": "python3",
+   "runuser": "util-linux",
+   "pkill": "procps",
+   "tar": "tar",
+   "auditctl": "audit",
+   "nmap": "nmap",
+   "tcpdump": "tcpdump"
+  }
+ },
+ {
+  "name": "arch",
+  "url": "https://geo.mirror.pkgbuild.com/images/v20261015.611680/Arch-Linux-x86_64-cloudimg-20261015.611680.qcow2",
+  "sha256": "08754e28d91b1680086c6211ef4df13559e766fff7cdb4006489b14b5d281f08",
+  "pm": "pacman",
+  "packages": {
+   "auditd": "audit",
+   "sudo": "sudo",
+   "curl": "curl",
+   "bash": "bash",
+   "python3": "python",
+   "runuser": "util-linux",
+   "pkill": "procps-ng",
+   "tar": "tar",
+   "auditctl": "audit",
+   "nmap": "nmap",
+   "tcpdump": "tcpdump"
+  }
+ }
 ]

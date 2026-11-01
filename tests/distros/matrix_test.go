@@ -226,6 +226,24 @@ func expectedRules(t *testing.T) map[string][]string {
 			want[family] = append(want[family], rule)
 		}
 	}
+	// The live matrix proves banken's default, distro-portable detections. Three classes of rule
+	// cannot be proven here, so their emulation families are dropped (each is proven instead by the
+	// engine golden tests, whose fixtures carry the right user and paths):
+	//   - account-scoped agent rules (rules/agent/, keyed on an agent User): the emulations run under
+	//     a cloud-init service with no agent login, so the audit auid never matches the User branch;
+	//   - honeytoken_access: keys on decoy files plus audit watches that exist only on a containment
+	//     host, not a stock cloud image;
+	//   - the optional rules (netcat, password_cracker): opt-in and off by default, so the default
+	//     posture under test never loads them, and enabling netcat would cross-fire into the
+	//     revshell and portscan emulations.
+	for family, rules := range want {
+		for _, r := range rules {
+			if strings.HasPrefix(r, "agent_") || r == "honeytoken_access" || r == "netcat" || r == "password_cracker" {
+				delete(want, family)
+				break
+			}
+		}
+	}
 	for _, rules := range want {
 		sort.Strings(rules)
 	}

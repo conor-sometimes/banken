@@ -17,11 +17,18 @@ trap 'rm -rf "$work" 2>/dev/null' EXIT
 
 true_bin=$(command -v true 2>/dev/null) || exit 0
 
-# --- TTP: a core-daemon name executing from a scratch dir -> masquerading (scratch_daemon) ---
-cp "$true_bin" "$work/crond" >/dev/null 2>&1 && "$work/crond" >/dev/null 2>&1 || true
+# --- TTP: copy a shell into a scratch dir under a daemon name -> masquerading (shell_copy) ---
+# This is the signal that does NOT depend on /tmp being exec-able: the `cp /bin/sh .../crond` argv
+# is caught on the copy itself, so it fires even where a hardened /tmp is mounted noexec (which
+# silently defeats the execute-from-scratch branches below). The copy is never run.
+cp /bin/sh "$work/crond" >/dev/null 2>&1 || true
 
-# --- TTP: a process running out of a directory named "..." -> masquerading (dotdir) ---
+# --- TTP: a daemon name and a "..." dir executing from scratch -> masquerading (scratch_daemon,
+# dotdir) ---
+# Extra coverage where /tmp allows exec (same rule), harmless no-op where it does not. The copies
+# are of `true`, so running them just exits 0.
+cp "$true_bin" "$work/sshd" >/dev/null 2>&1 && "$work/sshd" >/dev/null 2>&1 || true
 mkdir -p "$work/..." >/dev/null 2>&1 || true
-cp "$true_bin" "$work/.../sh" >/dev/null 2>&1 && "$work/.../sh" -c id >/dev/null 2>&1 || true
+cp "$true_bin" "$work/.../x" >/dev/null 2>&1 && "$work/.../x" >/dev/null 2>&1 || true
 
 exit 0
