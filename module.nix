@@ -11,7 +11,7 @@
 # portable packaging/systemd/banken.service (its hardening is canonical), plus
 # no network at all unless the webhook is on. By default the module also turns
 # on auditd with the rules banken needs, so `enable = true` is the whole setup.
-{ config, lib, pkgs, ... }:
+{ config, options, lib, pkgs, ... }:
 
 let
   cfg = config.services.banken;
@@ -254,7 +254,8 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkIf cfg.enable (
+    {
     assertions = [{
       assertion = cfg.alerts.webhook.enable -> (cfg.alerts.webhook.urlFile != null || cfg.alerts.webhook.url != "");
       message = "services.banken.alerts.webhook.enable needs alerts.webhook.urlFile (a secret URL) or alerts.webhook.url (a non-secret one).";
@@ -275,13 +276,12 @@ in
       ] ++ map (p: "-w ${p} -p rwa -k banken-watch") cfg.audit.watchPaths;
     };
 
-    # The one switch: enabling the mimi sensor brings up services.mimi (mimi's own module must be
-    # imported) pointed at the same stream file banken tails. Soft-wired above; banken stays the
-    # auditd floor on its own.
-    services.mimi = lib.mkIf cfg.mimi.enable {
-      enable = true;
-      sink = cfg.mimi.streamPath;
-    };
+    # The one switch (services.banken.mimi.enable) brings up services.mimi; its definition lives in
+    # the conditional merge at the END of config, not here. When the sensor is off, banken is used
+    # standalone WITHOUT mimi's module imported, so the `services.mimi` option does not exist -- and a
+    # bare `services.mimi = ...`, even under mkIf-false, still references that absent option and fails
+    # to evaluate. A separate `mkIf cfg.mimi.enable { ... }` module is dropped whole when off, so
+    # banken alone never touches it. (With the sensor on, the operator imports mimi's module.)
 
     systemd.services.banken = {
       description = "banken host EDR scan";
@@ -353,5 +353,18 @@ in
         AccuracySec = "5s";
       };
     };
-  };
+    }
+    # The `services.mimi` wiring is included ONLY when that option is actually declared, i.e. when
+    # mimi's NixOS module is imported alongside banken's. Gating on `options ? services.mimi` (the
+    # declared-option tree, not a config value) keeps banken evaluable standalone -- the floor-only
+    # deployment, and every banken-only test -- where mimi's module is absent and the option does not
+    # exist. (Gating on cfg.mimi.enable instead would make config's shape depend on its own values:
+    # infinite recursion. A bare mkIf-false definition would reference the absent option and fail.)
+    // lib.optionalAttrs (options ? services.mimi) {
+      services.mimi = lib.mkIf cfg.mimi.enable {
+        enable = true;
+        sink = cfg.mimi.streamPath;
+      };
+    }
+  );
 }
