@@ -1,0 +1,81 @@
+# Nightly fuzz campaign. The `test` recipe's per-target smoke (a few seconds
+# each) runs on every push; this runs each target far longer, every night, so
+# the "tens of millions of executions, zero crashes" claim stays honest over
+# time and a latent panic on untrusted log bytes is found by CI, not by an
+# attacker. The corpus is cached between runs, so each night fuzzes deeper than
+# the last, and any crasher is uploaded as an artifact to reproduce locally
+# (`go test ./<pkg> -run <Target>/<name>`).
+name: fuzz
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC nightly
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: "seconds per target"
+        default: "300"
+
+permissions:
+  contents: read
+
+jobs:
+  # Discover every Fuzz* target and emit a {pkg,target} matrix, so a new fuzz
+  # target is covered the night it lands with no edit here.
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - id: list
+        run: |
+          entries=$(for pkg in $(go list ./...); do
+            for t in $(go test -list '^Fuzz' "$pkg" 2>/dev/null | grep '^Fuzz'); do
+              printf '{"pkg":"%s","target":"%s"}\n' "$pkg" "$t"
+            done
+          done | jq -sc '{include: .}')
+          echo "matrix=$entries" >> "$GITHUB_OUTPUT"
+
+  fuzz:
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false # one target's crash must not cancel the others
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Carry the generated corpus forward so each night builds on the last.
+      # Keyed per target, with a date suffix so the cache rolls and a run
+      # always restores the most recent corpus for its target.
+      - name: Restore fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build/fuzz
+          key: fuzz-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-${{ matrix.target }}-
+
+      - name: Fuzz ${{ matrix.target }}
+        run: |
+          go test "${{ matrix.pkg }}" -run '^$' \
+            -fuzz "^${{ matrix.target }}$" \
+            -fuzztime "${{ github.event.inputs.fuzztime || '300' }}s"
+
+      # A crash leaves the failing input under testdata/fuzz/<Target>/; keep it
+      # so the exact reproducer is downloadable from the failed run.
+      - name: Upload crasher
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: "**/testdata/fuzz/${{ matrix.target }}/*"
+          if-no-files-found: ignore
