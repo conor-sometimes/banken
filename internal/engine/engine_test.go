@@ -84,6 +84,29 @@ type=EXECVE msg=audit(1.0:1): argc=2 a0="cat" a1="/etc/shadow"`
 	}
 }
 
+func TestEngineProcessEventDispatches(t *testing.T) {
+	r := testRule(t, `title: T
+detection:
+  sel:
+    Image|endswith: /ping
+  condition: sel`)
+	rec := &countingSink{}
+	disp := alert.NewDispatcher(rec)
+	eng := New([]*sigma.Rule{r}, nil, disp)
+
+	// The streaming counterpart to Process: one event in, matched and dispatched immediately.
+	n, errs := eng.ProcessEvent(event.Event{Source: "mimi", Image: "/usr/bin/ping"})
+	if len(errs) != 0 {
+		t.Fatalf("errs = %v", errs)
+	}
+	if n != 1 {
+		t.Errorf("alerts = %d, want 1", n)
+	}
+	if rec.count != 1 {
+		t.Errorf("sink received %d alerts, want 1", rec.count)
+	}
+}
+
 type countingSink struct{ count int }
 
 func (c *countingSink) Name() string           { return "counting" }

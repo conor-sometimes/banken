@@ -119,6 +119,27 @@ func (e *Engine) Process(p parser.Parser, r io.Reader) Result {
 	return res
 }
 
+// ProcessEvent matches a single event and dispatches its alerts immediately: the streaming
+// counterpart to Process. Where Process reads a source to EOF and matches a batch (the timer
+// model), ProcessEvent runs per event as events arrive on a live sensor stream, so end-to-end
+// latency is capture + match rather than bounded by a scan interval. It runs under the same
+// per-event panic guard as Process, so one pathological event degrades to a returned error, never
+// a crash of the stream. It returns the number of alerts fired and any errors (a recovered match
+// panic, or sink errors).
+func (e *Engine) ProcessEvent(ev event.Event) (alerts int, errs []error) {
+	as, perr := e.safeMatch(ev)
+	if perr != nil {
+		return 0, []error{perr}
+	}
+	for _, a := range as {
+		alerts++
+		if e.disp != nil {
+			errs = append(errs, e.disp.Dispatch(a)...)
+		}
+	}
+	return alerts, errs
+}
+
 // safeParse runs the parser under a recover so a parser bug on one source
 // cannot abort the whole run.
 func (e *Engine) safeParse(p parser.Parser, r io.Reader) (events []event.Event, err error) {
