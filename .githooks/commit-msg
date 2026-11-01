@@ -20,6 +20,14 @@ if [ -n "$bad" ]; then
     exit 1
 fi
 
+# No em/en dashes in the message (an AI-writing tell; use a plain ASCII hyphen).
+dash=$(printf '%s\n' "$body" | perl -CSD -ne 'print "$.: $_" if /[\x{2012}-\x{2015}\x{2212}]/')
+if [ -n "$dash" ]; then
+    echo "commit-msg: no em/en dashes in commit messages (use '-'). Remove:" >&2
+    printf '%s\n' "$dash" | sed 's/^/  line /' >&2
+    exit 1
+fi
+
 # Chain to a repo-local .git/hooks/commit-msg if one exists, so this never
 # silently disables another local hook.
 own="$(git rev-parse --git-common-dir)/hooks/commit-msg"
