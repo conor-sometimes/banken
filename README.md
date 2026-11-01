@@ -360,5 +360,5 @@ log sources, response actions, a tuned baseline over a week of real activity.
 
 ## Licence
 
-GPL-3.0-or-later. Rules are plain Sigma — copy them out with `git subtree split rules/` if you want
-them without the binary.
+MIT (see [LICENSE](LICENSE)). Rules are plain Sigma — copy them out with `git subtree split rules/`
+if you want them without the binary.
