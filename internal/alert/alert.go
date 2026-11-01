@@ -7,6 +7,7 @@
 package alert
 
 import (
+	"sync"
 	"time"
 
 	"github.com/conor-sometimes/banken/internal/event"
@@ -63,6 +64,10 @@ type Responder interface {
 
 // Dispatcher fans an alert out to every sink. Construct with NewDispatcher.
 type Dispatcher struct {
+	// mu serializes Dispatch and Close: banken's unified daemon dispatches from more than one
+	// goroutine at once (a continuous stream follower and the periodic scanner share one
+	// dispatcher), and a sink -- a day-file, a webhook -- is not required to be concurrency-safe.
+	mu        sync.Mutex
 	sinks     []Sink
 	responder Responder
 }
@@ -79,6 +84,8 @@ func (d *Dispatcher) SetResponder(r Responder) { d.responder = r }
 // responder (if any), then every sink, collecting -- never short-circuiting
 // on -- their errors, so one failing sink never suppresses the others.
 func (d *Dispatcher) Dispatch(a Alert) []error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	var errs []error
 	if d.responder != nil {
 		if err := d.responder.Respond(a); err != nil {
@@ -95,6 +102,8 @@ func (d *Dispatcher) Dispatch(a Alert) []error {
 
 // Close closes every sink, collecting errors.
 func (d *Dispatcher) Close() []error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	var errs []error
 	for _, s := range d.sinks {
 		if err := s.Close(); err != nil {

@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -207,17 +208,24 @@ func run(args []string, stdout, stderr io.Writer) error {
 	return scanOnce(eng, cfg, stderr)
 }
 
-// scanOnce reads every source from its cursor, processes it, and advances
-// the cursor only for sources that read without an I/O error.
+// scanOnce reads every configured source from its cursor, processes it, and
+// advances the cursor only for sources that read without an I/O error.
 func scanOnce(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
-	cursor, corrupted := engine.LoadCursor(cfg.StatePath)
+	return scanSources(eng, cfg.Sources, cfg.StatePath, stderr)
+}
+
+// scanSources is one scan pass over the given sources, sharing one cursor file. It is the one-shot
+// path, reused by the daemon's periodic leg (which passes only the non-stream sources, the stream
+// ones being followed continuously instead).
+func scanSources(eng *engine.Engine, sources []config.Source, statePath string, stderr io.Writer) error {
+	cursor, corrupted := engine.LoadCursor(statePath)
 	if corrupted {
-		logAt(stderr, levelWarning, "banken: cursor at %s was unreadable, starting fresh (re-reading sources this pass)", cfg.StatePath)
+		logAt(stderr, levelWarning, "banken: cursor at %s was unreadable, starting fresh (re-reading sources this pass)", statePath)
 	}
 	reg := parser.Registry()
 	totalAlerts := 0
 
-	for _, src := range cfg.Sources {
+	for _, src := range sources {
 		p, ok := reg[src.Type]
 		if !ok {
 			logAt(stderr, levelWarning, "banken: unknown source type %q (%s), skipping", src.Type, src.Path)
@@ -248,31 +256,95 @@ func scanOnce(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 		logAt(stderr, levelInfo, "banken: %s %s: %d events, %d alerts", src.Type, src.Path, res.Events, res.Alerts)
 	}
 
-	if err := cursor.Save(cfg.StatePath); err != nil {
+	if err := cursor.Save(statePath); err != nil {
 		return err
 	}
 	logAt(stderr, levelInfo, "banken: done, %d alert(s)", totalAlerts)
 	return nil
 }
 
-// watch runs scanOnce on a fixed interval. A self-timing fallback for a
-// host without a systemd timer; the timer path (scanOnce) is the norm.
+// watch runs banken as a continuous daemon: it follows every stream source (a live sensor feed such
+// as mimi) as a push stream and, on interval, scans the remaining sources (the periodic auditd
+// floor). One process, one engine, one alert path -- the dispatcher is concurrency-safe, so the
+// follower and the scanner may dispatch at once. SIGINT/SIGTERM stop it cleanly. With no stream
+// source it is the plain timer loop it has always been.
 func watch(eng *engine.Engine, cfg config.Config, interval time.Duration, stderr io.Writer) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runDaemon(ctx, eng, cfg, interval, stderr)
+}
+
+// runDaemon is watch's body with an injectable context, so a test can cancel it.
+func runDaemon(ctx context.Context, eng *engine.Engine, cfg config.Config, interval time.Duration, stderr io.Writer) error {
 	if interval <= 0 {
 		interval = 2 * time.Minute
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	if err := scanOnce(eng, cfg, stderr); err != nil {
-		logAt(stderr, levelErr, "banken: scan: %v", err)
-	}
-	for range ticker.C {
-		if err := scanOnce(eng, cfg, stderr); err != nil {
-			logAt(stderr, levelErr, "banken: scan: %v", err)
+
+	var stream, periodic []config.Source
+	for _, s := range cfg.Sources {
+		if isStreamSource(s.Type) {
+			stream = append(stream, s)
+		} else {
+			periodic = append(periodic, s)
 		}
 	}
+
+	var wg sync.WaitGroup
+	for _, s := range stream {
+		p, ok := parser.Registry()[s.Type]
+		if !ok {
+			logAt(stderr, levelWarning, "banken: unknown source type %q (%s), not following", s.Type, s.Path)
+			continue
+		}
+		src := s
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			logAt(stderr, levelInfo, "banken: following %s %s as a continuous stream", src.Type, src.Path)
+			onLat := func(_ event.Event, latency time.Duration, alerts int) {
+				if alerts > 0 {
+					logAt(stderr, levelInfo, "banken: %s stream: %d alert(s), capture to match %s",
+						src.Type, alerts, latency.Round(time.Microsecond))
+				}
+			}
+			if err := eng.StreamFollow(ctx, p, src.Path, streamStatePath(cfg.StatePath, src), onLat); err != nil && err != context.Canceled {
+				logAt(stderr, levelErr, "banken: follow %s: %v", src.Path, err)
+			}
+		}()
+	}
+
+	if len(periodic) > 0 {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		scan := func() {
+			if err := scanSources(eng, periodic, cfg.StatePath, stderr); err != nil {
+				logAt(stderr, levelErr, "banken: scan: %v", err)
+			}
+		}
+		scan()
+		for {
+			select {
+			case <-ctx.Done():
+				wg.Wait()
+				return nil
+			case <-ticker.C:
+				scan()
+			}
+		}
+	}
+
+	<-ctx.Done()
+	wg.Wait()
 	return nil
 }
+
+// isStreamSource reports whether a source is a continuous push stream (a live sensor) rather than a
+// log scanned on an interval. mimi is banken's eBPF sensor; its stream is followed, never polled.
+func isStreamSource(typ string) bool { return typ == "mimi" }
+
+// streamStatePath gives a followed stream source its own cursor file, so its continuous writer never
+// races the periodic scanner's cursor (they run in separate goroutines).
+func streamStatePath(base string, src config.Source) string { return base + "." + src.Type }
 
 // follow consumes a single source as a continuous push stream (banken --follow), for a live sensor
 // feed such as mimi: each event is matched and dispatched the moment it arrives, and the
