@@ -7,19 +7,23 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/conor-sometimes/banken/internal/alert"
 	"github.com/conor-sometimes/banken/internal/config"
 	"github.com/conor-sometimes/banken/internal/engine"
+	"github.com/conor-sometimes/banken/internal/event"
 	"github.com/conor-sometimes/banken/internal/ioc"
 	"github.com/conor-sometimes/banken/internal/parser"
 	"github.com/conor-sometimes/banken/internal/sigma"
@@ -49,6 +53,7 @@ type flags struct {
 	observe     string
 	statePath   string
 	watch       bool
+	follow      bool
 	interval    time.Duration
 	journal     bool
 	jsonlDir    string
@@ -101,6 +106,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&f.observe, "observe", "", "comma-separated optional rule names to run in observe mode (recorded, never paged), or * for all (overrides config)")
 	fs.StringVar(&f.statePath, "state", "", "path to the cursor/state file (overrides config)")
 	fs.BoolVar(&f.watch, "watch", false, "run continuously on --interval instead of one-shot")
+	fs.BoolVar(&f.follow, "follow", false, "follow a single source as a continuous push stream (capture+match latency, not scan-interval bound); for a live sensor feed such as mimi")
 	fs.DurationVar(&f.interval, "interval", 2*time.Minute, "scan interval in --watch mode")
 	fs.BoolVar(&f.journal, "journal", false, "enable the journal sink (to stderr)")
 	fs.StringVar(&f.jsonlDir, "jsonl-dir", "", "enable the jsonl sink, writing per-day files here")
@@ -192,6 +198,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 	logAt(stderr, levelInfo, "banken %s: %d rules, %d indicators, %d source(s)",
 		version, len(rules), iocSet.Len(), len(cfg.Sources))
 
+	if f.follow {
+		return follow(eng, cfg, stderr)
+	}
 	if f.watch {
 		return watch(eng, cfg, f.interval, stderr)
 	}
@@ -261,6 +270,35 @@ func watch(eng *engine.Engine, cfg config.Config, interval time.Duration, stderr
 		if err := scanOnce(eng, cfg, stderr); err != nil {
 			logAt(stderr, levelErr, "banken: scan: %v", err)
 		}
+	}
+	return nil
+}
+
+// follow consumes a single source as a continuous push stream (banken --follow), for a live sensor
+// feed such as mimi: each event is matched and dispatched the moment it arrives, and the
+// capture-to-match latency is logged as a measured number rather than bounded by a scan interval. It
+// takes exactly one source (the stream); the periodic auditd floor stays on the --watch/timer path.
+// SIGINT/SIGTERM stop it cleanly.
+func follow(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
+	if len(cfg.Sources) != 1 {
+		return fmt.Errorf("--follow streams exactly one source, have %d (point it at the sensor stream; the periodic floor uses --watch)", len(cfg.Sources))
+	}
+	src := cfg.Sources[0]
+	p, ok := parser.Registry()[src.Type]
+	if !ok {
+		return fmt.Errorf("unknown source type %q (%s)", src.Type, src.Path)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	logAt(stderr, levelInfo, "banken: following %s %s as a continuous stream", src.Type, src.Path)
+	onLatency := func(_ event.Event, latency time.Duration, alerts int) {
+		if alerts > 0 {
+			logAt(stderr, levelInfo, "banken: %s stream: %d alert(s), capture to match %s",
+				src.Type, alerts, latency.Round(time.Microsecond))
+		}
+	}
+	if err := eng.StreamFollow(ctx, p, src.Path, cfg.StatePath, onLatency); err != nil && err != context.Canceled {
+		return err
 	}
 	return nil
 }
