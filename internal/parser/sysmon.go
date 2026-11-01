@@ -19,6 +19,17 @@ const sysmonName = "sysmon"
 // a Sysmon source and makes banken's Windows Sysmon source half-written: the huge body of Windows
 // Sigma rules was authored against these very field names. A line that is not a parseable Sysmon
 // event is skipped, like every parser, so a syslog stream carrying other lines is fine.
+//
+// Where the bytes come from (the journald-vs-syslog split, the #1 Sysmon-for-Linux gotcha): the
+// parser reads a file, the same as every other banken source, and does not care which file. On
+// Debian/Ubuntu/openSUSE, Sysmon's events land in /var/log/syslog, so banken tails that file
+// directly (and skips the non-Sysmon lines sharing it). RHEL/Rocky/Alma/Fedora/Amazon Linux are
+// journald-only -- there is no /var/log/syslog -- and Sysmon logs to the journal under the syslog
+// identifier "sysmon"; there the NixOS module (services.banken.sysmon, module.nix) runs a tiny
+// `journalctl -f -o cat -t sysmon` bridge that appends those journal entries to a file banken tails.
+// Either way banken's single, battle-tested file path (cursor, rotation, inotify follow) does the
+// reading; nothing here needs a journal client or cgo. The source is followed as a live stream
+// (main.go isStreamSource), so a bridged journal event reaches the rules in near real time.
 type Sysmon struct{}
 
 // Name implements Parser.
