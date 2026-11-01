@@ -1,0 +1,4 @@
+[
+  {"source":"auditd","image":"/usr/bin/dd","commandLine":"dd if=/dev/zero of=/dev/sda bs=1M","user":"0","pid":9771,"ppid":9770},
+  {"source":"auditd","image":"/usr/sbin/mkfs.ext4","commandLine":"mkfs.ext4 /dev/sdb1","user":"0","pid":9772,"ppid":9770}
+]

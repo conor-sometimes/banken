@@ -1,0 +1,4 @@
+[
+  {"source":"auditd","image":"/usr/bin/chattr","commandLine":"chattr -i /usr/bin/python3","user":"0","pid":9701,"ppid":9700},
+  {"source":"auditd","image":"/usr/bin/chmod","commandLine":"chmod 777 /tmp/drop.sh","user":"1000","pid":9702,"ppid":9700}
+]

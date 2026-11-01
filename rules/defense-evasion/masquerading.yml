@@ -1,0 +1,40 @@
+title: Process masquerading as a system binary
+id: 2f8c6a1d-9e74-4b03-8c5a-3d1f7e0b9c22
+status: experimental
+description: >
+  A program was run from a world-writable scratch dir (/tmp, /dev/shm, /var/tmp) under the name of a
+  core system daemon (sshd, crond, systemd, kworker ...), or a shell was copied into such a disguise,
+  or a process ran out of a directory named "..." (a hidden-in-plain-sight masquerade). Renaming a
+  payload to look like a trusted process, or hiding it behind a dotted directory, is how an attacker
+  blends into `ps` output (MITRE T1036.005). A real system daemon lives in /usr/bin, /usr/sbin or the
+  nix store, never in a scratch dir, so a daemon-named binary in /tmp is the signal.
+references:
+  - https://attack.mitre.org/techniques/T1036/005/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1036.005
+detection:
+  # a core-daemon name executing from a scratch dir (the renamed-binary shape)
+  scratch_daemon:
+    Image|re: '^(/tmp|/dev/shm|/var/tmp|/run/shm)/\S*(sshd|crond|cron|systemd|kworker|kthreadd|ksoftirqd|rsyslogd|auditd|agetty|dbus-daemon|migration)$'
+  # a process whose path contains a directory literally named "..." (or "....")
+  dotdir:
+    Image|contains:
+      - /.../
+      - /..../
+  # copying a shell binary into a disguised scratch / hidden location
+  shell_copy:
+    Image|endswith:
+      - /cp
+      - /install
+    CommandLine|re: '(/bin/(ba|da|z|k)?sh|which\s+(ba|da|z|k)?sh).*(/tmp/|/dev/shm/|/var/tmp/|/\.\.\.)'
+  condition: scratch_daemon or dotdir or shell_copy
+falsepositives:
+  - A build that runs a helper out of a temp dir; it will not be named like a system daemon, so this
+    stays quiet. A deliberately dotted directory is unusual outside this technique.
+level: high

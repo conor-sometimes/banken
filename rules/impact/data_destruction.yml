@@ -1,0 +1,50 @@
+title: Data or disk destruction
+id: 3a9c5f28-8b14-4e70-9d2a-6f1e0c4b7a77
+status: experimental
+description: >
+  A program overwrote or destroyed a storage device or the root filesystem - dd writing to a raw
+  block device, mkfs reformatting one, wipefs / blkdiscard erasing it, shred of a device, or
+  rm -rf / --no-preserve-root. This is the destructive endgame of a wiper or ransomware (MITRE
+  T1485): it is not deleting a file but obliterating the medium. agent_destructive_action catches an
+  agent deleting repos and dropping databases (account-scoped); this is the host-wide view of raw
+  device and root-filesystem destruction, whoever runs it.
+references:
+  - https://attack.mitre.org/techniques/T1485/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.impact
+  - attack.t1485
+detection:
+  # dd writing to a raw block device (not a regular file)
+  disk_wipe:
+    Image|endswith: /dd
+    CommandLine|re: 'of=/dev/(sd[a-z]|nvme[0-9]|vd[a-z]|hd[a-z]|mmcblk[0-9]|mapper/|disk/)'
+  # reformatting, discarding or shredding a real device
+  reformat:
+    Image|endswith:
+      - /mkfs
+      - /mkfs.ext2
+      - /mkfs.ext3
+      - /mkfs.ext4
+      - /mkfs.xfs
+      - /mkfs.btrfs
+      - /mkfs.vfat
+      - /wipefs
+      - /blkdiscard
+    CommandLine|re: '/dev/(sd[a-z]|nvme[0-9]|vd[a-z]|hd[a-z]|mmcblk[0-9]|mapper/)'
+  shred_dev:
+    Image|endswith: /shred
+    CommandLine|re: '/dev/(sd[a-z]|nvme[0-9]|vd[a-z]|hd[a-z])'
+  # rm obliterating the root filesystem
+  rm_rootfs:
+    Image|endswith: /rm
+    CommandLine|re: '--no-preserve-root|(^|\s)-[a-zA-Z]*r[a-zA-Z]*\s+/\s*$'
+  condition: disk_wipe or reformat or shred_dev or rm_rootfs
+falsepositives:
+  - A legitimate disk-provisioning or imaging step (mkfs on a fresh disk, dd to an install target);
+    expected on a build or installer host, a clear alarm on a running workload.
+level: critical

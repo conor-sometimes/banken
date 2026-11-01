@@ -1,0 +1,4 @@
+[
+  {"source":"auditd","image":"/usr/bin/nmap","commandLine":"nmap -sS -p 1-65535 10.0.0.0/24","user":"1000","pid":9731,"ppid":9730},
+  {"source":"auditd","image":"/usr/bin/ncat","commandLine":"ncat -z -v 10.0.0.5 20-25","user":"1000","pid":9732,"ppid":9730}
+]

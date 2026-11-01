@@ -1,0 +1,3 @@
+[
+  {"source":"auditd","image":"/usr/sbin/insmod","commandLine":"insmod /tmp/diamorphine.ko","user":"0","pid":9761,"ppid":9760}
+]

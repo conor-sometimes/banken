@@ -1,0 +1,4 @@
+[
+  {"source":"auditd","image":"/usr/sbin/setenforce","commandLine":"setenforce 0","user":"0","pid":9781,"ppid":9780},
+  {"source":"auditd","image":"/usr/bin/systemctl","commandLine":"systemctl stop apparmor","user":"0","pid":9782,"ppid":9780}
+]

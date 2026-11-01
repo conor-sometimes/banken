@@ -1,0 +1,41 @@
+title: Network service scan
+id: 5b2e9f41-7c38-4a60-9d1b-8e4a0c2f6d33
+status: experimental
+description: >
+  A program ran a port or service scanner - nmap, masscan, zmap, rustscan, naabu, unicornscan - or
+  used netcat in zero-I/O scan mode (nc -z). Sweeping a host or network for open ports is the
+  reconnaissance an attacker does to find what to pivot to (MITRE T1046); it is rarely something an
+  application does in the course of its own work, so on a server or an agent account it is a clean
+  signal. The bash /dev/tcp sweep form is also caught by reverse_shell's /dev/tcp branch.
+references:
+  - https://attack.mitre.org/techniques/T1046/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.discovery
+  - attack.t1046
+detection:
+  scanner:
+    Image|endswith:
+      - /nmap
+      - /masscan
+      - /zmap
+      - /rustscan
+      - /naabu
+      - /unicornscan
+  nc_zscan:
+    Image|endswith:
+      - /nc
+      - /ncat
+      - /netcat
+      - /nc.openbsd
+      - /nc.traditional
+    CommandLine|re: '(^|\s)-[a-zA-Z]*z\b'
+  condition: scanner or nc_zscan
+falsepositives:
+  - A monitoring or asset-inventory tool that legitimately scans; scope it out by host or by the
+    account that has no business scanning, as with network_sniffing.
+level: medium

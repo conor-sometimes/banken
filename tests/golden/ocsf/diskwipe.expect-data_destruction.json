@@ -1,0 +1,114 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 5,
+  "severity": "Critical",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"data_destruction\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "968eb9a32581dad214925b6cf708a869",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "968eb9a32581dad214925b6cf708a869",
+    "title": "Data or disk destruction",
+    "desc": "A program overwrote or destroyed a storage device or the root filesystem - dd writing to a raw block device, mkfs reformatting one, wipefs / blkdiscard erasing it, shred of a device, or rm -rf / --no-preserve-root. This is the destructive endgame of a wiper or ransomware (MITRE T1485): it is not deleting a file but obliterating the medium. agent_destructive_action catches an agent deleting repos and dropping databases (account-scoped); this is the host-wide view of raw device and root-filesystem destruction, whoever runs it.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "data_destruction",
+      "uid": "3a9c5f28-8b14-4e70-9d2a-6f1e0c4b7a77"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0040",
+          "name": "Impact"
+        },
+        "technique": {
+          "uid": "T1485"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 9771,
+        "name": "dd",
+        "cmd_line": "dd if=/dev/zero of=/dev/sda bs=1M",
+        "file": {
+          "name": "dd",
+          "path": "/usr/bin/dd",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "0"
+        },
+        "parent_process": {
+          "pid": 9770
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "dd if=/dev/zero of=/dev/sda bs=1M"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "dd"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/dd"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/dd\",\"commandLine\":\"dd if=/dev/zero of=/dev/sda bs=1M\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"0\",\"currentDirectory\":\"\",\"pid\":9771,\"ppid\":9770}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "data_destruction",
+    "source": "auditd"
+  }
+}

@@ -1,0 +1,39 @@
+title: File permissions weakened or locked
+id: 4a3d1f6c-2b9e-4c8a-9d71-6f0a2c4e8b11
+status: experimental
+description: >
+  A program changed a file's permissions in a way that is rarely routine - chattr toggling the
+  immutable / append-only / undeletable attribute (locking a dropped webshell so it cannot be
+  removed, or unlocking a protected system file so it can be tampered), or chmod making a file
+  world-writable (777 / 666 / o+w / a+w). Weakening permissions is how an attacker leaves a file
+  anyone can overwrite or read; locking one is how they protect their implant from cleanup (MITRE
+  T1222.002). setuid_bit_set covers the setuid/setgid bit specifically; this covers the
+  world-writable and immutable-attribute forms. An ordinary `chmod 644` / `chmod +x` is not matched.
+references:
+  - https://attack.mitre.org/techniques/T1222/002/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1222.002
+detection:
+  # chattr changing the immutable (i), append-only (a) or undeletable (u) attribute.
+  # chattr is rare interactively; toggling these attributes is the signal.
+  chattr:
+    Image|endswith: /chattr
+    CommandLine|re: '(^|\s)[-+][a-zA-Z]*[iau]\b'
+  # chmod making a file world-writable: 777 / 666 numeric, or a symbolic o+w / a+w
+  # (or a bare +w, which respects umask but is still the weaken-for-all intent).
+  # 755 / 644 / 1777-sticky do not match the numeric forms below.
+  chmod:
+    Image|endswith: /chmod
+  world_writable:
+    CommandLine|re: '(^|\s)0?777(\s|$)|(^|\s)0?666(\s|$)|(^|\s)[oa]?\+[rwxXst]*w\b'
+  condition: chattr or (chmod and world_writable)
+falsepositives:
+  - A deploy or install step that marks a file immutable, or a sloppy script that chmod 777's a
+    scratch dir; rare for an interactive or agent account, and the command line shows the file.
+level: medium

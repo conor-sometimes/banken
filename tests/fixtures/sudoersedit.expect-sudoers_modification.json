@@ -1,0 +1,4 @@
+[
+  {"source":"auditd","image":"/usr/bin/sed","commandLine":"sed -i s/env_reset.*/env_reset,timestamp_timeout=-1/ /etc/sudoers","user":"0","pid":9741,"ppid":9740},
+  {"source":"auditd","image":"/usr/bin/tee","commandLine":"tee /etc/sudoers.d/90-evil","targetFilename":"/etc/sudoers.d/90-evil","user":"0","pid":9742,"ppid":9740}
+]

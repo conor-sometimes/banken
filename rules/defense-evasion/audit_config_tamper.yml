@@ -1,0 +1,44 @@
+title: Audit or syslog configuration tampered
+id: 9e5a2c37-1d84-4f60-8b2a-4c0e7d3f6b55
+status: experimental
+description: >
+  A program edited the audit or syslog configuration on disk - /etc/audit (auditd.conf, rules.d,
+  audit.rules), /etc/audisp, /etc/rsyslog(.conf / .d), /etc/syslog-ng - via a file tool, or any
+  process whose file access touched those paths. Quietly altering the rules that decide what gets
+  logged, rather than stopping the daemon outright, is a subtler indicator-blocking step (MITRE
+  T1562.006): the service keeps running so a `systemctl status` looks healthy, but the events an
+  attacker cares about are no longer recorded. disable_logging catches stopping the service and
+  tamper_banken catches auditctl flushing live rules; this catches the on-disk config edit.
+references:
+  - https://attack.mitre.org/techniques/T1562/006/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1562.006
+detection:
+  editor:
+    Image|endswith:
+      - /sed
+      - /tee
+      - /cp
+      - /mv
+      - /dd
+      - /install
+      - /rm
+      - /unlink
+      - /truncate
+      - /ln
+  config_cmd:
+    CommandLine|re: '/etc/audit(/|d|\.rules)|/etc/audisp|/etc/rsyslog|/etc/syslog-ng'
+  # binary-agnostic: any process whose file access touched an audit/syslog config
+  config_target:
+    TargetFilename|re: '/etc/audit(/|d|\.rules)|/etc/audisp|/etc/rsyslog|/etc/syslog-ng'
+  condition: (editor and config_cmd) or config_target
+falsepositives:
+  - A config-management run that rewrites the audit or syslog config as part of a deploy; the
+    surrounding commands show it, and an edit from an interactive or agent account rarely is routine.
+level: high

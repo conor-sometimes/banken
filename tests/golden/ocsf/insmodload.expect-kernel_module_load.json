@@ -1,0 +1,126 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 3,
+  "severity": "Medium",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"kernel_module_load\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "64fc9aa4e04927fb2bf2bc0e12555e9a",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "64fc9aa4e04927fb2bf2bc0e12555e9a",
+    "title": "Kernel module loaded or unloaded",
+    "desc": "A program loaded or unloaded a kernel module - insmod, rmmod, modprobe, kmod. Code running in the kernel can hide processes, files and network connections and survive a reboot, so a loadable kernel module is a top-tier rootkit mechanism (Diamorphine, libprocesshider's kin) and a persistence foothold (MITRE T1547.006 / T1014). On a host whose module set is fixed at boot by its NixOS configuration, a hand-run insmod/modprobe outside that is off-pattern.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "kernel_module_load",
+      "uid": "1c7b3e95-4a26-4d81-9f0c-5e2a8d4f7b66"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0003",
+          "name": "Persistence"
+        },
+        "technique": {
+          "uid": "T1547"
+        },
+        "sub_technique": {
+          "uid": "T1547.006"
+        }
+      },
+      {
+        "tactic": {
+          "uid": "TA0003",
+          "name": "Persistence"
+        },
+        "technique": {
+          "uid": "T1014"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 9761,
+        "name": "insmod",
+        "cmd_line": "insmod /tmp/diamorphine.ko",
+        "file": {
+          "name": "insmod",
+          "path": "/usr/sbin/insmod",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "0"
+        },
+        "parent_process": {
+          "pid": 9760
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "insmod /tmp/diamorphine.ko"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "insmod"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/sbin/insmod"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/sbin/insmod\",\"commandLine\":\"insmod /tmp/diamorphine.ko\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"0\",\"currentDirectory\":\"\",\"pid\":9761,\"ppid\":9760}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "kernel_module_load",
+    "source": "auditd"
+  }
+}

@@ -1,0 +1,54 @@
+title: Dynamic-linker preload hijack
+id: 7c1e9b84-5d2a-4f36-8a0b-1e3c7d9f2a64
+status: experimental
+description: >
+  A program set up a shared-library preload - an LD_PRELOAD / LD_AUDIT in a command's environment, or
+  a write to /etc/ld.so.preload (or an ld.so.conf.d drop). The dynamic linker loads a preloaded
+  object into every dynamically-linked process it starts, so an attacker uses it to inject code, hook
+  libc calls, hide processes (libprocesshider) or escalate from a setuid binary (MITRE T1574.006).
+  A system-wide /etc/ld.so.preload is a classic userland-rootkit foothold. Ordinary builds set
+  LD_LIBRARY_PATH, not LD_PRELOAD, so this is deliberately narrow.
+references:
+  - https://attack.mitre.org/techniques/T1574/006/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.persistence
+  - attack.privilege-escalation
+  - attack.defense-evasion
+  - attack.t1574.006
+detection:
+  # an LD_PRELOAD / LD_AUDIT assignment on the command line (env wrapper, or a
+  # PROCTITLE that kept the inline assignment). LD_LIBRARY_PATH is left out: it
+  # is ordinary build/runtime behaviour, not preload injection.
+  preload_env:
+    CommandLine|contains:
+      - 'LD_PRELOAD='
+      - 'LD_AUDIT='
+  # a program writing the system-wide preload / linker config
+  writer:
+    Image|endswith:
+      - /tee
+      - /cp
+      - /mv
+      - /ln
+      - /dd
+      - /install
+      - /sed
+  preload_cmd:
+    CommandLine|contains:
+      - /etc/ld.so.preload
+      - /etc/ld.so.conf.d/
+  # binary-agnostic: any process whose file access touched the preload file
+  preload_target:
+    TargetFilename|contains:
+      - /etc/ld.so.preload
+      - /etc/ld.so.conf.d/
+  condition: preload_env or (writer and preload_cmd) or preload_target
+falsepositives:
+  - A debugging or profiling session that legitimately uses LD_PRELOAD (a sanitizer, jemalloc,
+    fakeroot); scope by the account, as an agent or service account has no such need.
+level: high

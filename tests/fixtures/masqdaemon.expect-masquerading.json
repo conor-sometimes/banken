@@ -1,0 +1,4 @@
+[
+  {"source":"auditd","image":"/tmp/crond","commandLine":"/tmp/crond","user":"1000","pid":9721,"ppid":9720},
+  {"source":"laurel","image":"/home/u/.../sh","commandLine":"/home/u/.../sh -c id","user":"1000","pid":9722,"ppid":9720}
+]

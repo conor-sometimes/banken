@@ -1,0 +1,42 @@
+title: Sudoers policy modified
+id: 8d4f1a92-6c05-4b7e-9a3d-2e0b7c1f5a44
+status: experimental
+description: >
+  A program edited the sudo policy - /etc/sudoers or a drop-in under /etc/sudoers.d/ - via a file
+  tool (tee, sed, cp, mv, dd, install) or any process whose file access touched those paths. Granting
+  an account NOPASSWD, disabling tty_tickets, or setting an unlimited timestamp_timeout rewrites who
+  can become root and how freely (MITRE T1548.003): it is a durable privilege-escalation and
+  persistence foothold. privilege_escalation_attempt catches running sudo; this catches rewriting the
+  rules sudo enforces. visudo editing by hand is interactive and not matched here.
+references:
+  - https://attack.mitre.org/techniques/T1548/003/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.privilege-escalation
+  - attack.t1548.003
+detection:
+  editor:
+    Image|endswith:
+      - /tee
+      - /sed
+      - /cp
+      - /mv
+      - /dd
+      - /install
+      - /ln
+  sudoers_cmd:
+    CommandLine|contains:
+      - /etc/sudoers
+  # binary-agnostic: any process whose file access touched the sudo policy
+  sudoers_target:
+    TargetFilename|contains:
+      - /etc/sudoers
+  condition: (editor and sudoers_cmd) or sudoers_target
+falsepositives:
+  - A provisioning or configuration-management run that installs a sudoers.d drop-in for a service
+    account; expected on a build or orchestration host, notable on a workstation or an agent box.
+level: high

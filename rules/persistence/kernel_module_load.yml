@@ -1,0 +1,35 @@
+title: Kernel module loaded or unloaded
+id: 1c7b3e95-4a26-4d81-9f0c-5e2a8d4f7b66
+status: experimental
+description: >
+  A program loaded or unloaded a kernel module - insmod, rmmod, modprobe, kmod. Code running in the
+  kernel can hide processes, files and network connections and survive a reboot, so a loadable kernel
+  module is a top-tier rootkit mechanism (Diamorphine, libprocesshider's kin) and a persistence
+  foothold (MITRE T1547.006 / T1014). On a host whose module set is fixed at boot by its NixOS
+  configuration, a hand-run insmod/modprobe outside that is off-pattern.
+references:
+  - https://attack.mitre.org/techniques/T1547/006/
+  - https://attack.mitre.org/techniques/T1014/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.persistence
+  - attack.t1547.006
+  - attack.defense-evasion
+  - attack.t1014
+detection:
+  modtool:
+    Image|endswith:
+      - /insmod
+      - /rmmod
+      - /modprobe
+      - /kmod
+  condition: modtool
+falsepositives:
+  - Boot-time and on-demand module loading by systemd-modules-load, udev or a hardware service runs
+    modprobe as root with systemd as its parent; scope those out by the parent process or the
+    account, and treat an interactive or agent-account insmod as the signal.
+level: medium

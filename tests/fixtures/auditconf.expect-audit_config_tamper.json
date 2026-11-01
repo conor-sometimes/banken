@@ -1,0 +1,4 @@
+[
+  {"source":"auditd","image":"/usr/bin/sed","commandLine":"sed -i $ a #x /etc/audit/auditd.conf","user":"0","pid":9751,"ppid":9750},
+  {"source":"auditd","image":"/usr/bin/tee","commandLine":"tee -a /etc/rsyslog.conf","targetFilename":"/etc/rsyslog.conf","user":"0","pid":9752,"ppid":9750}
+]

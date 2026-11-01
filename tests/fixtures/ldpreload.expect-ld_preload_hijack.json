@@ -1,0 +1,4 @@
+[
+  {"source":"auditd","image":"/usr/bin/env","commandLine":"env LD_PRELOAD=/tmp/evil.so /bin/ls -la","user":"1000","pid":9711,"ppid":9710},
+  {"source":"auditd","image":"/usr/bin/tee","commandLine":"tee -a /etc/ld.so.preload","targetFilename":"/etc/ld.so.preload","user":"0","pid":9712,"ppid":9710}
+]
