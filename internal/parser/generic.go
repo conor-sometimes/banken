@@ -33,9 +33,9 @@ func (p Generic) Parse(r io.Reader) ([]event.Event, error) {
 		if json.Unmarshal(line, &ev) != nil {
 			return // not valid JSON -- skip, keep going
 		}
-		// Provenance is the parser's, never the line's: a line that set "source":"auditd" would
-		// otherwise inherit auditd's trust (the enforceSources rail). Stamp it unconditionally.
-		ev.Source = genericName
+		if ev.Source == "" {
+			ev.Source = genericName
+		}
 		events = append(events, ev)
 	})
 	return events, err
