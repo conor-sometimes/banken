@@ -105,9 +105,11 @@ in
     extraRules = lib.mkOption {
       type = lib.types.listOf lib.types.path;
       default = [ ];
+      example = lib.literalExpression "[ ./rules ]";
       description = ''
         Extra rule trees (Sigma .yml and ioc/ lists), loaded after the
-        embedded baseline and /etc/banken/rules.
+        embedded baseline and /etc/banken/rules. Each path is a directory
+        copied into the Nix store; point it at your own rules dir.
       '';
     };
 
@@ -257,11 +259,15 @@ in
           description = "Days of alert files to keep (0 = forever).";
         };
         format = lib.mkOption {
-          type = lib.types.enum [ "banken" "ocsf" ];
+          type = lib.types.enum [ "banken" "ocsf" "ecs" ];
           default = "banken";
+          example = "ocsf";
           description = ''
-            Encoding: banken's native JSON, or OCSF 1.3.0 Detection Findings
-            for an OCSF-aware SIEM (Security Lake, Splunk, Datadog, ...).
+            Encoding for each line: "banken" (the native JSON shape), "ocsf"
+            (OCSF 1.3.0 Detection Findings, for an OCSF-aware SIEM such as
+            Security Lake, Splunk or Datadog), or "ecs" (Elastic Common Schema,
+            for Elasticsearch/Kibana). One finding per line either way; this
+            only changes the field names, not the file or retention.
           '';
         };
       };

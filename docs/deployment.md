@@ -3,6 +3,11 @@
 The goal is no fiddling: install the binary, point it at the audit log, enable the timer. banken
 ships an embedded baseline ruleset and auto-detects the log source, so there is little to configure.
 
+**One line, if you run NixOS:** add the module and set `services.banken.enable = true;` - that pulls
+in auditd with the rules banken reads, the hardened unit and the timer, alerting to the journal (see
+[NixOS](#nixos)). On any other systemd Linux it is the three-command [Quickstart](#quickstart-any-systemd-linux)
+below. Either way the defaults are a working deployment; the rest of this page is the optional knobs.
+
 ## Supported platforms
 
 **Linux with systemd** on x86_64 (aarch64 builds but is not yet tested). The live distro matrix
@@ -72,7 +77,20 @@ but not required — the raw auditd parser reads `/var/log/audit/audit.log` dire
 
 ## Configuration
 
-Config is YAML; flags override it. A fuller example:
+Config is YAML; flags override it. The smallest useful config is **no config at all** - the
+zero-config default above (embedded rules, auto-detected source, journal alerts) is a complete
+deployment. A config file is only for adding to it.
+
+A minimal config that turns on a second sink - copy, paste, edit one line:
+
+```yaml
+# /etc/banken/banken.yml
+alerts:
+  journal: { enable: true }                          # keep the default journal feed
+  jsonl:   { enable: true, dir: /var/log/banken }    # plus one file of alerts per day
+```
+
+A fuller example with every common knob:
 
 ```yaml
 rules: [/etc/banken/rules]          # extra trees, loaded on top of the embedded baseline
@@ -82,13 +100,19 @@ sources:                            # omit to auto-detect
     path: /var/log/laurel/audit.log
 alerts:
   journal: { enable: true }
-  jsonl:   { enable: true, dir: /var/log/banken, retentionDays: 30 }   # format: ocsf for OCSF
+  jsonl:   { enable: true, dir: /var/log/banken, retentionDays: 30 }   # format: ocsf | ecs to re-shape
   webhook: { enable: true, urlFile: /run/secrets/banken-webhook, style: slack }  # or style: ocsf
 ```
 
-The webhook URL is **always** read from a file (`urlFile`) — a secret never belongs inline in a
-config that may live in a store or a repo. See the CLI flags with `banken -h` for one-off overrides
-(`-source type:path`, `-jsonl-dir`, `-webhook-url-file`, `--watch`, …).
+The jsonl sink's `format` picks the on-disk shape: `banken` (native, the default), `ocsf` (OCSF
+1.3.0 Detection Findings for an OCSF-aware SIEM) or `ecs` (Elastic Common Schema for
+Elasticsearch/Kibana). One finding per line in every case.
+
+The webhook URL should come from a file (`urlFile`) - most webhook URLs embed a secret token
+(Slack, Discord), and a secret never belongs inline in a config that may live in a Nix store or a
+repo. Set the URL inline (`url:` / NixOS `alerts.webhook.url`) only for a genuinely non-secret
+receiver. See the CLI flags with `banken -h` for one-off overrides (`-source type:path`,
+`-jsonl-dir`, `-jsonl-format`, `-webhook-url-file`, `--watch`, …).
 
 ## Sandbox
 
