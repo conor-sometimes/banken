@@ -39,10 +39,15 @@ atomics run their command through sudo, so a technique counts as detected "on me
 rule about it fired (any rule, for the T1548 privilege-escalation techniques themselves). The
 scorecard reports both numbers.
 
-First live run (2026-10-31, ART `e8cfc41`): **23/115 techniques on merit** (50/409 atomics);
-40/115 counting sudo-only hits. Largest misses, i.e. the rule roadmap: credentials in files
-(T1552.001, 21 atomics), shell variants (T1059.004), permission changes (T1222.002), history
-clearing (T1070.003), private keys (T1552.004).
+Live runs (ART `e8cfc41`):
+- 2026-10-31: **23/115 techniques on merit** (50/409 atomics); 40/115 with sudo-only hits.
+- 2026-11-01, after adding `credential_search` and `history_tamper`: **24/115 on merit (71/409
+  atomics)** -- credentials-in-files (T1552.001) went 0/21 -> 18/21, history clearing (T1070.003)
+  0/10 -> 3/10 (the rest are shell builtins no exec-based EDR can see). +21 atomics from two rules.
+
+Largest remaining misses, i.e. the rule roadmap: shell variants (T1059.004), permission changes
+(T1222.002), private keys (T1552.004), timestomp/clear (T1070.006), the agentic set (scoped to
+agent accounts, so they do not fire on the range's generic user).
 
 Run it nightly/in CI (on the sandbox) as a **regression that fails if coverage
 drops**, and as the scored range for the purple-team CTF.
