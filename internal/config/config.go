@@ -70,6 +70,12 @@ type JSONLConfig struct {
 	// (buildSinks), never a silent fallback -- an operator who asked for OCSF
 	// and got banken JSON would only find out from their SIEM.
 	Format string `yaml:"format"`
+	// GroupReadable writes the per-day files 0640 instead of 0600, so a
+	// log-reader group can read them (the directory must be setgid-owned by
+	// that group, which the NixOS module arranges). Default false keeps the
+	// log owner-only. banken never changes the group itself -- it runs without
+	// CAP_CHOWN by design.
+	GroupReadable bool `yaml:"groupReadable"`
 }
 
 // WebhookConfig configures the webhook sink.

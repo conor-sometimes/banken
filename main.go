@@ -449,7 +449,11 @@ func buildSinks(cfg config.Config, stderr io.Writer) ([]alert.Sink, error) {
 		if err != nil {
 			return nil, err
 		}
-		js, err := alert.NewJSONLSinkEncoded(cfg.Alerts.JSONL.Dir, cfg.Alerts.JSONL.RetentionDays, enc)
+		fileMode := os.FileMode(0o600)
+		if cfg.Alerts.JSONL.GroupReadable {
+			fileMode = 0o640
+		}
+		js, err := alert.NewJSONLSinkEncodedMode(cfg.Alerts.JSONL.Dir, cfg.Alerts.JSONL.RetentionDays, enc, fileMode)
 		if err != nil {
 			return nil, err
 		}

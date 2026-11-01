@@ -151,7 +151,10 @@ the reference engine (pySigma) is the next bar — see the roadmap.
 Pluggable sinks, any combination:
 
 - **journal** — high/critical to the system journal (syslog), a one-line login summary for admins.
-- **jsonl** — one file per day of alerts, kept `retentionDays`, so retention is a file delete.
+- **jsonl** — one file per day of alerts, kept `retentionDays`, so retention is a file delete. Files
+  are owner-only (`0600`) by default; `alerts.jsonl.readableByGroup` makes them `0640` in a setgid
+  directory so a log-reader group you manage can tail them (banken never chowns — it has no
+  `CAP_CHOWN`; you declare the group).
 - **webhook** — POST the alert JSON to a URL (generic, or Slack/Discord/ntfy shaping). The URL is a
   secret: it comes from `alerts.webhook.urlFile` (sops/agenix or a systemd credential), never inline
   in the Nix store. The service runs as root, so the webhook host just needs to be reachable.

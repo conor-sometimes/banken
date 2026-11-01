@@ -27,6 +27,7 @@ let
       journal.enable = cfg.alerts.journal.enable;
       jsonl = {
         inherit (cfg.alerts.jsonl) enable dir retentionDays format;
+        groupReadable = cfg.alerts.jsonl.readableByGroup != "";
       };
       webhook = {
         inherit (cfg.alerts.webhook) enable style;
@@ -163,6 +164,25 @@ in
             for an OCSF-aware SIEM (Security Lake, Splunk, Datadog, ...).
           '';
         };
+        readableByGroup = lib.mkOption {
+          type = lib.types.str;
+          default = "";
+          example = "banken-observers";
+          description = ''
+            Make the alert log readable by this group (default: owner-only).
+            banken writes the per-day files 0640, and sets its log directory
+            setgid-owned by this group so new files inherit it -- banken never
+            chowns (it runs with CAP_DAC_READ_SEARCH only, no CAP_CHOWN).
+
+            You declare the group and its members yourself -- the module sets
+            the group of its own log directory, it does not create or manage
+            system users or groups. A group named here that does not exist is a
+            deploy-time tmpfiles error, not banken's to paper over.
+
+            Every alert, host-wide, becomes readable to the group, so point it
+            at a trusted log-reader account, not a sandboxed one.
+          '';
+        };
       };
 
       webhook = {
@@ -194,6 +214,14 @@ in
     environment.systemPackages = [ cfg.package ];
     environment.etc."banken/banken.yml".source = yaml.generate "banken.yml" settings;
 
+    # Own banken's OWN log directory setgid to the reader group, so its 0640
+    # files inherit that group (banken cannot chown them -- no CAP_CHOWN). The
+    # group itself, and who is in it, are the operator's to declare: the module
+    # sets the group of its data dir, it does not manage the system's users.
+    systemd.tmpfiles.rules = lib.mkIf (cfg.alerts.jsonl.enable && cfg.alerts.jsonl.readableByGroup != "") [
+      "d ${cfg.alerts.jsonl.dir} 2750 root ${cfg.alerts.jsonl.readableByGroup} - -"
+    ];
+
     security.auditd.enable = lib.mkIf cfg.audit.enable true;
     security.audit = lib.mkIf cfg.audit.enable {
       enable = lib.mkDefault true;
@@ -213,7 +241,10 @@ in
         ExecStart = "${lib.getExe cfg.package} -config /etc/banken/banken.yml";
         StateDirectory = "banken";
         StateDirectoryMode = "0700";
-        LogsDirectory = lib.mkIf (cfg.alerts.jsonl.enable && cfg.alerts.jsonl.dir == "/var/log/banken") "banken";
+        # systemd owns /var/log/banken as root:root -- except when a reader
+        # group is configured, where a tmpfiles rule (below) owns it setgid to
+        # that group instead, so LogsDirectory must not fight it.
+        LogsDirectory = lib.mkIf (cfg.alerts.jsonl.enable && cfg.alerts.jsonl.dir == "/var/log/banken" && cfg.alerts.jsonl.readableByGroup == "") "banken";
 
         # An attacker who floods the box to trip the OOM killer must not reap
         # the watchdog (see the portable unit for why there is no MemoryMax).
