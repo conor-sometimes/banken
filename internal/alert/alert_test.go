@@ -61,6 +61,32 @@ func TestJournalSinkJournalsOnlyHighAndCritical(t *testing.T) {
 	}
 }
 
+// TestJournalSinkObservedNeverPages checks observe mode: an observed hit is
+// never written as a paging line even at a paging level, but is counted in the
+// Close summary under "observed" so the admin still sees it happened.
+func TestJournalSinkObservedNeverPages(t *testing.T) {
+	var buf bytes.Buffer
+	j := NewJournalSink(&buf, true)
+	a := sampleAlert("high") // high would normally page
+	a.Observed = true
+	if err := j.Emit(a); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	if body := buf.String(); strings.TrimSpace(body) != "" {
+		t.Errorf("observed high alert paged a line, want none: %q", body)
+	}
+	if err := j.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	summary := buf.String()
+	if !strings.Contains(summary, "1 alert(s)") || !strings.Contains(summary, "observed=1") {
+		t.Errorf("summary should record the observed hit: %q", summary)
+	}
+	if strings.Contains(summary, "high=1") {
+		t.Errorf("observed hit should not count as high: %q", summary)
+	}
+}
+
 func TestJournalSinkCloseNoAlertsIsSilent(t *testing.T) {
 	var buf bytes.Buffer
 	j := NewJournalSink(&buf, true)

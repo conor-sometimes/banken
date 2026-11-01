@@ -38,17 +38,18 @@ func (e *Engine) Match(ev event.Event) []alert.Alert {
 	var alerts []alert.Alert
 	for _, r := range e.matcher.Match(ev) {
 		alerts = append(alerts, alert.Alert{
-			Time:    ev.Time,
-			Kind:    alert.KindSigma,
-			Rule:    r.Name,
-			RuleID:  r.ID,
-			Title:   r.Title,
-			Desc:    r.Description,
-			Level:   defaultLevel(r.Level),
-			Source:  ev.Source,
-			Tags:    r.Tags,
-			Message: fmt.Sprintf("rule %q matched", r.Name),
-			Event:   ev,
+			Time:     ev.Time,
+			Kind:     alert.KindSigma,
+			Rule:     r.Name,
+			RuleID:   r.ID,
+			Title:    r.Title,
+			Desc:     r.Description,
+			Level:    defaultLevel(r.Level),
+			Observed: r.Observe,
+			Source:   ev.Source,
+			Tags:     r.Tags,
+			Message:  fmt.Sprintf("rule %q matched", r.Name),
+			Event:    ev,
 		})
 	}
 	if e.iocs != nil {

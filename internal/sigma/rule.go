@@ -34,6 +34,23 @@ type Rule struct {
 	// alert for ATT&CK mapping (OCSF) and response-action selectors.
 	Tags []string
 
+	// Optional marks an opt-in rule: it is loaded and validated like any
+	// other, but held out of the active set unless the operator names it (or
+	// "*") in the config's optionalRules / the -optional flag. It is for
+	// policy detections that are noisy or environment-specific -- netcat use,
+	// a password cracker -- which one host wants and another never would, so
+	// they ship in the binary but off, rather than bloating the baseline's
+	// signal. The flag is authoritative; the rules/optional/ directory is
+	// only where the shipped pack lives for discoverability.
+	Optional bool
+
+	// Observe is a runtime disposition (not from the YAML): an optional rule
+	// the operator put in observeRules runs, but its alerts are recorded only
+	// -- marked Observed so the paging sinks (journal, webhook) skip them --
+	// so a host can measure a rule's noise before letting it page. Set by
+	// selectActive at load time, never by the rule file.
+	Observe bool
+
 	selections map[string]selection
 	cond       condNode
 }

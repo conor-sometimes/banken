@@ -110,7 +110,9 @@ is, plus plain IOC lists for bulk feeds:
     rules/
       credential-access/    persistence/    execution/
       command-and-control/  privilege-escalation/   ...   # behavioural rules, by ATT&CK tactic
+      agent/                                               # account-scoped rules for autonomous AI agents
       malware/<family>/                                    # family-specific signatures (IOCs unique to a family)
+      optional/                                            # opt-in policy rules, shipped but held back by default
       ioc/*.txt                                            # bulk IOC lists (filenames, IPs, domains), one per line
 
 - **Behavioural rules** detect a *behaviour*, not a family, so they live by tactic (reading a
@@ -119,6 +121,21 @@ is, plus plain IOC lists for bulk feeds:
 - **Family signatures** are Sigma too (an IOC is just a matched value), kept under `malware/<family>/`.
 - **Bulk IOC feeds** (thousands of values) go in `ioc/*.txt` as flat lists, one value per line, not
   one Sigma file each.
+- **Optional rules** carry `optional: true` and ship in the binary but *off*: policy detections that
+  are noisy or environment-specific — netcat use, a password cracker — which one host wants and
+  another never would. An operator activates the ones their host needs by name (or `"*"` for all),
+  so the shipped-on baseline stays high-signal. See [`rules/optional/`](rules/optional/).
+
+  An optional rule has three states: **off** (default, not evaluated), **observe**
+  (`observeRules` — evaluated and recorded, but marked `observed` so it never pages: measure its
+  noise first), and **on** (`optionalRules` — pages normally).
+
+```yaml
+services.banken = {
+  observeRules  = [ "netcat" ];            # recorded, never pages — watch it quietly
+  optionalRules = [ "password_cracker" ];  # pages normally  (or: banken -optional password_cracker)
+};
+```
 
 banken evaluates the field modifiers `contains` / `startswith` / `endswith` / `re` / `cidr` / `all`,
 plain-value equality, `*`/`?` wildcards, keyword (bare string-list) selections, and conditions of

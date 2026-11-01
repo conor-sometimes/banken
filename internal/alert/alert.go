@@ -21,19 +21,24 @@ const (
 // Alert is one detection, carrying enough of the rule and the triggering
 // event to be actionable and to be the JSON a webhook receives.
 type Alert struct {
-	Time    time.Time   `json:"time"`
-	Kind    string      `json:"kind"`             // KindSigma or KindIOC
-	Rule    string      `json:"rule"`             // rule name / indicator feed
-	RuleID  string      `json:"ruleId,omitempty"` // Sigma rule id, if any
-	Title   string      `json:"title"`
-	Desc    string      `json:"desc,omitempty"` // the rule's description, for OCSF finding_info.desc and the analyst's first read
-	Level   string      `json:"level"`          // critical|high|medium|low
-	Source  string      `json:"source"`
-	Tags    []string    `json:"tags,omitempty"` // the rule's ATT&CK tags (attack.tNNNN...), for OCSF + response selectors
-	IOC     string      `json:"ioc,omitempty"`  // the matched indicator, for KindIOC
-	Field   string      `json:"field,omitempty"`
-	Message string      `json:"message"`
-	Event   event.Event `json:"event"`
+	Time   time.Time `json:"time"`
+	Kind   string    `json:"kind"`             // KindSigma or KindIOC
+	Rule   string    `json:"rule"`             // rule name / indicator feed
+	RuleID string    `json:"ruleId,omitempty"` // Sigma rule id, if any
+	Title  string    `json:"title"`
+	Desc   string    `json:"desc,omitempty"` // the rule's description, for OCSF finding_info.desc and the analyst's first read
+	Level  string    `json:"level"`          // critical|high|medium|low
+	// Observed marks an observe-mode hit: an optional rule the operator put in
+	// observeRules (not optionalRules). It is recorded like any alert (jsonl,
+	// run summary) but the paging sinks (journal, webhook) skip it, so a host
+	// can measure a rule's noise before letting it page.
+	Observed bool        `json:"observed,omitempty"`
+	Source   string      `json:"source"`
+	Tags     []string    `json:"tags,omitempty"` // the rule's ATT&CK tags (attack.tNNNN...), for OCSF + response selectors
+	IOC      string      `json:"ioc,omitempty"`  // the matched indicator, for KindIOC
+	Field    string      `json:"field,omitempty"`
+	Message  string      `json:"message"`
+	Event    event.Event `json:"event"`
 }
 
 // Sink is one alert destination.

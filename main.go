@@ -45,6 +45,8 @@ func main() {
 type flags struct {
 	configPath  string
 	rules       string
+	optional    string
+	observe     string
 	statePath   string
 	watch       bool
 	interval    time.Duration
@@ -95,6 +97,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 	var f flags
 	fs.StringVar(&f.configPath, "config", "", "path to a YAML config file, flags override its values (default "+defaultConfigPath+" if it exists)")
 	fs.StringVar(&f.rules, "rules", "", "comma-separated rule tree dirs (overrides config)")
+	fs.StringVar(&f.optional, "optional", "", "comma-separated optional rule names to activate, or * for all (overrides config)")
+	fs.StringVar(&f.observe, "observe", "", "comma-separated optional rule names to run in observe mode (recorded, never paged), or * for all (overrides config)")
 	fs.StringVar(&f.statePath, "state", "", "path to the cursor/state file (overrides config)")
 	fs.BoolVar(&f.watch, "watch", false, "run continuously on --interval instead of one-shot")
 	fs.DurationVar(&f.interval, "interval", 2*time.Minute, "scan interval in --watch mode")
@@ -152,6 +156,15 @@ func run(args []string, stdout, stderr io.Writer) error {
 		// itself is broken, not a misconfiguration.
 		return errors.New("no rules loaded (embedded baseline missing?)")
 	}
+
+	// Hold back optional (opt-in) rules the operator did not activate, and mark
+	// observe-mode rules. A named rule that matches no optional rule is warned
+	// about -- a typo'd enable is a detection that silently is not running.
+	rules, sel := selectActive(rules, optionalSet(cfg.OptionalRules), optionalSet(cfg.ObserveRules))
+	for _, name := range sel.unknown {
+		logAt(stderr, levelWarning, "banken: %q is named in optionalRules/observeRules but is not an optional rule; it will not run (check the spelling)", name)
+	}
+
 	iocSet, err := loadIOCs(cfg.Rules)
 	if err != nil {
 		return fmt.Errorf("loading IOCs: %w", err)
@@ -170,6 +183,12 @@ func run(args []string, stdout, stderr io.Writer) error {
 
 	eng := engine.New(rules, iocSet, disp)
 
+	if sel.observing > 0 {
+		logAt(stderr, levelInfo, "banken: %d optional rule(s) in observe mode (recorded, not paged)", sel.observing)
+	}
+	if sel.heldBack > 0 {
+		logAt(stderr, levelInfo, "banken: %d optional rule(s) held back (activate with optionalRules/-optional, or watch with observeRules/-observe)", sel.heldBack)
+	}
 	logAt(stderr, levelInfo, "banken %s: %d rules, %d indicators, %d source(s)",
 		version, len(rules), iocSet.Len(), len(cfg.Sources))
 
@@ -269,6 +288,69 @@ func loadRules(dirs []string) ([]*sigma.Rule, []sigma.RuleError) {
 	return out, problems
 }
 
+// optionalSet turns the configured optionalRules list into a lookup. "*"
+// activates every optional rule; otherwise each entry names one rule.
+func optionalSet(names []string) map[string]bool {
+	m := make(map[string]bool, len(names))
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n != "" {
+			m[n] = true
+		}
+	}
+	return m
+}
+
+// selection is the outcome of selectActive beyond the active rule set.
+type selection struct {
+	heldBack  int      // optional rules neither enabled nor observed
+	observing int      // optional rules running in observe mode
+	unknown   []string // enable/observe names matching no optional rule (likely typos)
+}
+
+// selectActive decides which rules run and in what mode. A non-optional rule is
+// always active. An optional rule is active if it is enabled (optionalRules) or
+// observed (observeRules), where "*" selects all; enabled wins over observed,
+// and an observed rule is marked Observe so its alerts are recorded but never
+// paged. Every other optional rule is held back. Names in either set that match
+// no optional rule are returned as unknown (a likely typo worth a warning). The
+// input is assumed sorted by Name and the output preserves that order.
+func selectActive(rules []*sigma.Rule, enabled, observed map[string]bool) (active []*sigma.Rule, sel selection) {
+	enableAll, observeAll := enabled["*"], observed["*"]
+	optionalNames := make(map[string]bool)
+	active = make([]*sigma.Rule, 0, len(rules))
+	for _, r := range rules {
+		if !r.Optional {
+			r.Observe = false
+			active = append(active, r)
+			continue
+		}
+		optionalNames[r.Name] = true
+		switch {
+		case enableAll || enabled[r.Name]: // explicit enable wins over observe
+			r.Observe = false
+			active = append(active, r)
+		case observeAll || observed[r.Name]:
+			r.Observe = true
+			active = append(active, r)
+			sel.observing++
+		default:
+			sel.heldBack++
+		}
+	}
+	// A name in either set that is not an optional rule's name does nothing.
+	seen := map[string]bool{}
+	for _, set := range []map[string]bool{enabled, observed} {
+		for name := range set {
+			if name != "*" && !optionalNames[name] && !seen[name] {
+				seen[name] = true
+				sel.unknown = append(sel.unknown, name)
+			}
+		}
+	}
+	sort.Strings(sel.unknown)
+	return active, sel
+}
+
 // loadIOCs loads the on-disk IOC feeds (if any) and the embedded baseline
 // into one set. Duplicate values are harmless -- Match dedups by value+field.
 func loadIOCs(dirs []string) (*ioc.Set, error) {
@@ -313,6 +395,12 @@ func buildConfig(f flags, sources multiFlag) (config.Config, error) {
 	}
 	if f.rules != "" {
 		cfg.Rules = splitComma(f.rules)
+	}
+	if f.optional != "" {
+		cfg.OptionalRules = splitComma(f.optional)
+	}
+	if f.observe != "" {
+		cfg.ObserveRules = splitComma(f.observe)
 	}
 	if f.statePath != "" {
 		cfg.StatePath = f.statePath

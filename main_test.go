@@ -12,7 +12,9 @@ import (
 
 	"github.com/conor-sometimes/banken/internal/alert"
 	"github.com/conor-sometimes/banken/internal/engine"
+	"github.com/conor-sometimes/banken/internal/event"
 	"github.com/conor-sometimes/banken/internal/parser"
+	"github.com/conor-sometimes/banken/internal/sigma"
 )
 
 const smokeRule = `title: Credential read
@@ -269,6 +271,148 @@ func TestLoadRulesDiskOverridesEmbedded(t *testing.T) {
 	}
 	if len(got) != len(base)+1 {
 		t.Errorf("expected baseline+1 rules, got %d (baseline %d)", len(got), len(base))
+	}
+}
+
+// TestSelectActiveOptional checks the opt-in rule machinery against the real
+// embedded ruleset: optional rules are held back by default, "*" and an
+// explicit name activate them, and an enable name that is no optional rule is
+// reported as unknown (a likely typo).
+func TestSelectActiveOptional(t *testing.T) {
+	all, _ := loadRules(nil)
+	var optional []string
+	for _, r := range all {
+		if r.Optional {
+			optional = append(optional, r.Name)
+		}
+	}
+	if len(optional) == 0 {
+		t.Fatal("expected at least one optional rule in the embedded baseline")
+	}
+
+	// Nothing enabled: every optional rule is held back, none are active.
+	active, sel := selectActive(all, optionalSet(nil), optionalSet(nil))
+	if sel.heldBack != len(optional) {
+		t.Errorf("held back = %d, want %d (all optional)", sel.heldBack, len(optional))
+	}
+	if len(sel.unknown) != 0 {
+		t.Errorf("unknown = %v, want none", sel.unknown)
+	}
+	if len(active) != len(all)-len(optional) {
+		t.Errorf("active = %d, want %d (baseline minus optional)", len(active), len(all)-len(optional))
+	}
+	for _, r := range active {
+		if r.Optional {
+			t.Errorf("optional rule %q is active with nothing enabled", r.Name)
+		}
+	}
+
+	// "*" activates every optional rule, all paging (not observed).
+	active, sel = selectActive(all, optionalSet([]string{"*"}), optionalSet(nil))
+	if sel.heldBack != 0 || len(active) != len(all) {
+		t.Errorf(`"*": active=%d held=%d, want active=%d held=0`, len(active), sel.heldBack, len(all))
+	}
+	for _, r := range active {
+		if r.Observe {
+			t.Errorf(`"*" enable: rule %q is observed, want paging`, r.Name)
+		}
+	}
+
+	// One name activates exactly that rule; the rest stay held.
+	want := optional[0]
+	active, sel = selectActive(all, optionalSet([]string{want}), optionalSet(nil))
+	if sel.heldBack != len(optional)-1 {
+		t.Errorf("one enabled: held=%d, want %d", sel.heldBack, len(optional)-1)
+	}
+	if len(sel.unknown) != 0 {
+		t.Errorf("one enabled: unknown=%v, want none", sel.unknown)
+	}
+	found := false
+	for _, r := range active {
+		if r.Name == want {
+			found = true
+			if r.Observe {
+				t.Errorf("enabled rule %q marked observed, want paging", r.Name)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("enabled optional rule %q is not active", want)
+	}
+
+	// observeRules activates the rule but marks it Observe (recorded, not paged).
+	active, sel = selectActive(all, optionalSet(nil), optionalSet([]string{want}))
+	if sel.observing != 1 || sel.heldBack != len(optional)-1 {
+		t.Errorf("observe one: observing=%d held=%d, want observing=1 held=%d", sel.observing, sel.heldBack, len(optional)-1)
+	}
+	foundObserved := false
+	for _, r := range active {
+		if r.Name == want {
+			foundObserved = r.Observe
+		}
+	}
+	if !foundObserved {
+		t.Errorf("observed rule %q is not active-and-marked-Observe", want)
+	}
+
+	// A rule in both sets pages: the explicit enable wins over observe.
+	active, sel = selectActive(all, optionalSet([]string{want}), optionalSet([]string{want}))
+	if sel.observing != 0 {
+		t.Errorf("enable+observe same rule: observing=%d, want 0 (enable wins)", sel.observing)
+	}
+	for _, r := range active {
+		if r.Name == want && r.Observe {
+			t.Errorf("rule %q in both sets is observed, want paging (enable wins)", r.Name)
+		}
+	}
+
+	// A name that is no optional rule is reported, and nothing extra activates.
+	_, sel = selectActive(all, optionalSet([]string{"definitely_not_a_rule"}), optionalSet(nil))
+	if sel.heldBack != len(optional) {
+		t.Errorf("bogus name: held=%d, want %d", sel.heldBack, len(optional))
+	}
+	if len(sel.unknown) != 1 || sel.unknown[0] != "definitely_not_a_rule" {
+		t.Errorf("bogus name: unknown=%v, want [definitely_not_a_rule]", sel.unknown)
+	}
+}
+
+// TestOptionalRuleEndToEnd is the behaviour Conor asked for, on one event: the
+// netcat optional rule is silent (no alert) when it is not activated, fires a
+// normal paging alert when enabled, and fires a recorded-but-not-paged
+// (Observed) alert when in observe mode -- same event, three dispositions.
+func TestOptionalRuleEndToEnd(t *testing.T) {
+	all, _ := loadRules(nil)
+	ev := event.Event{Image: "/usr/bin/nc", CommandLine: "nc -lvnp 4444 -e /bin/bash", Source: "laurel", User: "1000"}
+
+	netcatHit := func(active []*sigma.Rule) (hit bool, observed bool) {
+		for _, a := range engine.New(active, nil, nil).Match(ev) {
+			if a.Rule == "netcat" {
+				return true, a.Observed
+			}
+		}
+		return false, false
+	}
+
+	// Off (default): the rule is held back, so the event produces no netcat alert.
+	off, _ := selectActive(all, optionalSet(nil), optionalSet(nil))
+	if hit, _ := netcatHit(off); hit {
+		t.Error("netcat fired with nothing enabled; an unactivated optional rule must be silent")
+	}
+
+	// Enabled: the same event now fires a normal (paging) netcat alert.
+	on, _ := selectActive(all, optionalSet([]string{"netcat"}), optionalSet(nil))
+	if hit, observed := netcatHit(on); !hit {
+		t.Error("netcat did not fire when enabled")
+	} else if observed {
+		t.Error("enabled netcat alert is marked Observed; it should page")
+	}
+
+	// Observe: the same event fires, but the alert is marked Observed.
+	obs, _ := selectActive(all, optionalSet(nil), optionalSet([]string{"netcat"}))
+	if hit, observed := netcatHit(obs); !hit {
+		t.Error("netcat did not fire in observe mode")
+	} else if !observed {
+		t.Error("observe-mode netcat alert is not marked Observed")
 	}
 }
 

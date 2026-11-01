@@ -1,0 +1,35 @@
+title: Netcat or socat invoked
+id: 06824fd4-bd2c-4bea-8da4-1a1948ff2824
+status: experimental
+optional: true
+description: >
+  netcat (nc, ncat, netcat) or socat ran. These move bytes over a raw socket - a bind or reverse
+  shell, an ad-hoc file transfer, a port probe, a quick relay - so on a host where they are not part
+  of the toolkit any run is worth a look (MITRE T1095). They are also an everyday admin convenience
+  on plenty of boxes, which is exactly why this ships optional: switch it on where netcat has no
+  business running, leave it off where it is normal. reverse_shell and tunnel_tool catch the specific
+  malicious shapes host-wide; this is the blanket policy alert on the tool itself.
+references:
+  - https://attack.mitre.org/techniques/T1095/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.command-and-control
+  - attack.t1095
+detection:
+  tool:
+    Image|endswith:
+      - /nc
+      - /ncat
+      - /netcat
+      - /nc.openbsd
+      - /nc.traditional
+      - /socat
+  condition: tool
+falsepositives:
+  - Routine admin or scripting use of nc/socat where that is expected; that is the reason the rule is
+    optional - enable it only on hosts where netcat is not part of the normal toolkit.
+level: medium

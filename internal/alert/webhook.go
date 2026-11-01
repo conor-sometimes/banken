@@ -88,8 +88,12 @@ func NewWebhookSink(cfg WebhookConfig) (*WebhookSink, error) {
 func (*WebhookSink) Name() string { return "webhook" }
 
 // Emit implements Sink: shapes and POSTs the alert, treating any non-2xx
-// response as an error.
+// response as an error. An observe-mode hit is skipped: the webhook is a
+// notify path, and observe mode is "recorded, never paged".
 func (s *WebhookSink) Emit(a Alert) error {
+	if a.Observed {
+		return nil
+	}
 	body, contentType, err := s.shape(a)
 	if err != nil {
 		return err

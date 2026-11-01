@@ -71,6 +71,12 @@ func runCheck(args []string, stdout, stderr io.Writer) error {
 		if title == "" {
 			title = "(no title)"
 		}
+		if r.Optional {
+			// An optional rule is held back in a real run unless the operator
+			// activates it; say so here so a check hit is not mistaken for a
+			// shipped-on detection.
+			title += " [optional: off unless activated]"
+		}
 		logf(stdout, "  [%-8s] %-32s %s\n", level, r.Name, title)
 	}
 	return nil

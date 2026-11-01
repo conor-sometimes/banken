@@ -17,6 +17,21 @@ import (
 type Config struct {
 	// Rules are the rule-tree directories to load (Sigma + ioc/).
 	Rules []string `yaml:"rules"`
+	// OptionalRules names the opt-in (optional: true) rules to activate, by
+	// rule name (file basename), or "*" for all of them. Optional rules are
+	// policy detections that ship in the binary but held back by default
+	// because they are noisy or environment-specific (netcat use, a password
+	// cracker); an operator turns on the ones their host wants. A name here
+	// that matches no optional rule is warned about at startup, not silently
+	// ignored -- a mis-typed enable is a detection that silently is not running.
+	OptionalRules []string `yaml:"optionalRules"`
+	// ObserveRules names optional rules to run in observe mode, by rule name
+	// or "*": they evaluate and their hits are recorded (jsonl, run summary)
+	// but marked "observed" so the paging sinks (journal, webhook) skip them.
+	// It lets a host measure a rule's noise before letting it page. A rule
+	// named in both optionalRules and observeRules pages (the explicit enable
+	// wins). Names that match no optional rule are warned about at startup.
+	ObserveRules []string `yaml:"observeRules"`
 	// StatePath is where the cursor is persisted.
 	StatePath string `yaml:"statePath"`
 	// Sources are the log inputs to scan.

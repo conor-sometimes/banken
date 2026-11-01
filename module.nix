@@ -19,6 +19,8 @@ let
 
   settings = {
     rules = [ "/etc/banken/rules" ] ++ map (p: "${p}") cfg.extraRules; # interpolation copies the tree to the store
+    optionalRules = cfg.optionalRules;
+    observeRules = cfg.observeRules;
     statePath = "/var/lib/banken/cursor.json";
     sources = cfg.sources;
     alerts = {
@@ -78,6 +80,34 @@ in
       description = ''
         Extra rule trees (Sigma .yml and ioc/ lists), loaded after the
         embedded baseline and /etc/banken/rules.
+      '';
+    };
+
+    optionalRules = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "netcat" "password_cracker" ];
+      description = ''
+        Opt-in (optional) rules to activate, by rule name, or "*" for all of
+        them. Optional rules ship in the binary but are held back by default
+        because they are noisy or environment-specific (netcat use, a password
+        cracker); name here the ones this host wants. A name that matches no
+        optional rule is warned about at startup (a mis-typed enable is a
+        detection that silently is not running).
+      '';
+    };
+
+    observeRules = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "netcat" ];
+      description = ''
+        Optional rules to run in observe mode, by rule name, or "*" for all.
+        They evaluate and their hits are recorded (jsonl, run summary) but
+        marked "observed" so the paging sinks (journal, webhook) skip them --
+        a way to measure how noisy a rule would be on this host before letting
+        it page. A rule named in both optionalRules and observeRules pages (the
+        explicit enable wins).
       '';
     };
 

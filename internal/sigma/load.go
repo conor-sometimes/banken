@@ -129,6 +129,7 @@ type rawRule struct {
 	Level       string               `yaml:"level"`
 	Description string               `yaml:"description"`
 	Tags        []string             `yaml:"tags"`
+	Optional    bool                 `yaml:"optional"`
 	Detection   map[string]yaml.Node `yaml:"detection"`
 }
 
@@ -172,6 +173,7 @@ func Compile(data []byte) (*Rule, error) {
 		Level:       raw.Level,
 		Description: strings.TrimSpace(raw.Description), // YAML's folded `>` leaves a trailing newline
 		Tags:        raw.Tags,
+		Optional:    raw.Optional,
 		selections:  map[string]selection{},
 	}
 
