@@ -1,0 +1,2 @@
+[{"source":"auditd","image":"/usr/bin/openssl","commandLine":"openssl enc -aes-256-cbc -pass pass:x -in /tmp/loot -out /tmp/loot.enc","user":"1000","pid":9701,"ppid":9700},
+ {"source":"auditd","image":"/usr/bin/zip","commandLine":"zip /root/creds.zip /var/log/wtmp /var/log/btmp","user":"1000","pid":9702,"ppid":9700}]

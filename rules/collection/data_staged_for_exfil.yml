@@ -1,0 +1,41 @@
+title: Data archived or encrypted for exfiltration
+id: e20bb2d2-608d-4fa3-8418-7a4ba174b937
+status: experimental
+description: >
+  Collected data was encrypted, or a sensitive source was archived - the staging step before
+  exfiltration (MITRE T1560). Plain archiving (tar of a build dir) is everyday and stays out; the
+  signal here is encrypting an archive (zip --password, openssl enc, gpg --symmetric), which is
+  exfil or ransomware prep, or archiving a source a task has no business bundling (the auth logs
+  /var/log/wtmp, btmp, auth.log, or /etc wholesale).
+references:
+  - https://attack.mitre.org/techniques/T1560/001/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.collection
+  - attack.t1560.001
+detection:
+  # archive + a password/encryption flag, or an encrypt utility run on data
+  archive_encrypt:
+    CommandLine|re: '\b(zip|7z|7za)\b.*(-P\b|--password\b|--encrypt\b)|\b(gpg|gpg2)\b.*(-c\b|--symmetric\b)|\bopenssl\s+enc\b.*-aes'
+  # archiving a sensitive source (auth records, system config wholesale)
+  archiver:
+    Image|endswith:
+      - /tar
+      - /zip
+      - /gzip
+      - /bzip2
+      - /xz
+      - /zstd
+      - /7z
+      - /cpio
+  sensitive_src:
+    CommandLine|re: '/var/log/(wtmp|btmp|auth|secure|lastlog)\b|(^|\s)/etc(\s|$)'
+  condition: archive_encrypt or (archiver and sensitive_src)
+falsepositives:
+  - A backup job that encrypts or bundles /etc or the logs on purpose; scope it out by the account
+    or the destination path, as with the other collection-stage rules.
+level: medium
