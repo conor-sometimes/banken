@@ -14,7 +14,7 @@
 # it needs to run with no /nix in a guest (mimi, ld.so, libc.so.6, libgcc_s.so.1). Supplied, the
 # payload carries it plus mimicheck.sh and distrocheck runs the banken + mimi objectives (M1-M5) on
 # every distro; omitted (banken's own `nix run .#distro-matrix`), the matrix is banken-raw only.
-{ lib, buildGo127Module, fetchurl, runCommand, writeText, writeShellApplication, qemu, xorriso, banken, mimiBundle ? null }:
+{ lib, buildGo126Module, fetchurl, runCommand, writeText, writeShellApplication, qemu, xorriso, banken, mimiBundle ? null }:
 
 let
   distros = builtins.fromJSON (builtins.readFile ./distros.json);
@@ -34,7 +34,7 @@ let
 
   # The matrix test, distrocheck, and a test binary per package, from the same
   # module as banken (so the same pinned Go modules, the same vendorHash).
-  harness = buildGo127Module {
+  harness = buildGo126Module {
     pname = "banken-distro-matrix";
     inherit (banken) version vendorHash;
     inherit src;

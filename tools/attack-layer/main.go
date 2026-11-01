@@ -35,7 +35,7 @@ type layer struct {
 }
 
 type technique struct {
-	TechniqueID string `json:"techniqueID"`
+	TechniqueID string `json:"techniqueID"` //nolint:tagliatelle // ATT&CK Navigator layer schema requires the key "techniqueID"
 	Score       int    `json:"score"`
 	Enabled     bool   `json:"enabled"`
 	Comment     string `json:"comment,omitempty"`
@@ -56,6 +56,8 @@ func main() {
 	counts := map[string]int{}   // technique id -> number of rules
 	rulesFor := map[string][]string{} // technique id -> rule names
 	for _, dir := range dirs {
+		// #nosec G703 -- walks an operator-supplied rule tree; this is a dev
+		// measurement tool, the same trust boundary as the repo-wide G304 exclude.
 		_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return nil //nolint:nilerr
@@ -83,11 +85,11 @@ func main() {
 	}
 
 	ids := make([]string, 0, len(counts))
-	max := 0
+	top := 0
 	for id, c := range counts {
 		ids = append(ids, id)
-		if c > max {
-			max = c
+		if c > top {
+			top = c
 		}
 	}
 	sort.Strings(ids)
@@ -110,7 +112,7 @@ func main() {
 		Domain:      "enterprise-attack",
 		Description: fmt.Sprintf("ATT&CK techniques banken detects, generated from its Sigma rules (%d techniques, %d rules).", len(ids), func() int { n := 0; for _, c := range counts { n += c }; return n }()),
 		Techniques:  techs,
-		Gradient:    gradient{Colors: []string{"#ffffff", "#66b1ff", "#1f6fd0"}, MinValue: 0, MaxValue: max},
+		Gradient:    gradient{Colors: []string{"#ffffff", "#66b1ff", "#1f6fd0"}, MinValue: 0, MaxValue: top},
 		Sorting:     3, // descending by score
 	}
 

@@ -309,7 +309,7 @@ func runDaemon(ctx context.Context, eng *engine.Engine, cfg config.Config, inter
 						src.Type, alerts, latency.Round(time.Microsecond))
 				}
 			}
-			if err := eng.StreamFollow(ctx, p, src.Path, streamStatePath(cfg.StatePath, src), onLat); err != nil && err != context.Canceled {
+			if err := eng.StreamFollow(ctx, p, src.Path, streamStatePath(cfg.StatePath, src), onLat); err != nil && !errors.Is(err, context.Canceled) {
 				logAt(stderr, levelErr, "banken: follow %s: %v", src.Path, err)
 			}
 		}()
@@ -371,7 +371,7 @@ func follow(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 				src.Type, alerts, latency.Round(time.Microsecond))
 		}
 	}
-	if err := eng.StreamFollow(ctx, p, src.Path, cfg.StatePath, onLatency); err != nil && err != context.Canceled {
+	if err := eng.StreamFollow(ctx, p, src.Path, cfg.StatePath, onLatency); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil

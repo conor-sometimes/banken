@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -83,7 +84,7 @@ detection:
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
-	if err := <-done; err != nil && err != context.Canceled {
+	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("StreamFollow returned %v", err)
 	}
 
@@ -143,7 +144,7 @@ detection:
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
-	if err := <-done; err != nil && err != context.Canceled {
+	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("StreamFollow returned %v", err)
 	}
 	if sink.n() != 1 {

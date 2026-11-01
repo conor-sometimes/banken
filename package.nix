@@ -2,7 +2,7 @@
 # embedded (embed.go), so the package is the whole product.
 #
 #   pkgs.callPackage ./package.nix { }
-{ lib, buildGo127Module }:
+{ lib, buildGo126Module }:
 
 let
   # What the binary is built from: the root package's non-test Go files (by
@@ -13,7 +13,7 @@ let
     (builtins.attrNames (builtins.readDir ./.)));
   fileset = lib.fileset.unions ([ ./go.mod ./go.sum ./internal ./rules ] ++ rootGo);
 in
-buildGo127Module (finalAttrs: {
+buildGo126Module (finalAttrs: {
   pname = "banken";
   version = "dev";
 
