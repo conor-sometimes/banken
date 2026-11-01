@@ -22,7 +22,9 @@ let
     optionalRules = cfg.optionalRules;
     observeRules = cfg.observeRules;
     statePath = "/var/lib/banken/cursor.json";
-    sources = cfg.sources;
+    # With the mimi sensor on, banken tails its OCSF event stream as a `mimi` source (added here so
+    # it needs no manual sources entry); the sensor itself is brought up below.
+    sources = cfg.sources ++ lib.optional cfg.mimi.enable { type = "mimi"; path = cfg.mimi.streamPath; };
     alerts = {
       journal.enable = cfg.alerts.journal.enable;
       jsonl = {
@@ -57,7 +59,7 @@ in
       type = lib.types.listOf (lib.types.submodule {
         options = {
           type = lib.mkOption {
-            type = lib.types.enum [ "laurel" "auditd" "generic" ];
+            type = lib.types.enum [ "laurel" "auditd" "generic" "mimi" ];
             description = "Parser for this log.";
           };
           path = lib.mkOption {
@@ -109,6 +111,25 @@ in
         it page. A rule named in both optionalRules and observeRules pages (the
         explicit enable wins).
       '';
+    };
+
+    mimi = {
+      enable = lib.mkEnableOption ''
+        the mimi eBPF sensor as a live telemetry source. A SOFT dependency: it brings up
+        services.mimi (so mimi's NixOS module must be imported too), points banken at mimi's OCSF
+        event stream, and orders banken after it -- but Wants, not Requires, so if mimi dies banken
+        keeps running on the auditd floor. banken alone (this off) stays the floor: mimi adds richer
+        exec telemetry (the executable path, uid/gid, the full ancestry), it does not replace auditd
+      '';
+      streamPath = lib.mkOption {
+        type = lib.types.str;
+        default = "/var/log/mimi/events.jsonl";
+        description = ''
+          Where mimi writes its OCSF event stream and banken tails it (a `mimi` source). A durable
+          file, so a banken restart never loses events; banken's cursor resumes. banken polls it on
+          the timer today; the continuous low-latency push path is a planned refinement.
+        '';
+      };
     };
 
     audit = {
@@ -203,11 +224,21 @@ in
       ] ++ map (p: "-w ${p} -p rwa -k banken-watch") cfg.audit.watchPaths;
     };
 
+    # The one switch: enabling the mimi sensor brings up services.mimi (mimi's own module must be
+    # imported) pointed at the same stream file banken tails. Soft-wired above; banken stays the
+    # auditd floor on its own.
+    services.mimi = lib.mkIf cfg.mimi.enable {
+      enable = true;
+      sink = cfg.mimi.streamPath;
+    };
+
     systemd.services.banken = {
       description = "banken host EDR scan";
       documentation = [ "https://github.com/conor-sometimes/banken" ];
-      after = [ "auditd.service" ];
-      wants = [ "auditd.service" ];
+      # Soft dependency on the sensor when it is on: order after it and want it, never require it,
+      # so a mimi failure degrades banken to the auditd floor rather than taking it down.
+      after = [ "auditd.service" ] ++ lib.optional cfg.mimi.enable "mimi.service";
+      wants = [ "auditd.service" ] ++ lib.optional cfg.mimi.enable "mimi.service";
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${lib.getExe cfg.package} -config /etc/banken/banken.yml";
