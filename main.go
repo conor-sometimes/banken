@@ -574,6 +574,7 @@ func buildSinks(cfg config.Config, stderr io.Writer) ([]alert.Sink, error) {
 	if cfg.Alerts.Webhook.Enable {
 		ws, err := alert.NewWebhookSink(alert.WebhookConfig{
 			URLFile: cfg.Alerts.Webhook.URLFile,
+			URL:     cfg.Alerts.Webhook.URL,
 			Style:   cfg.Alerts.Webhook.WebhookStyle(),
 			OCSF:    ocsfOpts,
 		})

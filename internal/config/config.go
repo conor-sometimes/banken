@@ -87,7 +87,11 @@ type JSONLConfig struct {
 type WebhookConfig struct {
 	Enable  bool   `yaml:"enable"`
 	URLFile string `yaml:"urlFile"`
-	Style   string `yaml:"style"`
+	// URL is the webhook URL inline, used only when URLFile is unset. Most webhook URLs embed a
+	// secret token (Slack, Discord), which belongs in URLFile (a credential), never here where it
+	// lands in the Nix store; URL is for a genuinely non-secret receiver.
+	URL   string `yaml:"url"`
+	Style string `yaml:"style"`
 }
 
 // Default returns a config with sensible defaults for a one-shot run. The

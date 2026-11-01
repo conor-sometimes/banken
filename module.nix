@@ -42,7 +42,7 @@ let
         inherit (cfg.alerts.jsonl) enable dir retentionDays format;
       };
       webhook = {
-        inherit (cfg.alerts.webhook) enable style;
+        inherit (cfg.alerts.webhook) enable style url;
         urlFile = if cfg.alerts.webhook.urlFile == null then "" else toString cfg.alerts.webhook.urlFile;
       };
       otlp = {
@@ -211,6 +211,16 @@ in
             systemd credential). Never put the URL itself in the Nix store.
           '';
         };
+        url = lib.mkOption {
+          type = lib.types.str;
+          default = "";
+          example = "https://example.com/ingest";
+          description = ''
+            The webhook URL inline, used only when urlFile is unset. Most webhook URLs embed a secret
+            token (Slack, Discord) and MUST use urlFile instead -- a URL set here lands in the
+            world-readable Nix store. Use this only for a genuinely non-secret receiver.
+          '';
+        };
         style = lib.mkOption {
           type = lib.types.enum [ "generic" "slack" "discord" "ntfy" "ocsf" ];
           default = "generic";
@@ -246,8 +256,8 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [{
-      assertion = cfg.alerts.webhook.enable -> cfg.alerts.webhook.urlFile != null;
-      message = "services.banken.alerts.webhook.enable needs alerts.webhook.urlFile.";
+      assertion = cfg.alerts.webhook.enable -> (cfg.alerts.webhook.urlFile != null || cfg.alerts.webhook.url != "");
+      message = "services.banken.alerts.webhook.enable needs alerts.webhook.urlFile (a secret URL) or alerts.webhook.url (a non-secret one).";
     } {
       assertion = cfg.alerts.otlp.enable -> cfg.alerts.otlp.endpoint != "";
       message = "services.banken.alerts.otlp.enable needs alerts.otlp.endpoint.";

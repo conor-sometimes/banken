@@ -319,10 +319,17 @@ rules fire, as OCSF findings.
 Heavily tested - a root daemon that parses untrusted log bytes and ingests rules has to be, so the
 bar is "a malformed input or a hostile rule can degrade a detection, never crash the detector."
 
-**Dev environment.** `nix develop` gives the full, pinned toolchain `just` drives (Go, gofumpt,
-golangci-lint, gosec, govulncheck, staticcheck, delve, ...) with nothing to install - then `just`
-lists the targets and `just default` runs the whole gate. `nix develop .#conformance` adds the
-standards-gate tools (uv + Nix's Pythons); off Nix, install the tools `just` names.
+**Dev environment.** The shared dev toolbox is [workbench](https://github.com/conor-sometimes/workbench)
+(it pins the same toolchain for the whole banken family, banken and mimi alike):
+
+```sh
+nix run github:conor-sometimes/workbench#banken -- -c 'just default'   # the pinned toolchain, no install
+```
+
+Or `nix develop` on this repo gives the full toolchain `just` drives (Go, gofumpt, golangci-lint,
+gosec, govulncheck, staticcheck, delve, ...) with nothing to install - then `just` lists the targets
+and `just default` runs the whole gate. `nix develop .#conformance` adds the standards-gate tools
+(uv + Nix's Pythons); off Nix, install the tools `just` names.
 
 - `go test ./...` - table-driven cases for every parser, the rule compiler and the matcher, plus the
   `tests/fixtures/*.json` events (`NAME.expect-<rule>.json` must fire that rule; `*.expect-none.json`
