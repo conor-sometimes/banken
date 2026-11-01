@@ -17,17 +17,21 @@ const mimiName = "mimi"
 // than misreading newer bytes, so the sensor and the brain can evolve without silent drift. The
 // shape is frozen by a shared fixture tested on both sides (testdata/mimi_event.golden.jsonl is a
 // byte-for-byte copy of mimi's render_mimi output; `just contract` checks the two repos agree).
-const mimiSchema = "mimi/1"
+const mimiSchema = "mimi/2"
 
 // Mimi parses the mimi eBPF sensor's JSON events: one object per line, mimi's own OCSF-shaped
 // schema. The bytes are untrusted, so every field is read defensively and a line banken cannot
 // read, or whose schema it does not know, is skipped rather than failing the batch.
 //
-//	{"schema":"mimi/1","kind":"exec","time":"...","capture_ns":123,
-//	 "process":{"name":"ping","pid":213541,"uid":1000,"gid":1000,
-//	            "image":"/usr/bin/ping","cmdline":"ping 8.8.8.8","cmdline_truncated":false},
-//	 "parent":{"name":"fish","pid":210139},
-//	 "ancestry":[{"name":"ping","pid":213541},{"name":"fish","pid":210139},{"name":"systemd","pid":1}]}
+// The process object is OCSF-shaped, identical to banken's own ocsfProcess (pid / name / cmd_line /
+// file{path,name} / user{uid} / parent_process), so it maps with no translation; ancestry is mimi's
+// extension (the full chain):
+//
+//	{"schema":"mimi/2","kind":"exec","time":"...","capture_ns":123,"activity_id":1,"cmdline_truncated":false,
+//	 "process":{"pid":213541,"name":"ping","cmd_line":"ping 8.8.8.8",
+//	            "file":{"path":"/usr/bin/ping","name":"ping"},"user":{"uid":"1000","gid":"1000"},
+//	            "parent_process":{"pid":210139,"name":"fish"}},
+//	 "ancestry":[{"pid":213541,"name":"ping"},{"pid":210139,"name":"fish"},{"pid":1,"name":"systemd"}]}
 type Mimi struct{}
 
 // Name implements Parser.
@@ -62,20 +66,23 @@ func mimiEvent(obj map[string]json.RawMessage) event.Event {
 		}
 	}
 
+	// The process object is OCSF-shaped: image is file.path, user is user.uid, the parent is nested
+	// in process.parent_process (not top level).
 	proc := rawObject(obj["process"])
-	ev.Image = rawString(proc["image"])
-	ev.CommandLine = rawString(proc["cmdline"])
+	ev.CommandLine = rawString(proc["cmd_line"])
 	ev.PID, _ = strconv.Atoi(rawString(proc["pid"]))
+	ev.Image = rawString(rawObject(proc["file"])["path"])
+	user := rawObject(proc["user"])
 	// Numeric uid; banken's cross-source User normalisation resolves it to a login name where it
 	// can, keeping the number otherwise (so the account-scoped agent rules fire on either form).
-	ev.User = rawString(proc["uid"])
+	ev.User = rawString(user["uid"])
 
 	// argv[0] drives multicall resolution, the same as the auditd/Laurel path (a NixOS coreutils
 	// multicall binary reports exe=coreutils; what argv[0] names is what ran).
 	argv0, _, _ := strings.Cut(ev.CommandLine, " ")
 	ev.Image = resolveMulticall(ev.Image, argv0)
 
-	parent := rawObject(obj["parent"])
+	parent := rawObject(proc["parent_process"])
 	ev.PPID, _ = strconv.Atoi(rawString(parent["pid"]))
 
 	// mimi's parent is a comm (a 15-byte name), not a path, so it goes in Raw rather than
@@ -90,10 +97,10 @@ func mimiEvent(obj map[string]json.RawMessage) event.Event {
 		ev.Raw["Ancestry"] = anc
 	}
 	var truncated bool
-	if json.Unmarshal(proc["cmdline_truncated"], &truncated) == nil && truncated {
+	if json.Unmarshal(obj["cmdline_truncated"], &truncated) == nil && truncated {
 		ev.Raw["CmdlineTruncated"] = "true"
 	}
-	if g := rawString(proc["gid"]); g != "" {
+	if g := rawString(user["gid"]); g != "" {
 		ev.Raw["Gid"] = g
 	}
 
