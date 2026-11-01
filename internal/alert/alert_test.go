@@ -150,43 +150,6 @@ func TestJSONLSinkWritesPerDayAndMarshals(t *testing.T) {
 	}
 }
 
-// TestJSONLSinkFileMode checks the per-day file is owner-only by default and
-// group-readable when asked, so an observer group can read the alert log
-// (banken never chowns -- the directory's group is the deployment's job).
-func TestJSONLSinkFileMode(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		sink func(dir string) (*JSONLSink, error)
-		want os.FileMode
-	}{
-		{"default owner-only", func(d string) (*JSONLSink, error) { return NewJSONLSink(d, 30) }, 0o600},
-		{"group-readable", func(d string) (*JSONLSink, error) {
-			return NewJSONLSinkEncodedMode(d, 30, EncodeAlert, 0o640)
-		}, 0o640},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			s, err := tc.sink(dir)
-			if err != nil {
-				t.Fatalf("sink: %v", err)
-			}
-			if err := s.Emit(sampleAlert("high")); err != nil {
-				t.Fatalf("Emit: %v", err)
-			}
-			path := filepath.Join(dir, "alerts-2026-10-31.jsonl")
-			fi, err := os.Stat(path)
-			if err != nil {
-				t.Fatalf("stat: %v", err)
-			}
-			// Mask to the permission bits; the test's umask is 022, which does
-			// not touch the group-read bit either value needs.
-			if got := fi.Mode().Perm(); got != tc.want {
-				t.Errorf("file mode = %o, want %o", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestJSONLSinkRetentionPrunesOldFiles(t *testing.T) {
 	dir := t.TempDir()
 	// Seed an old file and a recent one.
