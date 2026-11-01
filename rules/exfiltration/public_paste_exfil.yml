@@ -1,0 +1,56 @@
+title: Exfiltration to a public paste or webhook service
+id: 0a7d3e68-4c21-4b90-9e15-8f2a6c0d4b73
+status: experimental
+description: >
+  A command-line HTTP client (curl/wget/httpie) posted to a public file-drop, paste or chat-webhook
+  service - Discord/Slack/Telegram webhooks, file.io, transfer.sh, 0x0.st, pastebin, gofile and the
+  like. These services need no attacker infrastructure and blend into ordinary web traffic, so they
+  are a favourite channel for exfiltrating staged loot (MITRE T1567.004 / T1048.002). Posting a file
+  to one of these from a server or agent account is the signal; an ordinary fetch from a package
+  mirror or an API is not matched.
+references:
+  - https://attack.mitre.org/techniques/T1567/004/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.exfiltration
+  - attack.t1567.004
+  - attack.t1048.002
+detection:
+  http_client:
+    Image|endswith:
+      - /curl
+      - /wget
+      - /http
+      - /httpie
+  paste_host:
+    CommandLine|contains:
+      - discord.com/api/webhooks
+      - discordapp.com/api/webhooks
+      - hooks.slack.com
+      - api.telegram.org/bot
+      - file.io
+      - transfer.sh
+      - 0x0.st
+      - termbin.com
+      - pastebin.com
+      - paste.ee
+      - ix.io
+      - oshi.at
+      - anonfiles
+      - gofile.io
+      - ufile.io
+      - temp.sh
+      - bashupload.com
+      - controlc.com
+      - dpaste
+      - webhook.site
+      - requestbin
+  condition: http_client and paste_host
+falsepositives:
+  - A developer who legitimately shares a file through one of these services; scope by the account
+    (a server or agent account has no such need). The command line shows the destination.
+level: high

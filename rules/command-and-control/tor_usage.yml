@@ -1,0 +1,40 @@
+title: Tor client started
+id: 4c0f7b26-9e13-4a85-b3d2-6a1e8c5d0f47
+status: experimental
+description: >
+  A program started the Tor client or enabled the tor service (the tor/torify/torsocks binaries, or
+  systemctl/service starting tor). Routing traffic through Tor anonymises an attacker's command and
+  control and defeats egress controls built around known destinations (MITRE T1090.003). A server or
+  an agent account has no legitimate need for Tor, so starting it is a clean signal; tunnel_tool
+  covers the other relays and port-forwards, this covers Tor specifically.
+references:
+  - https://attack.mitre.org/techniques/T1090/003/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.command-and-control
+  - attack.defense-evasion
+  - attack.t1090.003
+detection:
+  tor_bin:
+    Image|endswith:
+      - /tor
+      - /torify
+      - /torsocks
+  tor_service:
+    Image|endswith:
+      - /systemctl
+      - /service
+      - /sysrc
+      - /rc-service
+    CommandLine|re: '\btor\b'
+  tor_action:
+    CommandLine|re: '\b(start|enable|restart|onestart)\b|tor_enable'
+  condition: tor_bin or (tor_service and tor_action)
+falsepositives:
+  - A workstation where the user legitimately runs Tor; scope by the account (a server or agent
+    account has no such need). The command line shows the invocation.
+level: medium

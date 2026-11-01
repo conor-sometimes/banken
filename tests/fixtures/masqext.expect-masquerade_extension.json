@@ -1,0 +1,18 @@
+[
+ {
+  "image": "/run/current-system/sw/bin/sh",
+  "commandLine": "sh /tmp/image.png",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 10080,
+  "ppid": 10000
+ },
+ {
+  "image": "/tmp/report.pdf.sh",
+  "commandLine": "/tmp/report.pdf.sh",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 10081,
+  "ppid": 10000
+ }
+]

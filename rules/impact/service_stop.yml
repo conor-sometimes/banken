@@ -1,0 +1,38 @@
+title: Service stopped or disabled
+id: 9b2e1d7a-6c84-4f1b-ae30-5d7c2f9a0e41
+status: experimental
+description: >
+  A program stopped, disabled, masked or killed a systemd service, or triggered the magic SysRq key.
+  Taking a service down is how an attacker disrupts availability or clears the way before acting
+  (MITRE T1489): stopping cron to kill a defender's scheduled scan, stopping a database or app to
+  force a restart into a tampered config, or SysRq-killing processes. The defense services have
+  their own rules - disable_logging owns the logging stack, tamper_banken owns banken and auditd,
+  disable_firewall the firewall, disable_mac AppArmor/SELinux - so this covers the rest, whatever
+  is being stopped. A `systemctl restart` or `status` is not matched; a stop/disable/mask/kill is.
+references:
+  - https://attack.mitre.org/techniques/T1489/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.impact
+  - attack.t1489
+detection:
+  systemctl:
+    Image|endswith: /systemctl
+    CommandLine|re: '\b(stop|disable|mask|kill)\b'
+  # owned by other rules: do not double-fire on the defense-service stop that
+  # disable_logging / tamper_banken / disable_firewall / disable_mac already catch.
+  defense:
+    CommandLine|re: '\b(banken|auditd|laurel|journald|rsyslog|syslog-ng|syslog|falcon|falcon-sensor|sysmon|auditbeat|filebeat|osqueryd|wazuh|cbdaemon|carbonblack|ufw|firewalld|nftables|iptables|apparmor)\b'
+  # a write to the magic SysRq trigger (tee/dd forms; the pure `echo >` redirect
+  # leaves no exec and is not visible to an exec-based detector).
+  sysrq:
+    CommandLine|contains: /proc/sysrq-trigger
+  condition: (systemctl and not defense) or sysrq
+falsepositives:
+  - An admin stopping a service during maintenance; the command line shows which unit, and stop +
+    disable together are rarely routine. Scope by the account that has no business stopping services.
+level: medium

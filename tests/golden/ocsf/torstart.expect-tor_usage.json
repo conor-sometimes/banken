@@ -1,0 +1,117 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 3,
+  "severity": "Medium",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"tor_usage\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "9d6574e913134247c149573055388597",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "9d6574e913134247c149573055388597",
+    "title": "Tor client started",
+    "desc": "A program started the Tor client or enabled the tor service (the tor/torify/torsocks binaries, or systemctl/service starting tor). Routing traffic through Tor anonymises an attacker's command and control and defeats egress controls built around known destinations (MITRE T1090.003). A server or an agent account has no legitimate need for Tor, so starting it is a clean signal; tunnel_tool covers the other relays and port-forwards, this covers Tor specifically.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "tor_usage",
+      "uid": "4c0f7b26-9e13-4a85-b3d2-6a1e8c5d0f47"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0011",
+          "name": "Command and Control"
+        },
+        "technique": {
+          "uid": "T1090"
+        },
+        "sub_technique": {
+          "uid": "T1090.003"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 10090,
+        "name": "systemctl",
+        "cmd_line": "systemctl start tor",
+        "file": {
+          "name": "systemctl",
+          "path": "/run/current-system/sw/bin/systemctl",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "0"
+        },
+        "parent_process": {
+          "pid": 10000
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "systemctl start tor"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "systemctl"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/run/current-system/sw/bin/systemctl"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/run/current-system/sw/bin/systemctl\",\"commandLine\":\"systemctl start tor\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"0\",\"currentDirectory\":\"\",\"pid\":10090,\"ppid\":10000}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "tor_usage",
+    "source": "laurel"
+  }
+}

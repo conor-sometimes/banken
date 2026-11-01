@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/run/current-system/sw/bin/systemctl",
+  "commandLine": "systemctl start tor",
+  "source": "laurel",
+  "user": "0",
+  "pid": 10090,
+  "ppid": 10000
+ }
+]

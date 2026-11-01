@@ -1,0 +1,45 @@
+title: Root CA certificate installed
+id: 5e8d2a60-4f19-4c73-b6a1-7c0e3d9b85f4
+status: experimental
+description: >
+  A program dropped a certificate into the system trust store (ca-trust anchors, ca-certificates)
+  or ran the tool that rebuilds it (update-ca-trust, update-ca-certificates, certctl, trust). A new
+  root CA in the system store makes the host trust any certificate the attacker signs, which is how
+  TLS interception and traffic subversion are set up (MITRE T1553.004). Installing a trusted root is
+  a rare, high-privilege act outside of provisioning, so on a running host it is a clean alarm.
+references:
+  - https://attack.mitre.org/techniques/T1553/004/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1553.004
+detection:
+  copy_to_trust:
+    Image|endswith:
+      - /cp
+      - /mv
+      - /tee
+      - /install
+      - /dd
+    CommandLine|contains:
+      - /etc/pki/ca-trust/source/anchors
+      - /usr/local/share/ca-certificates
+      - /usr/share/ca-certificates
+      - /etc/ca-certificates/trust-source/anchors
+      - /usr/local/share/certs
+      - /etc/ssl/certs
+  trust_update:
+    Image|endswith:
+      - /update-ca-trust
+      - /update-ca-certificates
+      - /certctl
+      - /trust
+  condition: copy_to_trust or trust_update
+falsepositives:
+  - A provisioning or config-management step that installs an organisation's internal CA; expected
+    on a build or image, a clear signal on a running workload. The command line shows the file.
+level: high
