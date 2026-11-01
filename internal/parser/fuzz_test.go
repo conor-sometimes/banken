@@ -118,6 +118,37 @@ func FuzzParseMimi(f *testing.F) {
 	})
 }
 
+// FuzzParseGeneric fuzzes the universal adapter (one pre-normalised event.Event JSON per line).
+// It cannot use checkParser's source invariant: Generic deliberately preserves a line's own
+// `source` (it is the adapter for external collectors that self-identify). So it holds the two
+// invariants that still must apply to untrusted JSON: never panic, and normalise deterministically.
+func FuzzParseGeneric(f *testing.F) {
+	for _, s := range []string{
+		"",
+		"{}",
+		"null",
+		`{"image":"/bin/x","commandLine":"x","source":"falco"}`,
+		`{"pid":-1,"ppid":999999999999,"raw":{"a":"b"}}`,
+		`{"time":"not-a-time"}`, // a bad time makes json.Unmarshal fail -> the line is skipped
+		`{"time":"2026-01-02T03:04:05Z","image":"/x"}`,
+		"not json at all",
+		string([]byte{'{', '"', 0, 255, '"', ':', '1', '}'}),
+	} {
+		f.Add(s)
+	}
+	p := Generic{}
+	f.Fuzz(func(t *testing.T, data string) {
+		evs, err := p.Parse(strings.NewReader(data))
+		if err != nil {
+			t.Fatalf("Generic.Parse returned an error on in-memory input: %v", err)
+		}
+		evs2, _ := p.Parse(strings.NewReader(data))
+		if !reflect.DeepEqual(evs, evs2) {
+			t.Fatalf("Generic.Parse is not deterministic for %q", data)
+		}
+	})
+}
+
 // checkParser runs the never-panic / deterministic / correct-source
 // invariants shared by both real parsers.
 func checkParser(t *testing.T, p Parser, data string) {
