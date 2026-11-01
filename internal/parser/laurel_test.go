@@ -15,8 +15,8 @@ func TestLaurelParse(t *testing.T) {
 	}{
 		{
 			// An exec's PATH entries are the program being loaded: no target.
-			name:  "exec with ARGV, CWD, UID translation, PPID; PATH is the program, not a target",
-			input: `{"ID":"1626611363.720:348","SYSCALL":{"exe":"/usr/bin/cat","uid":"0","ppid":"1200"},"EXECVE":{"argc":"2","ARGV":["cat","/etc/shadow"]},"CWD":{"cwd":"/root"},"PATH":[{"name":"/usr/bin/cat","nametype":"NORMAL"}],"PPID":{"exe":"/usr/bin/bash"},"UID":{"0":"root"}}`,
+			name:  "exec with ARGV, CWD, SYSCALL.UID name + SYSCALL.PPID; PATH is the program, not a target",
+			input: `{"ID":"1626611363.720:348","SYSCALL":{"exe":"/usr/bin/cat","uid":0,"ppid":1200,"UID":"root","PPID":{"comm":"bash","exe":"/usr/bin/bash"}},"EXECVE":{"argc":2,"ARGV":["cat","/etc/shadow"]},"CWD":{"cwd":"/root"},"PATH":[{"name":"/usr/bin/cat","nametype":"NORMAL"}]}`,
 			want: []event.Event{{
 				Source:           "laurel",
 				Time:             time.Unix(1626611363, 720*int64(time.Millisecond)).UTC(),
@@ -31,7 +31,7 @@ func TestLaurelParse(t *testing.T) {
 		{
 			// The watched read itself (no EXECVE), by NixOS's multicall coreutils.
 			name:  "watched read: target from PATH, multicall Image resolved by argv[0]",
-			input: `{"ID":"1626611363.721:349","SYSCALL":{"exe":"/nix/store/x-coreutils-9.11/bin/coreutils","uid":"0","pid":"1234"},"PATH":[{"name":"/etc/shadow","nametype":"NORMAL"}],"PROCTITLE":{"ARGV_STR":"cat /etc/shadow"},"UID":{"0":"root"}}`,
+			input: `{"ID":"1626611363.721:349","SYSCALL":{"exe":"/nix/store/x-coreutils-9.11/bin/coreutils","uid":0,"pid":1234,"UID":"root"},"PATH":[{"name":"/etc/shadow","nametype":"NORMAL"}],"PROCTITLE":{"ARGV_STR":"cat /etc/shadow"}}`,
 			want: []event.Event{{
 				Source:         "laurel",
 				Time:           time.Unix(1626611363, 721*int64(time.Millisecond)).UTC(),

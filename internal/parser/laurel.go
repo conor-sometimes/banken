@@ -18,16 +18,18 @@ const laurelName = "laurel"
 // parser decodes every field defensively and skips a line it cannot read
 // rather than failing the batch.
 //
-// Laurel's shape (the fields banken reads):
+// Laurel's shape (the fields banken reads). The id-to-name translations and the
+// enriched parent live INSIDE the SYSCALL record -- SYSCALL.UID is the resolved
+// login name (a string), SYSCALL.PPID the enriched parent -- not at the top
+// level (captured from real Laurel output, 2026-11-01):
 //
 //	{"ID":"1626611363.720:348",
-//	 "SYSCALL":{"exe":"/usr/bin/cat","uid":"0","ppid":"1234", ...},
-//	 "EXECVE":{"argc":"2","ARGV":["cat","/etc/shadow"]},
+//	 "SYSCALL":{"exe":"/usr/bin/cat","uid":0,"ppid":1234,
+//	            "UID":"root","PPID":{"comm":"bash","exe":"/usr/bin/bash"}, ...},
+//	 "EXECVE":{"argc":2,"ARGV":["cat","/etc/shadow"],"ARGV_STR":"cat /etc/shadow"},
 //	 "CWD":{"cwd":"/home/user"},
 //	 "PATH":[{"name":"/etc/shadow","nametype":"NORMAL"}],
-//	 "PROCTITLE":{"ARGV_STR":"cat /etc/shadow"},
-//	 "PPID":{"exe":"/usr/bin/bash"},
-//	 "UID":{"0":"root"}}
+//	 "PROCTITLE":{"ARGV":["cat","/etc/shadow"]}}
 //
 // Every one of those keys is optional and every type is checked, so a line
 // missing or mistyping any of them still yields whatever else it carried.
@@ -64,16 +66,18 @@ func laurelEvent(obj map[string]json.RawMessage) event.Event {
 	ev.PPID, _ = strconv.Atoi(rawString(syscall["ppid"]))
 	ev.CurrentDirectory = rawString(rawObject(obj["CWD"])["cwd"])
 
-	// User: translate the numeric uid through Laurel's UID map when
-	// present, else fall back to the numeric value.
-	uid := rawString(syscall["uid"])
-	ev.User = uid
-	if name := rawString(rawObject(obj["UID"])[uid]); name != "" {
+	// User: Laurel resolves the numeric uid to a login name inside the SYSCALL
+	// record (SYSCALL.UID, a plain string), so prefer that; fall back to the
+	// numeric uid when the name is absent. The account-scoped rules match the
+	// name, so reading this from the right place is what makes them fire.
+	ev.User = rawString(syscall["uid"])
+	if name := rawString(syscall["UID"]); name != "" {
 		ev.User = name
 	}
 
-	// Parent image, when Laurel enriched PPID with it.
-	ev.ParentImage = rawString(rawObject(obj["PPID"])["exe"])
+	// Parent image: Laurel enriches the parent inside the SYSCALL record
+	// (SYSCALL.PPID.exe), not at the top level.
+	ev.ParentImage = rawString(rawObject(syscall["PPID"])["exe"])
 
 	// Command line: decoded EXECVE argv first, then proctitle.
 	ev.CommandLine = laurelCommandLine(obj)

