@@ -23,6 +23,35 @@ user — if it does something a rule flags, banken alerts. (The
 [agent containment](https://github.com/conor-sometimes/nixos-agent-containment) is one consumer: it
 adds its own tighter agent-specific rules on top.)
 
+## How it works
+
+Logs in, alerts out — one pass, no state beyond a cursor:
+
+```
+   log source                                rules + indicators
+ auditd · Laurel · stdin                 Sigma .yml · ioc/*.txt (embedded + on disk)
+        │                                            │
+        ▼                                            ▼
+     parser  ──►  normalised Event  ──►  ┌──────────────────────────────┐
+ (per source type)  Image, CommandLine,  │  engine                      │
+                    User, PID, PPID, …    │  Aho-Corasick literal        │
+                                          │  prefilter ─► Sigma match    │
+                                          │  + IOC lookup                │
+                                          └───────────────┬──────────────┘
+                                                          ▼
+                                                       Alert
+                                                          │
+         ┌────────────────────────────────────────────────┼───────────────────────────────┐
+         ▼                                                ▼                                 ▼
+   journal sink                                      jsonl sink                        webhook sink
+ (high/critical to                              (OCSF 1.3.0 Detection           (Slack · Discord · ntfy
+  the system journal)                            Findings, one file/day)          · OCSF; URL from a file)
+```
+
+The prefilter can only over-admit, never miss (a fuzz target proves it agrees with checking every
+rule), so it is a speed-up with no detection cost. A systemd timer drives the pass; `--watch` self-
+times instead. See [docs/architecture.md](docs/architecture.md) for the detail.
+
 ## Supported platforms
 
 **Linux with systemd** (banken's security model is its systemd sandbox; see
