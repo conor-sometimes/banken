@@ -310,7 +310,8 @@ bar is "a malformed input or a hostile rule can degrade a detection, never crash
   (`benchstat`) for the matcher and parsers, and `just bench-e2e` (`hyperfine`) for a full binary
   scan over a large synthetic log. See [Performance](#performance).
 - **CI** (`.github/workflows`) runs `go test -race`, `go vet`, `staticcheck`, `golangci-lint`,
-  `errcheck`, `gosec`, `govulncheck`, a short fuzz smoke and the benchmarks on every push, and
+  `errcheck`, `gosec`, `govulncheck`, a short fuzz smoke and the benchmarks on every push, a
+  **nightly fuzz campaign** (5 min/target, corpus cached between runs), and
   validates the OCSF goldens against the official schema (`just ocsf-validate`). The VM test needs
   KVM and runs on the project's build host (`nix flake check`).
 
