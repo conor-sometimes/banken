@@ -241,3 +241,15 @@ sigma-rules:
 	set -euo pipefail
 	dir=output/sigma-{{sigma_release}}
 	[ -d "$dir" ] || git clone -q --depth 1 --branch {{sigma_release}} https://github.com/SigmaHQ/sigma "$dir"
+
+# SBOM: a CycloneDX Software Bill of Materials for the banken binary -- every
+# module that goes into it, machine-readable, so a consumer can answer "am I
+# affected?" when a CVE lands (the log4j lesson, as an artifact). CI uploads it
+# on every push; a release attaches it. The tool is pinned, like the linters,
+# and never touches go.mod.
+sbom_tool := "github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.12.0"
+
+sbom:
+    mkdir -p output
+    go run {{sbom_tool}} app -json -licenses -output output/banken.cdx.json .
+    @echo "wrote output/banken.cdx.json"

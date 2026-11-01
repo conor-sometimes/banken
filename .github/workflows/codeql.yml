@@ -19,6 +19,11 @@ permissions:
 
 jobs:
   analyze:
+    # Code scanning (the Security-tab upload) is free on public repos and needs
+    # GitHub Advanced Security on private ones. banken is private for now, so
+    # this skips (grey, not a red failure) and lights up automatically the day
+    # the repo goes public -- no change needed at release.
+    if: ${{ github.event.repository.private == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
