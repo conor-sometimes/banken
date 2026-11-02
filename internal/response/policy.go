@@ -100,12 +100,23 @@ var reversibleActions = map[Action]bool{
 }
 
 // builtinNeverTouchPrefixes are paths a quarantine allowPath may never lie
-// under. Mirrors the executor-side check; evaluated here so a bad policy
-// fails at load, not at the first alert.
+// under, and the single source of that list for the whole subsystem (the
+// executor calls UnderNeverTouch rather than keeping its own copy). Evaluated
+// at policy load so a bad policy fails there, not at the first alert.
+//
+// /dev is here so the intent -- never act on a device node -- lives in the
+// list, not in a downstream S_IFREG check (Q14). /dev/shm is a tmpfs scratch
+// area and a legitimate allowPath, so it is carved out in UnderNeverTouch.
 var builtinNeverTouchPrefixes = []string{
 	"/nix/store", "/usr", "/bin", "/sbin", "/lib", "/lib64",
-	"/etc", "/boot", "/proc", "/sys", "/run",
+	"/etc", "/boot", "/proc", "/sys", "/run", "/dev",
 }
+
+// devShmCarveOut is the one path under a never-touch prefix (/dev) that is
+// still actionable: the /dev/shm tmpfs. It is an exact prefix-with-boundary,
+// so /dev/shm and /dev/shm/x are carved out while /dev/shmx and /dev/shma are
+// not (they remain under never-touch /dev).
+const devShmCarveOut = "/dev/shm"
 
 // ParsePolicy decodes the bare response-policy YAML block, applies defaults
 // and validates it. An unknown field is a load error (strict decoding), as
@@ -186,7 +197,7 @@ func (p Policy) validate() error {
 		if !filepath.IsAbs(ap) {
 			return fmt.Errorf("response: quarantine.allowPaths entry %q is not absolute", ap)
 		}
-		if pfx, bad := underNeverTouch(ap); bad {
+		if pfx, bad := UnderNeverTouch(ap); bad {
 			return fmt.Errorf("response: quarantine.allowPaths entry %q lies under never-touch prefix %q", ap, pfx)
 		}
 	}
@@ -239,8 +250,16 @@ func (p Policy) validate() error {
 	return nil
 }
 
-func underNeverTouch(path string) (string, bool) {
+// UnderNeverTouch reports whether path lies on a built-in never-touch prefix,
+// returning the matched prefix. It is the one definition the decision layer,
+// the policy validator and the executor all share. The /dev/shm carve-out is
+// evaluated first so a path under it is never treated as never-touch, with an
+// exact boundary so /dev/shmx stays under never-touch /dev.
+func UnderNeverTouch(path string) (string, bool) {
 	clean := filepath.Clean(path)
+	if clean == devShmCarveOut || strings.HasPrefix(clean, devShmCarveOut+"/") {
+		return "", false
+	}
 	for _, pfx := range builtinNeverTouchPrefixes {
 		if clean == pfx || strings.HasPrefix(clean, pfx+"/") {
 			return pfx, true

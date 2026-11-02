@@ -357,6 +357,27 @@ func TestQuarantineRefusesNeverTouch(t *testing.T) {
 	}
 }
 
+// TestQuarantineRefusesDevNode proves a device node is refused BY INTENT -- the
+// never-touch prefix check (/dev) -- and not as an accident of the later
+// S_IFREG regular-file test. allowPaths is set to /dev so that, were never-touch
+// not firing first, the path would pass the allowPaths rail and be refused only
+// by S_IFREG with ErrStaleTarget; getting ErrDenied naming never-touch instead
+// is the proof the intent is in the list (Q14). No root needed: the refusal is
+// a pure path check before any open/fstat.
+func TestQuarantineRefusesDevNode(t *testing.T) {
+	e, _ := New(Config{Enforce: true, QuarantineAllowPaths: []string{"/dev"}})
+	_, err := e.Quarantine(context.Background(), response.FileRef{Path: "/dev/null"})
+	if !errors.Is(err, ErrDenied) {
+		t.Fatalf("Quarantine /dev/null = %v, want ErrDenied (never-touch)", err)
+	}
+	if errors.Is(err, ErrStaleTarget) {
+		t.Fatalf("Quarantine /dev/null refused by S_IFREG (ErrStaleTarget), want never-touch: %v", err)
+	}
+	if !strings.Contains(err.Error(), "never-touch") {
+		t.Fatalf("Quarantine /dev/null error %q does not name never-touch", err)
+	}
+}
+
 // TestCollectSelf collects evidence for the test's own process (self-owned).
 // The ProcessRef names the test binary's own exe so the §5.1 identity bind
 // (now run by Collect too) succeeds.
@@ -724,8 +745,8 @@ func TestUnderTrustedExePrefix(t *testing.T) {
 		"/run/user/1100/sshd":            false,
 	}
 	for p, want := range cases {
-		if got := underTrustedExePrefix(p); got != want {
-			t.Errorf("underTrustedExePrefix(%q) = %v, want %v", p, got, want)
+		if got := response.UnderTrustedExePrefix(p); got != want {
+			t.Errorf("UnderTrustedExePrefix(%q) = %v, want %v", p, got, want)
 		}
 	}
 }

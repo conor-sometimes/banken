@@ -27,6 +27,12 @@ var builtinDenyNames = map[string]bool{
 	"agetty":           true,
 }
 
+// BuiltinDenyName reports whether a process basename is on the built-in
+// never-act list. It is the one accessor over builtinDenyNames the whole
+// subsystem shares, so the executor's live re-check uses the same list this
+// layer decides against (no second copy to drift).
+func BuiltinDenyName(name string) bool { return builtinDenyNames[name] }
+
 // Decide is pure and deterministic: same Input, same Decision, with no clock,
 // no filesystem and no /proc read. It never returns an error -- a malformed
 // input is a decision of none with a rail and a reason, because a response
@@ -161,10 +167,10 @@ func targetable(p Policy, e Entry, t Target) (Rail, string) {
 			return RailUntargetable, "no file path on the event for quarantine"
 		}
 		path := t.File.Path
-		if pfx, bad := underNeverTouch(path); bad {
+		if pfx, bad := UnderNeverTouch(path); bad {
 			return RailUntargetable, fmt.Sprintf("path %q is under never-touch prefix %q", path, pfx)
 		}
-		if !underAllowPaths(p.Quarantine.AllowPaths, path) {
+		if !UnderAllowPaths(p.Quarantine.AllowPaths, path) {
 			return RailUntargetable, fmt.Sprintf("path %q is not under quarantine.allowPaths", path)
 		}
 	}
@@ -185,7 +191,7 @@ func denylisted(in Input, pr *ProcessRef) (Rail, string) {
 	// process, and must stay actionable -- shielding it by name would let any
 	// attacker make malware un-killable just by naming it `sshd` (F2). The
 	// executor re-checks this against the LIVE exe realpath before acting.
-	if builtinDenyNames[filepath.Base(pr.Image)] && underTrustedExePrefix(pr.Image) {
+	if BuiltinDenyName(filepath.Base(pr.Image)) && UnderTrustedExePrefix(pr.Image) {
 		return RailDenylist, fmt.Sprintf("image %q is a built-in protected process", pr.Image)
 	}
 	if in.Self.Exe != "" && pr.Image == in.Self.Exe {
@@ -259,7 +265,9 @@ func describeTarget(t Target) string {
 	return "nothing"
 }
 
-func underAllowPaths(allow []string, path string) bool {
+// UnderAllowPaths reports whether path lies on one of the allow prefixes
+// (exact prefix-with-boundary). Shared by the decision layer and the executor.
+func UnderAllowPaths(allow []string, path string) bool {
 	clean := filepath.Clean(path)
 	for _, a := range allow {
 		a = filepath.Clean(a)
@@ -284,7 +292,10 @@ var trustedExePrefixes = []string{
 	"/run/wrappers/bin",
 }
 
-func underTrustedExePrefix(path string) bool {
+// UnderTrustedExePrefix reports whether an on-disk exe path lives under a
+// location a genuine system binary would. Shared by the decision layer and the
+// executor's live F2 re-check so both judge a masquerade against one list.
+func UnderTrustedExePrefix(path string) bool {
 	clean := filepath.Clean(path)
 	for _, pfx := range trustedExePrefixes {
 		if clean == pfx || strings.HasPrefix(clean, pfx+"/") {
@@ -298,7 +309,7 @@ func underTrustedExePrefix(path string) bool {
 // runs from an untrusted path: a cloak (T1036.005), seen through and left
 // actionable.
 func isMasquerade(pr *ProcessRef) bool {
-	return builtinDenyNames[filepath.Base(pr.Image)] && !underTrustedExePrefix(pr.Image)
+	return BuiltinDenyName(filepath.Base(pr.Image)) && !UnderTrustedExePrefix(pr.Image)
 }
 
 func isRoot(user string) bool { return user == "root" || user == "0" }

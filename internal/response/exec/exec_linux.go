@@ -41,18 +41,11 @@ const (
 	oPath           = 0x200000 // O_PATH (not in std syscall); 0x200000 on amd64/arm64
 )
 
-// builtinDenyNames mirrors the decision layer's list for the executor-side
-// live re-check (names drift, so this is belt and braces with the pid check).
-var builtinDenyNames = map[string]bool{
-	"systemd": true, "init": true, "sshd": true, "sshd-session": true,
-	"auditd": true, "laurel": true, "systemd-journald": true,
-	"dbus-daemon": true, "dbus-broker": true, "login": true, "agetty": true,
-}
-
-var builtinNeverTouchPrefixes = []string{
-	"/nix/store", "/usr", "/bin", "/sbin", "/lib", "/lib64",
-	"/etc", "/boot", "/proc", "/sys", "/run",
-}
+// The executor-side safety rails re-check the LIVE target (defence in depth),
+// but the LISTS they check against are defined once in internal/response and
+// reached through response.BuiltinDenyName, response.UnderNeverTouch,
+// response.UnderAllowPaths and response.UnderTrustedExePrefix -- no second copy
+// here to drift from the decision layer (M7).
 
 type linuxExecutor struct{ cfg Config }
 
@@ -119,8 +112,8 @@ func (e *linuxExecutor) identify(p response.ProcessRef) (int, Live, error) {
 	// malware un-killable just by naming it `sshd`.
 	realExe := strings.TrimSuffix(exe, " (deleted)")
 	cgProtected := cgroupProtectedUnit(cg)
-	if builtinDenyNames[filepath.Base(realExe)] {
-		if underTrustedExePrefix(realExe) || cgProtected {
+	if response.BuiltinDenyName(filepath.Base(realExe)) {
+		if response.UnderTrustedExePrefix(realExe) || cgProtected {
 			_ = syscall.Close(pidfd)
 			return -1, live, fmt.Errorf("%w: live exe %q is a protected system process", ErrDenied, exe)
 		}
@@ -383,10 +376,10 @@ type quarantineManifest struct {
 
 func (e *linuxExecutor) Quarantine(_ context.Context, f response.FileRef) (Handle, error) {
 	path := filepath.Clean(f.Path)
-	if pfx, bad := underNeverTouch(path); bad {
+	if pfx, bad := response.UnderNeverTouch(path); bad {
 		return Handle{}, fmt.Errorf("%w: %q under never-touch %q", ErrDenied, path, pfx)
 	}
-	if !underAllowPaths(e.cfg.QuarantineAllowPaths, path) {
+	if !response.UnderAllowPaths(e.cfg.QuarantineAllowPaths, path) {
 		return Handle{}, fmt.Errorf("%w: %q not under quarantine allowPaths", ErrDenied, path)
 	}
 
@@ -737,29 +730,6 @@ var readUID = func(pid int) (int, error) {
 	return -1, errors.New("no Uid line in /proc status")
 }
 
-// trustedExePrefixes are the on-disk locations a genuine system binary lives
-// under. A process earns name-based built-in protection only if its LIVE exe
-// realpath is under one of these; a protected name anywhere else is a
-// masquerade (F2). Mirrors the decision layer's list.
-var trustedExePrefixes = []string{
-	"/nix/store",
-	"/usr",
-	"/bin",
-	"/sbin",
-	"/run/current-system/sw/bin",
-	"/run/wrappers/bin",
-}
-
-func underTrustedExePrefix(path string) bool {
-	clean := filepath.Clean(path)
-	for _, pfx := range trustedExePrefixes {
-		if clean == pfx || strings.HasPrefix(clean, pfx+"/") {
-			return true
-		}
-	}
-	return false
-}
-
 // cgroupProtectedUnit reports whether a cgroup v2 path is a protected system
 // unit: pid 1's init.scope, or a .service/.scope whose unit name (sans suffix)
 // is one of the built-in protected names (sshd.service, auditd.service, ...).
@@ -778,7 +748,7 @@ func cgroupProtectedUnit(cg string) bool {
 	for _, suf := range []string{".service", ".scope", ".slice"} {
 		name = strings.TrimSuffix(name, suf)
 	}
-	return builtinDenyNames[name]
+	return response.BuiltinDenyName(name)
 }
 
 // statFields returns the fields of /proc/<pid>/stat after the comm field,
@@ -916,25 +886,4 @@ func newHandleID() string {
 	}
 	_, _ = rand.Read(b[8:])
 	return hex.EncodeToString(b[:])
-}
-
-func underNeverTouch(path string) (string, bool) {
-	clean := filepath.Clean(path)
-	for _, pfx := range builtinNeverTouchPrefixes {
-		if clean == pfx || strings.HasPrefix(clean, pfx+"/") {
-			return pfx, true
-		}
-	}
-	return "", false
-}
-
-func underAllowPaths(allow []string, path string) bool {
-	clean := filepath.Clean(path)
-	for _, a := range allow {
-		a = filepath.Clean(a)
-		if clean == a || strings.HasPrefix(clean, a+"/") {
-			return true
-		}
-	}
-	return false
 }
