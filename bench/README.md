@@ -27,6 +27,30 @@ inside [`tests/bench.nix`](../tests/bench.nix) on a quiet pinned VM, scheduled b
 the manager after a rebuild -- they need a 24h window, a reboot, the live mimi
 sensor, a fork bomb or a competitor install.
 
+## Per-commit history (`history.ndjson`)
+
+`baseline.txt` is the benchstat reference for a delta; `history.ndjson` is the longitudinal log,
+one JSON line per measured commit, so performance is a time series across commits. Produced by
+`bench/cmd/benchhist` from `go test -bench -benchmem` output:
+
+```
+{"commit":"<sha>","date":"<RFC 3339 UTC>","goos":"linux","goarch":"amd64","cpu":"<model>",
+ "count":6,"binaryBytes":7438498,
+ "benchmarks":{"internal/sigma.BenchmarkMatcher1000":{"ns/op":1700,"B/op":364,"allocs/op":4}, ...}}
+```
+
+Each benchmark is the MEDIAN of its `count` repetitions per unit. `binaryBytes` is the stripped
+release binary (`just build`). A `-dirty` commit suffix means the tree had uncommitted changes.
+Rows are only comparable within the same `goos`/`goarch`/`cpu`, exactly as for `baseline.txt`;
+a shared CI runner row and a hokkaido row are different series.
+
+- `just bench-history` runs the benchmarks and appends a line for the current commit. Commit the
+  result from a machine you trust (hokkaido). The first line is the seed: measured on hokkaido
+  (AMD Ryzen 5 3400G, linux/amd64) on 2026-11-02 at 856c896, before this tooling landed (the
+  tooling does not touch product code, so the numbers are that commit's).
+- The CI `bench` job appends the same line on every push/PR and uploads the file in the
+  `benchmarks` artifact (CI does not commit back to the repo).
+
 ## Method (what makes the numbers credible)
 
 - Hardware and kernel are pinned per run in the `host` block of every JSON file
