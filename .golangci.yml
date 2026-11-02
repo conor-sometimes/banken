@@ -51,3 +51,11 @@ linters:
       - path: internal/alert/ecs\.go$
         linters:
           - tagliatelle
+      # The threat-intel parsers spell the STIX 2.1, TAXII 2.1 and MISP wire
+      # formats, whose JSON keys are snake_case (pattern_type, to_ids) and
+      # PascalCase (Event, Attribute, Object) by their own specifications. Like
+      # the OCSF and ECS mappers above, these files decode someone else's
+      # schema, so they are exempt from banken's camelCase tag convention.
+      - path: internal/intel/(stix|misp|taxii)\.go$
+        linters:
+          - tagliatelle

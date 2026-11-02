@@ -12,8 +12,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +27,7 @@ import (
 	"github.com/conor-sometimes/banken/internal/config"
 	"github.com/conor-sometimes/banken/internal/engine"
 	"github.com/conor-sometimes/banken/internal/event"
+	"github.com/conor-sometimes/banken/internal/intel"
 	"github.com/conor-sometimes/banken/internal/ioc"
 	"github.com/conor-sometimes/banken/internal/parser"
 	"github.com/conor-sometimes/banken/internal/sigma"
@@ -177,6 +180,17 @@ func run(args []string, stdout, stderr io.Writer) error {
 	iocSet, err := loadIOCs(cfg.Rules)
 	if err != nil {
 		return fmt.Errorf("loading IOCs: %w", err)
+	}
+
+	// Threat-intel feeds (STIX/MISP files, TAXII collections) normalise into the
+	// same set as the flat rules/ioc lists. A feed that fails loads nothing and
+	// is warned about; the run goes on with whatever loaded (never-die).
+	added, iprobs := loadIntel(cfg.Intel, iocSet)
+	for _, p := range iprobs {
+		logAt(stderr, levelWarning, "banken: intel feed: %v", p)
+	}
+	if added > 0 {
+		logAt(stderr, levelInfo, "banken: %d indicator(s) ingested from %d threat-intel feed(s)", added, len(cfg.Intel))
 	}
 
 	sinks, err := buildSinks(cfg, stderr)
@@ -480,6 +494,95 @@ func loadIOCs(dirs []string) (*ioc.Set, error) {
 		return nil, err
 	}
 	return set, nil
+}
+
+// loadIntel ingests every configured threat-intel feed into the IOC set and
+// returns how many indicators were added and a problem per feed that failed.
+// Each feed is independent: a parse error or a failed poll yields a problem and
+// is skipped, never aborting the others or the run. STIX/MISP file feeds are
+// read from disk; a TAXII feed is polled under a timeout so a hung server
+// cannot stall startup forever.
+func loadIntel(feeds []config.IntelFeed, set *ioc.Set) (added int, problems []error) {
+	for _, feed := range feeds {
+		inds, err := ingestFeed(feed)
+		if err != nil {
+			problems = append(problems, err)
+			continue
+		}
+		added += intel.AddToSet(set, inds)
+	}
+	return added, problems
+}
+
+// ingestFeed loads one feed's indicators. The feed type selects the path; an
+// unknown type is a problem, not a silent skip.
+func ingestFeed(feed config.IntelFeed) ([]intel.Indicator, error) {
+	name := intelFeedName(feed)
+	switch strings.ToLower(strings.TrimSpace(feed.Type)) {
+	case intel.FormatSTIX, intel.FormatMISP:
+		if feed.Path == "" {
+			return nil, fmt.Errorf("%s feed %q: no path", feed.Type, name)
+		}
+		f, err := os.Open(feed.Path) //nolint:gosec // operator-supplied feed path
+		if err != nil {
+			return nil, fmt.Errorf("feed %q: %w", name, err)
+		}
+		defer func() { _ = f.Close() }()
+		inds, err := intel.ParseReader(feed.Type, f, name)
+		if err != nil {
+			return nil, fmt.Errorf("feed %q: %w", name, err)
+		}
+		return inds, nil
+	case "taxii":
+		return pollTAXII(feed, name)
+	default:
+		return nil, fmt.Errorf("feed %q: unknown type %q (want stix, misp or taxii)", name, feed.Type)
+	}
+}
+
+// pollTAXII builds the client (reading a bearer token from TokenFile if set, so
+// the secret never lives inline in the config) and polls the collection under a
+// timeout.
+func pollTAXII(feed config.IntelFeed, name string) ([]intel.Indicator, error) {
+	if feed.URL == "" || feed.Collection == "" {
+		return nil, fmt.Errorf("taxii feed %q: url and collection are required", name)
+	}
+	c := &intel.TAXIIClient{
+		BaseURL:    feed.URL,
+		Source:     name,
+		Username:   feed.Username,
+		Password:   feed.Password,
+		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+	}
+	if feed.TokenFile != "" {
+		b, err := os.ReadFile(feed.TokenFile) //nolint:gosec // operator-supplied credential path
+		if err != nil {
+			return nil, fmt.Errorf("taxii feed %q: token file: %w", name, err)
+		}
+		c.Token = strings.TrimSpace(string(b))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	inds, err := c.PollCollection(ctx, feed.Collection)
+	if err != nil {
+		return nil, fmt.Errorf("feed %q: %w", name, err)
+	}
+	return inds, nil
+}
+
+// intelFeedName is the label an intel feed's indicators carry on alerts: the
+// configured Name, else the file base name, else the feed type.
+func intelFeedName(feed config.IntelFeed) string {
+	if n := strings.TrimSpace(feed.Name); n != "" {
+		return n
+	}
+	if feed.Path != "" {
+		return filepath.Base(feed.Path)
+	}
+	if feed.Collection != "" {
+		return "taxii:" + feed.Collection
+	}
+	return strings.TrimSpace(feed.Type)
 }
 
 // existingDirs keeps only the paths that exist and are directories, so a

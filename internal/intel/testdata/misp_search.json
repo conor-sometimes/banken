@@ -1,0 +1,30 @@
+{
+  "response": {
+    "Attribute": [
+      {
+        "type": "ip-dst|port",
+        "category": "Network activity",
+        "value": "198.51.100.88|4444",
+        "to_ids": true
+      },
+      {
+        "type": "filename|sha1",
+        "category": "Payload delivery",
+        "value": "svc-helper|da39a3ee5e6b4b0d3255bfef95601890afd80709",
+        "to_ids": true
+      },
+      {
+        "type": "hostname",
+        "category": "Network activity",
+        "value": "c2.search.example",
+        "to_ids": true
+      },
+      {
+        "type": "mutex",
+        "category": "Artifacts dropped",
+        "value": "Global\\EvilMutex",
+        "to_ids": true
+      }
+    ]
+  }
+}
