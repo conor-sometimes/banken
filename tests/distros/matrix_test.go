@@ -174,6 +174,12 @@ func writeSeed(t *testing.T, dir string, d distro, expected map[string][]string)
 			copyFile(t, b, filepath.Join(root, "mimi-bundle", filepath.Base(b)))
 		}
 	}
+	// Test S (banken + Sysmon-for-Linux, S1-S5): the in-guest driver, present only when the matrix
+	// was built with the sensor payload (default.nix). Absent -> distrocheck sees no sysmoncheck.sh
+	// and skips the S1-S5 objectives, so banken's own banken-raw matrix is unchanged.
+	if _, err := os.Stat(filepath.Join(*payload, "sysmoncheck.sh")); err == nil {
+		copyFile(t, filepath.Join(*payload, "sysmoncheck.sh"), filepath.Join(root, "sysmoncheck.sh"))
+	}
 	cfg, err := json.Marshal(report.Config{
 		Distro: d.Name, PM: d.PM, Packages: d.Packages, Proxy: guestProxy(), Expected: expected,
 	})

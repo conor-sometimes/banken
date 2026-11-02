@@ -77,6 +77,12 @@ subtest. Status as of 2026-11-01.
 | M3 | mimi loads its probe, resolving `task_struct` offsets from THIS kernel's BTF | probe attaches and the OCSF stream starts | built |
 | M4 | mimi captures a real exec into its stream | a canary exec appears in the mimi stream | built |
 | M5 | banken `--watch` on the mimi stream detects a reverse shell | an alert fires with `data_sources=["mimi"]` | built |
+| **S. banken + Sysmon-for-Linux (Microsoft's own binary on this distro)** | | | |
+| S1 | The real `sysmonforlinux` installs from packages.microsoft.com | MS repo added, package installed; distros MS does not serve are skipped (recorded) | built |
+| S2 | Sysmon runs with a minimal ProcessCreate config | `sysmon.service` active after `sysmon -accepteula -i` | built |
+| S3 | banken `--watch` follows the Sysmon source | the daemon is up on the journal-bridged `sysmon` source | built |
+| S4 | Sysmon captures a real reverse-shell-shaped exec | the test user's `/dev/tcp` exec lands in the Sysmon stream | built |
+| S5 | banken detects a reverse shell off the Sysmon source | an alert fires with `data_sources=["sysmon"]` | built |
 
 Recorded per distro (logged, not judged): OS, kernel, systemd version, the LSM and SELinux mode,
 packages the install needed, audit rule count and status, whether the distro ships a
@@ -114,6 +120,27 @@ mimi is built dynamically (a fully static glibc build is not possible with proc-
 one triple), so the bundle ships its interpreter and libraries alongside the binary. The guest
 runs mimi as root, so it has the capabilities and the DAC access the probe needs with no extra
 hardening to work around.
+
+## banken + Sysmon-for-Linux (Test S: S1-S5)
+
+The S objectives prove the other sensor integration: Microsoft's own `sysmonforlinux`, installed
+the REAL way in the guest. [`sysmoncheck.sh`](sysmoncheck.sh) adds Microsoft's package repo
+(`packages.microsoft.com`, reached through the host proxy like every other repo), installs the
+genuine `sysmonforlinux` package, applies a minimal ProcessCreate config, runs Sysmon, triggers a
+reverse-shell-shaped `/dev/tcp` exec as the test user, and checks banken detects a `reverse_shell`
+off the `sysmon` source (`data_sources=["sysmon"]`). Sysmon logs via syslog; journald captures it
+under identifier `sysmon`, and a tiny `journalctl -o cat -t sysmon -f` bridge appends those entries
+to a file banken tails -- the same shape `module.nix`'s `services.banken.sysmon` uses.
+
+The stage is conditional on where Microsoft ships `sysmonforlinux`: `distrocheck` lists S1-S5 only
+on apt distros (Ubuntu, Debian) and the RHEL family via the MS yum repo (dnf on Rocky, Alma).
+Elsewhere (Fedora, Amazon Linux, openSUSE, Arch) it is skipped and the skip is recorded in the
+report's `Info` (`sysmon_skipped`), never a red check -- and if a served package manager's specific
+version still lacks the repo, `sysmoncheck.sh` prints `SYSMON-SKIP <reason>` and the stage skips the
+same clean way. It rides with the sensor matrix: `nix run .#distro-matrix-mimi` ships
+`sysmoncheck.sh` (and the mimi bundle); banken's own `nix run .#distro-matrix` carries neither, so
+it stays banken-raw (A-E only). Sysmon loads its own eBPF probe off the kernel's BTF, like mimi, so
+a kernel with no BTF fails S2 honestly.
 
 ## Network
 

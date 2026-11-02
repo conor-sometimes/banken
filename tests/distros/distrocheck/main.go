@@ -185,6 +185,9 @@ func (c *checker) objectives() []string {
 	if c.hasMimi() {
 		ids = append(ids, mimiIDs...)
 	}
+	if c.sysmonApplicable() {
+		ids = append(ids, sysmonIDs...)
+	}
 	return ids
 }
 
@@ -219,6 +222,7 @@ func (c *checker) run() {
 	c.mac()
 	c.testSuite()
 	c.mimi()
+	c.sysmon()
 }
 
 // --- commands ---
@@ -797,7 +801,7 @@ func (c *checker) hasMimi() bool {
 	return err == nil
 }
 
-type mimiResult struct {
+type stageResult struct {
 	pass   bool
 	detail string
 }
@@ -813,7 +817,7 @@ func (c *checker) mimi() {
 		return
 	}
 	out, err := c.sh(8*time.Minute, "bash", filepath.Join(c.seed, "mimicheck.sh"), c.seed)
-	results := parseMimi(out)
+	results := parseStages(out)
 	for _, id := range mimiIDs {
 		r, ok := results[id]
 		if !ok {
@@ -828,9 +832,10 @@ func (c *checker) mimi() {
 	}
 }
 
-// parseMimi reads mimicheck.sh's "<id> PASS|FAIL <detail>" lines into a map keyed by id.
-func parseMimi(out string) map[string]mimiResult {
-	res := map[string]mimiResult{}
+// parseStages reads a stage script's "<id> PASS|FAIL <detail>" lines (mimicheck.sh, sysmoncheck.sh)
+// into a map keyed by id.
+func parseStages(out string) map[string]stageResult {
+	res := map[string]stageResult{}
 	for _, line := range nonEmpty(out) {
 		parts := strings.SplitN(strings.TrimSpace(line), " ", 3)
 		if len(parts) < 2 || (parts[1] != "PASS" && parts[1] != "FAIL") {
@@ -840,9 +845,82 @@ func parseMimi(out string) map[string]mimiResult {
 		if len(parts) == 3 {
 			detail = parts[2]
 		}
-		res[parts[0]] = mimiResult{pass: parts[1] == "PASS", detail: detail}
+		res[parts[0]] = stageResult{pass: parts[1] == "PASS", detail: detail}
 	}
 	return res
+}
+
+// --- banken + Sysmon-for-Linux (S1-S5) ---
+
+// sysmonIDs are the banken + Sysmon objectives, in run order (tests/distros/README.md, Test S).
+var sysmonIDs = []string{"S1", "S2", "S3", "S4", "S5"}
+
+// sysmonSkip is what sysmoncheck.sh prints (in place of the S1-S5 lines) when packages.microsoft.com
+// ships no sysmonforlinux for this distro/version; the stage is then recorded in Info and adds no
+// check, like an optional emulation tool a distro's repos lack.
+const sysmonSkip = "SYSMON-SKIP"
+
+// hasSysmon reports whether this seed carries sysmoncheck.sh, i.e. the matrix was built with the
+// sensor payload (default.nix, same condition as the mimi bundle). A banken-raw matrix has neither,
+// so S1-S5 are not objectives at all.
+func (c *checker) hasSysmon() bool {
+	_, err := os.Stat(filepath.Join(c.seed, "sysmoncheck.sh"))
+	return err == nil
+}
+
+// sysmonApplicable gates the Sysmon stage to the package managers packages.microsoft.com serves:
+// apt (Ubuntu, Debian) and the MS yum repo for the RHEL family (dnf on Rocky/Alma). Fedora and
+// Amazon Linux (also dnf) are not RHEL-compatible targets of the MS rhel repo, and openSUSE (zypper)
+// and Arch (pacman) have no MS repo, so the stage skips them -- recorded by sysmoncheck.sh's
+// SYSMON-SKIP, or never listed as an objective here.
+func (c *checker) sysmonApplicable() bool {
+	if !c.hasSysmon() {
+		return false
+	}
+	switch c.cfg.PM {
+	case "apt":
+		return true
+	case "dnf":
+		return msYumDistro[c.cfg.Distro]
+	}
+	return false
+}
+
+// msYumDistro names the dnf distros whose major version the MS rhel yum repo covers (RHEL-compatible).
+var msYumDistro = map[string]bool{"rocky-9": true, "alma-10": true}
+
+// sysmon (S1-S5) is the banken + Sysmon half: it runs sysmoncheck.sh from the seed, which adds
+// Microsoft's package repo, installs the real sysmonforlinux, applies a minimal ProcessCreate config,
+// runs Sysmon, triggers a reverse-shell-shaped exec as the test user, and checks banken detects a
+// reverse_shell off the SYSMON source (data_sources ["sysmon"]) -- the integration, proven per distro
+// against Microsoft's own binary. sysmoncheck.sh prints one "<id> PASS|FAIL <detail>" line per
+// objective, which this records; a SYSMON-SKIP line (no MS repo for this version) is recorded in Info
+// and adds no check, so an unserved distro stays a clean skip, not a red.
+func (c *checker) sysmon() {
+	if !c.sysmonApplicable() {
+		if c.hasSysmon() {
+			c.rep.Info["sysmon_skipped"] = "no packages.microsoft.com sysmonforlinux for " + c.cfg.Distro + " (" + c.cfg.PM + ")"
+		}
+		return
+	}
+	out, err := c.sh(20*time.Minute, "bash", filepath.Join(c.seed, "sysmoncheck.sh"), c.cfg.PM, c.cfg.Distro, testUser)
+	if i := strings.Index(out, sysmonSkip); i >= 0 {
+		c.rep.Info["sysmon_skipped"] = strings.TrimSpace(firstLine(out[i:]))
+		return
+	}
+	results := parseStages(out)
+	for _, id := range sysmonIDs {
+		r, ok := results[id]
+		if !ok {
+			detail := "sysmoncheck.sh did not report " + id + ": " + lastLines(out, 3)
+			if err != nil {
+				detail = fmt.Sprintf("sysmoncheck.sh failed before %s (%v): %s", id, err, lastLines(out, 3))
+			}
+			c.check(id, false, detail)
+			continue
+		}
+		c.check(id, r.pass, r.detail)
+	}
 }
 
 // --- files ---
