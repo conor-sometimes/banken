@@ -1,0 +1,55 @@
+# Sigma logsource -> banken sensor routing (and field aliases).
+#
+# A SigmaHQ rule declares a `logsource:` (category / product / service) saying
+# which telemetry it is written for. banken ingests several sensors -- raw
+# auditd, Laurel, the mimi eBPF stream, Sysmon-for-Linux -- each tagged on the
+# event as its Source. This file is the declarative pipeline that maps a rule's
+# logsource to the set of sensor Sources it should be evaluated against, so an
+# upstream rule loads unmodified and only fires on telemetry it was meant for:
+# a Windows/Sysmon rule never matches a Linux auditd event, and vice versa.
+#
+# Entries are tried top to bottom; the FIRST whose `when` matches the rule's
+# logsource wins. A `when` key that is omitted is a wildcard; a key that is set
+# must equal the rule's value (case-insensitive). A rule whose logsource
+# matches no entry (or that has no logsource at all) is left unrestricted and
+# runs against every source -- banken never silently drops a rule.
+#
+# `sources` is the set of event.Source tags the rule applies to. An explicit
+# empty list means "a source banken does not have a sensor for yet" (e.g.
+# macOS): the rule still loads and still answers a source-agnostic `banken
+# check`, but no live sensor feeds it. An event with an empty Source (an ad-hoc
+# check or a replay with no provenance) always matches, so routing never
+# changes a source-agnostic verdict.
+#
+# `rename` aliases a rule's field name to banken's event field name for that
+# logsource. banken's event model deliberately uses Sigma's own field names
+# (Image, CommandLine, ParentImage, ... and the raw auditd names type/syscall/
+# comm/exe/a0.. in Raw/Multi), so for today's sensors these maps are identity
+# and are left empty. The mechanism is here, declaratively, for the day a
+# sensor exposes a datum under a name that diverges from the rule's.
+
+pipelines:
+  - name: windows-sysmon
+    when: { product: windows }
+    sources: [sysmon]
+    rename: {}
+
+  - name: macos
+    when: { product: macos }
+    sources: [] # no macOS sensor yet; loads, but nothing live feeds it
+    rename: {}
+
+  - name: linux-auditd-service
+    when: { product: linux, service: auditd }
+    sources: [auditd, laurel, mimi, generic]
+    rename: {}
+
+  - name: linux
+    when: { product: linux }
+    sources: [auditd, laurel, mimi, sysmon, generic]
+    rename: {}
+
+  - name: process-creation-any
+    when: { category: process_creation }
+    sources: [auditd, laurel, mimi, sysmon, generic]
+    rename: {}

@@ -210,7 +210,7 @@ func TestCompileErrors(t *testing.T) {
 		{"no detection", "title: x\n", "no detection"},
 		{"no condition", "detection:\n  sel:\n    Image: x\n", "no condition"},
 		{"unknown selection in condition", "detection:\n  sel:\n    Image: x\n  condition: nope\n", "unknown selection"},
-		{"unsupported modifier", "detection:\n  sel:\n    Image|base64offset: x\n  condition: sel\n", "unsupported modifier"},
+		{"unsupported modifier", "detection:\n  sel:\n    Image|windash: x\n  condition: sel\n", "unsupported modifier"},
 		{"bad regexp", "detection:\n  sel:\n    Image|re: '('\n  condition: sel\n", "invalid regexp"},
 		{"empty condition", "detection:\n  sel:\n    Image: x\n  condition: ''\n", "non-empty string"},
 		{"dangling operator", "detection:\n  sel:\n    Image: x\n  condition: sel and\n", "unexpected end"},

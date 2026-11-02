@@ -63,12 +63,14 @@ func TestWildcardMatcherEquivalence(t *testing.T) {
 	}
 }
 
-// TestNullValueRejected is the other half of A6: `Field: null` is rejected at
-// load (it would never match) instead of silently becoming a dead rule.
-func TestNullValueRejected(t *testing.T) {
-	_, err := Compile([]byte("detection:\n  s:\n    Image: null\n  condition: s\n"))
+// TestNullInValueListRejected: a null is only meaningful as a bare
+// `field: null` absence test (see null_test.go). A null buried in a value list
+// has no defined comparison meaning and would be a silently-dead leaf, so it is
+// still a load error.
+func TestNullInValueListRejected(t *testing.T) {
+	_, err := Compile([]byte("detection:\n  s:\n    Image: [foo, null]\n  condition: s\n"))
 	if err == nil {
-		t.Fatal("expected a load error for a null value, got nil (would be a silently-dead rule)")
+		t.Fatal("expected a load error for a null inside a value list, got nil")
 	}
 	if !strings.Contains(err.Error(), "null") {
 		t.Errorf("error should name the null value, got: %v", err)

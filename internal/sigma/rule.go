@@ -51,8 +51,36 @@ type Rule struct {
 	// selectActive at load time, never by the rule file.
 	Observe bool
 
+	// Sources restricts which sensor sources (event.Source) this rule is
+	// evaluated against, derived from the rule's logsource through the pipeline
+	// (see pipeline.go). nil means "no restriction" (a rule with no logsource,
+	// or one whose logsource matched no pipeline entry) and matches every
+	// source; a non-nil slice -- even an empty one -- restricts to exactly those
+	// sources. An event whose Source is empty (an ad-hoc `banken check`, a
+	// replay with no provenance) always matches, so routing never changes a
+	// source-agnostic verdict.
+	Sources []string
+
 	selections map[string]selection
 	cond       condNode
+}
+
+// AppliesTo reports whether this rule should be evaluated against an event from
+// the given source. It is the logsource routing gate: a rule scoped by its
+// pipeline to one set of sensors is skipped for events from any other, so an
+// upstream Windows/Sysmon rule never fires on a Linux auditd event. An empty
+// source (source-agnostic check/replay) and a rule with no restriction both
+// match.
+func (r *Rule) AppliesTo(source string) bool {
+	if source == "" || r.Sources == nil {
+		return true
+	}
+	for _, s := range r.Sources {
+		if s == source {
+			return true
+		}
+	}
+	return false
 }
 
 // selection is a named block under detection:. It matches if any of its
@@ -77,6 +105,7 @@ const (
 	opEndsWith
 	opRegexp
 	opCIDR
+	opExists // Sigma `field: null` / `field|exists`: tests field presence, not a value
 )
 
 // fieldMatch is one `field|mods: value(s)` entry.
@@ -87,11 +116,18 @@ type fieldMatch struct {
 	values []string
 	res    []*regexp.Regexp // compiled, parallel to values, for opRegexp
 	nets   []netip.Prefix   // parsed, parallel to values, for opCIDR
+	// existsWant is the sense of an opExists test: true for `field|exists: true`
+	// (field must be present), false for `field: null` and `field|exists: false`
+	// (field must be absent). Sigma's null and exists:false are the same test.
+	existsWant bool
 }
 
 // Match reports whether the rule fires on the event.
 func (r *Rule) Match(e event.Event) bool {
 	if r.cond == nil {
+		return false
+	}
+	if !r.AppliesTo(e.Source) {
 		return false
 	}
 	results := make(map[string]bool, len(r.selections))
@@ -125,6 +161,14 @@ func (m selMap) match(e event.Event) bool {
 }
 
 func (fm fieldMatch) match(e event.Event) bool {
+	// Presence test (`field: null` / `field|exists`): no value is compared, only
+	// whether the field is present on the event. banken treats an absent field
+	// and a present-but-empty named field alike as "no value", which is the same
+	// notion of absence the rest of the matcher uses.
+	if fm.op == opExists {
+		present := len(e.Values(fm.field)) > 0
+		return present == fm.existsWant
+	}
 	if len(fm.values) == 0 {
 		return false
 	}

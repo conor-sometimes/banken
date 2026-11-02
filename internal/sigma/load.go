@@ -130,7 +130,16 @@ type rawRule struct {
 	Description string               `yaml:"description"`
 	Tags        []string             `yaml:"tags"`
 	Optional    bool                 `yaml:"optional"`
+	LogSource   rawLogSource         `yaml:"logsource"`
 	Detection   map[string]yaml.Node `yaml:"detection"`
+}
+
+// rawLogSource is the `logsource:` block. Unknown keys (definition, ...) are
+// ignored; only the three Sigma routing dimensions are read.
+type rawLogSource struct {
+	Category string `yaml:"category"`
+	Product  string `yaml:"product"`
+	Service  string `yaml:"service"`
 }
 
 // LoadFile reads and compiles one Sigma rule file.
@@ -149,8 +158,15 @@ func LoadFile(path string) (*Rule, error) {
 }
 
 // Compile parses and compiles rule YAML from bytes (used by LoadFile and
-// directly by tests/fuzzing).
+// directly by tests/fuzzing), routing its logsource through the shipped
+// pipeline.
 func Compile(data []byte) (*Rule, error) {
+	return compile(data, defaultPipeline)
+}
+
+// compile is Compile with an explicit pipeline, so tests can exercise routing
+// and field aliases against a custom table.
+func compile(data []byte, p *pipeline) (*Rule, error) {
 	var raw rawRule
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
@@ -198,6 +214,18 @@ func Compile(data []byte) (*Rule, error) {
 		return nil, fmt.Errorf("condition: %w", err)
 	}
 	rule.cond = cond
+
+	// Route the logsource through the pipeline: restrict the rule to the sensor
+	// sources its logsource maps to, and apply any field aliases for them.
+	ls := logSource{
+		Category: raw.LogSource.Category,
+		Product:  raw.LogSource.Product,
+		Service:  raw.LogSource.Service,
+	}
+	if sources, renames, matched := p.route(ls); matched {
+		rule.Sources = sources
+		rule.applyRenames(renames)
+	}
 	return rule, nil
 }
 
@@ -276,6 +304,8 @@ func compileSelMap(node yaml.Node) (selMap, error) {
 func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 	parts := strings.Split(key, "|")
 	fm := fieldMatch{field: parts[0], op: opEquals}
+	b64 := b64None
+	exists := false
 	// An empty field (a bare modifier key like `|all`) is a keyword matcher
 	// over all fields (Sigma's modifier-only keyword form), handled by the
 	// field-less path in fieldMatch.match.
@@ -293,9 +323,28 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 			fm.op = opCIDR
 		case "all":
 			fm.all = true
+		case "base64":
+			b64 = b64Plain
+		case "base64offset":
+			b64 = b64Offset
+		case "exists":
+			exists = true
 		default:
 			return fieldMatch{}, fmt.Errorf("unsupported modifier %q on field %q", mod, fm.field)
 		}
+	}
+
+	// `field: null` with no comparison modifier is Sigma's field-absence test
+	// (equivalent to `field|exists: false`). Catch it before yamlValues, which
+	// rejects a null scalar.
+	if !exists && isNullScalar(valNode) {
+		if b64 != b64None || fm.op != opEquals || fm.all {
+			return fieldMatch{}, fmt.Errorf("field %q: null is only valid as a bare `%s: null` absence test", fm.field, fm.field)
+		}
+		if fm.field == "" {
+			return fieldMatch{}, errors.New("null needs a field name (a bare `null` keyword is meaningless)")
+		}
+		return fieldMatch{field: fm.field, op: opExists, existsWant: false, values: []string{"\x00exists"}}, nil
 	}
 
 	values, err := yamlValues(valNode)
@@ -304,6 +353,35 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 	}
 	if len(values) == 0 {
 		return fieldMatch{}, fmt.Errorf("field %q has no values", fm.field)
+	}
+
+	// `field|exists: true|false` is the explicit presence test. It takes a
+	// single boolean and no other comparison/transform modifier.
+	if exists {
+		if b64 != b64None || fm.op != opEquals || fm.all || fm.field == "" {
+			return fieldMatch{}, fmt.Errorf("field %q: |exists takes a single true/false and no other modifier", fm.field)
+		}
+		if len(values) != 1 {
+			return fieldMatch{}, fmt.Errorf("field %q: |exists takes exactly one true/false value", fm.field)
+		}
+		want, perr := parseExistsBool(values[0])
+		if perr != nil {
+			return fieldMatch{}, fmt.Errorf("field %q: %w", fm.field, perr)
+		}
+		return fieldMatch{field: fm.field, op: opExists, existsWant: want, values: []string{"\x00exists"}}, nil
+	}
+
+	// base64 value transforms (|base64, |base64offset) rewrite the values to
+	// their encoding(s) before the comparison op is applied, matching pySigma:
+	// the trailing op (contains/startswith/endswith/equals) then compares the
+	// ENCODED value. base64offset expands each value into three offset
+	// encodings that are OR'd in with the field's existing any-match semantics.
+	if b64 != b64None {
+		enc, berr := applyBase64(b64, fm, values)
+		if berr != nil {
+			return fieldMatch{}, berr
+		}
+		values = enc
 	}
 	fm.values = values
 
@@ -458,16 +536,66 @@ func yamlValues(node *yaml.Node) ([]string, error) {
 	}
 }
 
-// scalarString returns a scalar's literal text. A null is rejected rather than
-// coerced to "": a `Field: null` matcher would silently never fire (an empty
-// string never matches a present field), so it is reported at load time
-// instead of becoming a silently-dead detection. (Sigma's null = "field
-// absent" semantics are not yet implemented; see the roadmap.)
+// scalarString returns a scalar's literal text. A null scalar is rejected
+// here: the only meaningful place for a null is a bare `field: null` absence
+// test, which compileField catches before reaching this path. A null anywhere
+// else (e.g. inside a value list) has no defined Sigma meaning for a value
+// comparison and would silently never fire, so it is reported at load time.
 func scalarString(node *yaml.Node) (string, error) {
 	if node.Tag == "!!null" {
-		return "", errors.New("null value is not supported (it would never match); give the field a value or remove it")
+		return "", errors.New("null value is only valid as a bare `field: null` absence test, not inside a value list")
 	}
 	// yaml.v3 leaves Value as the literal source text for every scalar kind
 	// (string, int, bool), which is exactly what a matcher wants.
 	return node.Value, nil
+}
+
+// isNullScalar reports whether a YAML node is a null scalar (`field: null`,
+// `field: ~`, or an empty value), which Sigma reads as a field-absence test.
+func isNullScalar(node *yaml.Node) bool {
+	return node != nil && node.Kind == yaml.ScalarNode && node.Tag == "!!null"
+}
+
+// parseExistsBool reads the true/false value of a |exists modifier. Sigma
+// writes it as a YAML boolean; accept the common spellings.
+func parseExistsBool(s string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "true", "yes", "1":
+		return true, nil
+	case "false", "no", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("|exists wants true or false, got %q", s)
+	}
+}
+
+// applyBase64 rewrites a field's values to their base64 encoding(s) for the
+// |base64 / |base64offset modifiers, mirroring pySigma. A value carrying a
+// Sigma wildcard is rejected: pySigma forbids it (the encoding of a pattern is
+// meaningless), and silently encoding the literal `*` would be a dead rule.
+func applyBase64(mode b64Mode, fm fieldMatch, values []string) ([]string, error) {
+	if fm.op == opRegexp || fm.op == opCIDR {
+		return nil, fmt.Errorf("field %q: base64 cannot combine with |re or |cidr", fm.field)
+	}
+	for _, v := range values {
+		if strings.ContainsAny(v, "*?") {
+			return nil, fmt.Errorf("field %q: base64 encoding of a value with a wildcard is not allowed", fm.field)
+		}
+	}
+	switch mode {
+	case b64Plain:
+		out := make([]string, len(values))
+		for i, v := range values {
+			out[i] = base64Encode(v)
+		}
+		return out, nil
+	case b64Offset:
+		out := make([]string, 0, len(values)*3)
+		for _, v := range values {
+			out = append(out, base64OffsetEncodings(v)...)
+		}
+		return out, nil
+	default:
+		return values, nil
+	}
 }
