@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# tamper.sh — benign emulation of defense-evasion / anti-banken tampering for detection-rule testing.
+# tamper.sh - benign emulation of defense-evasion / anti-banken tampering for detection-rule testing.
 #
-# What an attacker does once they have a foothold: turn the watchdog off — stop/disable the banken
+# What an attacker does once they have a foothold: turn the watchdog off - stop/disable the banken
 # service, kill its process, delete its unit or binary, flush the audit rules that feed it. This
 # does the harmless analogue: it generates the SAME exec events WITHOUT stopping, killing or
 # deleting anything real. Every service/process name it targets is a nonexistent "-emul-dummy"
@@ -33,7 +33,7 @@ rm -f "$work/banken.service" >/dev/null 2>&1 || true
 
 # --- TTP: flush audit rules -> tamper_banken (auditctl_flush) ---
 # ONLY when unprivileged: auditctl -D needs CAP_AUDIT_CONTROL, so as a normal user it fails with
-# "permission denied" and changes nothing — a harmless attempt that still emits the /auditctl exec.
+# "permission denied" and changes nothing - a harmless attempt that still emits the /auditctl exec.
 # Never run as root, where it WOULD actually blind the audit pipeline (safety contract).
 if command -v auditctl >/dev/null 2>&1 && [ "$(id -u)" -ne 0 ]; then
 	auditctl -D >/dev/null 2>&1 || true

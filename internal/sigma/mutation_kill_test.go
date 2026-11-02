@@ -26,7 +26,7 @@ func TestLoadTreeIgnoresNonYAML(t *testing.T) {
 		t.Errorf("unexpected problem loading tree: %v", p)
 	}
 	if len(rules) != 1 {
-		t.Fatalf("got %d rules, want 1 — non-YAML files must be ignored, not loaded or errored", len(rules))
+		t.Fatalf("got %d rules, want 1 - non-YAML files must be ignored, not loaded or errored", len(rules))
 	}
 }
 

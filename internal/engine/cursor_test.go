@@ -170,8 +170,8 @@ func TestChunkDoesNotReadPastSize(t *testing.T) {
 	}
 }
 
-// LoadCursor must never fail: every bad cursor shape — missing, empty,
-// whitespace, truncated, corrupt JSON, binary garbage — is recovered to a
+// LoadCursor must never fail: every bad cursor shape - missing, empty,
+// whitespace, truncated, corrupt JSON, binary garbage - is recovered to a
 // usable fresh cursor so banken keeps detecting (never die, always
 // recoverable). Only a non-empty unparseable file reports corrupted=true.
 func TestCursorAlwaysRecoverable(t *testing.T) {

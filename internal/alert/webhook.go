@@ -144,7 +144,7 @@ func summaryLine(a Alert) string {
 	b := &strings.Builder{}
 	fmt.Fprintf(b, "[banken %s] %s", strings.ToUpper(a.Level), a.Title)
 	if a.Event.Image != "" {
-		fmt.Fprintf(b, " — %s", a.Event.Image)
+		fmt.Fprintf(b, " - %s", a.Event.Image)
 	}
 	if a.Event.CommandLine != "" {
 		fmt.Fprintf(b, " (%s)", a.Event.CommandLine)

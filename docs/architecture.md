@@ -1,7 +1,7 @@
 # Architecture
 
 banken is one Go binary that, on each run, reads the host's logs since a saved point, matches them
-against rules, and emits alerts. It is one-shot by design — a systemd timer owns the schedule — with
+against rules, and emits alerts. It is one-shot by design - a systemd timer owns the schedule - with
 an optional `--watch` loop for hosts without a timer.
 
 ```
@@ -20,7 +20,7 @@ Every parser produces the same `event.Event` (`internal/event`): `Image`, `Comma
 `ParentImage`, `TargetFilename`, `User`, `CurrentDirectory`, a `Time`, a `Source` tag, and a `Raw`
 map for anything extra. The field names deliberately match the Sigma field names, so the matcher
 looks a field up by its rule name with no translation table. Every field is best-effort: a parser
-never fails an event because one field was missing — a dropped event is a dropped detection.
+never fails an event because one field was missing - a dropped event is a dropped detection.
 
 ## Parsers (`internal/parser`)
 
@@ -34,15 +34,15 @@ tree (see the README's Testing section).
 ## Rules and the matcher (`internal/sigma`, `internal/ioc`)
 
 Rules are [Sigma](https://github.com/SigmaHQ/sigma) YAML; banken evaluates a subset (see
-[writing-rules.md](writing-rules.md)). Bulk indicator feeds are plain `ioc/*.txt` lists — the
+[writing-rules.md](writing-rules.md)). Bulk indicator feeds are plain `ioc/*.txt` lists - the
 bulk path for thousands of flat values (IPs by exact set; domains/paths are being folded into the
 rule matcher).
 
 Matching does **not** loop every rule over every event. `NewMatcher` compiles every string literal
 across every rule into one Aho-Corasick automaton (`ahocorasick.go`) plus an inverted
 literal→rule index. For an event, one pass per field finds the literals present anywhere in it
-(cost independent of the rule count), and only rules that *could* match — judged by a sound
-per-rule upper bound where a `not` subtree counts as true — get the authoritative `Rule.Match`.
+(cost independent of the rule count), and only rules that *could* match - judged by a sound
+per-rule upper bound where a `not` subtree counts as true - get the authoritative `Rule.Match`.
 
 It is a **prefilter in front of the unchanged `Rule.Match`, never a replacement**: a skipped rule
 provably could not have matched, so `Rule.Match` stays the source of truth and the clever part can
@@ -68,16 +68,16 @@ panic guard: a crafted record takes out at most that one source or event, never 
 
 ## Alerts (`internal/alert`)
 
-Every hit flows through one `Dispatcher` to any combination of sinks — **journal** (syslog),
+Every hit flows through one `Dispatcher` to any combination of sinks - **journal** (syslog),
 **jsonl** (one file per day, retention by file delete), **webhook** (generic/Slack/Discord/ntfy;
 the URL is read from a file path, never inline). Because everything funnels through one dispatch
 point, future **response actions** (kill, quarantine) slot in behind the `Responder` hook without a
-redesign — and they are operator policy keyed off a rule tag, never embedded in a rule.
+redesign - and they are operator policy keyed off a rule tag, never embedded in a rule.
 
 ## Config and zero-fiddle (`internal/config`, `main.go`)
 
 Config is YAML with flag overrides on top; the NixOS module renders the same YAML from its options.
 With no config and no flags, banken loads its **embedded baseline ruleset** (compiled into the
 binary with `//go:embed`, so detection works with nothing on disk), **auto-detects** the host log
-source (Laurel then raw auditd), and alerts to the journal — the zero-fiddle default. On-disk rule
+source (Laurel then raw auditd), and alerts to the journal - the zero-fiddle default. On-disk rule
 trees are loaded on top of the baseline and win on a name clash.

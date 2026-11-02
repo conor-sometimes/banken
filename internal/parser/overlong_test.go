@@ -8,7 +8,7 @@ import (
 // TestOverLongLineSkippedNotFailed is the A1 regression: one pathological
 // over-long line must be skipped, never crash, fail the batch, or lose the
 // surrounding events. Before the fix a 4 MiB-capped bufio.Scanner returned
-// ErrTooLong and Parse discarded the whole batch — blinding the source.
+// ErrTooLong and Parse discarded the whole batch - blinding the source.
 func TestOverLongLineSkippedNotFailed(t *testing.T) {
 	good1 := `{"ID":"1.000:1","SYSCALL":{"exe":"/usr/bin/cat"},"EXECVE":{"argc":"2","ARGV":["cat","/etc/shadow"]}}`
 	good2 := `{"ID":"1.000:2","SYSCALL":{"exe":"/bin/bash"},"EXECVE":{"argc":"1","ARGV":["bash"]}}`
@@ -20,7 +20,7 @@ func TestOverLongLineSkippedNotFailed(t *testing.T) {
 		t.Fatalf("Parse returned an error on an over-long line (A1 regression): %v", err)
 	}
 	if len(events) != 2 {
-		t.Fatalf("got %d events, want 2 — the over-long line skipped, both good events kept", len(events))
+		t.Fatalf("got %d events, want 2 - the over-long line skipped, both good events kept", len(events))
 	}
 	if events[0].Image != "/usr/bin/cat" || events[1].Image != "/bin/bash" {
 		t.Errorf("surrounding events corrupted: %q, %q", events[0].Image, events[1].Image)
@@ -40,12 +40,12 @@ func TestAuditdOverLongLineSkipped(t *testing.T) {
 		t.Fatalf("Parse returned an error on an over-long line (A1 regression): %v", err)
 	}
 	if len(events) < 2 {
-		t.Fatalf("got %d events, want >=2 — the over-long record skipped, the good ones kept", len(events))
+		t.Fatalf("got %d events, want >=2 - the over-long record skipped, the good ones kept", len(events))
 	}
 }
 
 // TestNoFinalNewlineStillParsed guards the scanLines edge where the last line
-// has no trailing newline — it must still be emitted.
+// has no trailing newline - it must still be emitted.
 func TestNoFinalNewlineStillParsed(t *testing.T) {
 	log := `{"ID":"1.000:1","SYSCALL":{"exe":"/usr/bin/id"}}` // no trailing \n
 	events, err := Laurel{}.Parse(strings.NewReader(log))

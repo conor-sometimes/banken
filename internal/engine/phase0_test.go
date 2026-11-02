@@ -8,7 +8,7 @@ import (
 )
 
 // TestPhase0 locks the shared-foundation work: ProcessId/ParentProcessId are
-// matchable *through the Matcher* (not just Rule.Match — i.e. the prefilter
+// matchable *through the Matcher* (not just Rule.Match - i.e. the prefilter
 // scans them, or the rule would be silently skipped), and a rule's tags ride
 // onto the alert for OCSF/response.
 func TestPhase0(t *testing.T) {

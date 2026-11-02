@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# sudo_probe.sh — benign emulation of a privilege-escalation probe for detection-rule testing.
+# sudo_probe.sh - benign emulation of a privilege-escalation probe for detection-rule testing.
 #
-# What an attacker (or a compromised process) does: probe for a way up — run sudo/su/doas/pkexec to
+# What an attacker (or a compromised process) does: probe for a way up - run sudo/su/doas/pkexec to
 # see what sticks. This does the harmless analogue: it runs sudo/doas in their NON-INTERACTIVE
 # modes (`-n`), which make no change and simply succeed-or-fail immediately depending on existing
-# policy. Either way it is the exec — the attempt — that the rule catches, exactly as designed.
+# policy. Either way it is the exec - the attempt - that the rule catches, exactly as designed.
 # Nothing is escalated, nothing is modified. See ./README.md.
 #
 # Imitates: generic privilege-escalation probing (sudo/doas)

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# revshell.sh — benign emulation of a reverse shell for detection-rule testing.
+# revshell.sh - benign emulation of a reverse shell for detection-rule testing.
 #
 # What an attacker does: open an interactive shell back to a C2 with a one-liner (bash /dev/tcp, a
 # Python socket shell, nc -e). This does the harmless analogue: it runs the SAME one-liners against
 # an UNROUTABLE TEST-NET address with a short timeout, so the connection never establishes and no
-# shell is ever handed to anyone. The audit event — the attempt — is identical to the real thing;
+# shell is ever handed to anyone. The audit event - the attempt - is identical to the real thing;
 # the outcome is a timeout. See ./README.md.
 #
 # Imitates: generic reverse-shell one-liners (bash /dev/tcp, python socket, nc -e)

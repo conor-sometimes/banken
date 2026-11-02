@@ -1,10 +1,10 @@
-# OCSF output for banken alerts — design
+# OCSF output for banken alerts - design
 
 Status: **implemented** (2026-10-31; prerequisites in `b4a026c`, the mapper and sinks in the
 following commit). Written as a design against commit `17c1d21`; the "today" sections describe the
 code as it was then. Where the build departed from the text below, this list wins:
 
-**As built — decisions and divergences**
+**As built - decisions and divergences**
 - Open questions answered (Conor): **1** pin 1.3.0; **2** pid/ppid on `Event`, yes; **3** the six
   rules tagged as proposed, untagged rules emit no `attacks`; **4** deterministic uid; **5**
   `product.vendor_name` is **`conor-sometimes`** (vendor = who makes it; `product.name` stays
@@ -183,7 +183,7 @@ homes, regenerate goldens, review the diff. A per-deployment `version:` config k
 ## 4. Field mapping
 
 Conventions used throughout: `omit` means the attribute is not emitted at all (never emitted as
-`""`, `null` or `0` — OCSF validators flag empty strings and a SIEM would index them). Enum
+`""`, `null` or `0` - OCSF validators flag empty strings and a SIEM would index them). Enum
 attributes follow OCSF's sibling convention: `severity_id` is the number, `severity` the caption;
 a value banken cannot map goes to `99` Other with the raw string in the sibling. Timestamps in
 OCSF are epoch **milliseconds** (`timestamp_t`); banken's `time.Time` is UTC already.
@@ -197,21 +197,21 @@ OCSF are epoch **milliseconds** (`timestamp_t`); banken's `time.Time` is UTC alr
 | `activity_id` / `activity_name` | required / opt | constant | `1` / `"Create"` |
 | `type_uid` / `type_name` | required / opt | constant | `200401` / `"Detection Finding: Create"` |
 | `time` | required | `Alert.Time` | `UnixMilli()`; if zero, `Options.Now()` (same fallback the jsonl sink uses for its file name) |
-| `timezone_offset` | recommended | constant | `0` — banken normalises to UTC |
+| `timezone_offset` | recommended | constant | `0` - banken normalises to UTC |
 | `severity_id` / `severity` | required / opt | `Alert.Level` | table in §4.2 |
 | `status_id` / `status` | recommended | constant | `1` / `"New"` |
 | `message` | recommended | `Alert.Message` | verbatim |
-| `metadata` | required | — | §4.3 |
-| `finding_info` | required | — | §4.4 |
+| `metadata` | required | - | §4.3 |
+| `finding_info` | required | - | §4.4 |
 | `evidences` | recommended | `Alert.Event` | §4.5; one element |
 | `device` | recommended (host profile) | `Options.Hostname` | §4.6; omitted entirely if hostname is empty (the object has an at-least-one constraint) |
 | `observables` | recommended | `Alert.Event`, `Alert.IOC` | §4.7 |
 | `raw_data` | optional | `Alert.Event` | `json.Marshal(Event)` as a string. **This is banken's normalised event, not the original audit record** (the parsers do not keep the bytes); the doc string on the field says so |
 | `unmapped` | optional | leftovers | §4.8 |
-| `confidence_id` | recommended | — | **omit.** banken has no confidence model; inventing one from Sigma `status: experimental` would be a lie |
-| `count` | optional | — | omit (no aggregation; one finding per hit) |
-| `attacks` (class level) | optional, `security_control` profile | — | omit; ATT&CK goes in `finding_info.attacks`, which is not profile-gated |
-| `action_id`, `disposition_id` | `security_control` profile | — | omit until response actions exist (§3.1) |
+| `confidence_id` | recommended | - | **omit.** banken has no confidence model; inventing one from Sigma `status: experimental` would be a lie |
+| `count` | optional | - | omit (no aggregation; one finding per hit) |
+| `attacks` (class level) | optional, `security_control` profile | - | omit; ATT&CK goes in `finding_info.attacks`, which is not profile-gated |
+| `action_id`, `disposition_id` | `security_control` profile | - | omit until response actions exist (§3.1) |
 
 ### 4.2 Severity
 
@@ -237,11 +237,11 @@ Comparison is case-insensitive, like `journal.go`'s `severityFor`. OCSF `6 Fatal
 | `version` | required | `"1.3.0"` (the pin, §3.2) |
 | `profiles` | optional | `["host"]` |
 | `product.name` | rec. (one of name/uid required) | `"banken"` |
-| `product.vendor_name` | recommended | `"banken"` — there is no company; the project name is the honest vendor (open question 5) |
+| `product.vendor_name` | recommended | `"banken"` - there is no company; the project name is the honest vendor (open question 5) |
 | `product.version` | recommended | `Options.ProductVersion`, i.e. `main.version` (`"dev"` or the git describe stamped by `just build`) |
 | `product.url_string` | optional | `"https://github.com/conor-sometimes/banken"` |
 | `uid` | optional | the finding uid (§4.4); one record per finding, so the record id and the finding id coincide today |
-| `log_provider` | recommended | `Event.Source` (`"auditd"`, `"laurel"`, `"generic"`) — the parser that produced the evidence |
+| `log_provider` | recommended | `Event.Source` (`"auditd"`, `"laurel"`, `"generic"`) - the parser that produced the evidence |
 | `log_name` | recommended | **omit.** The source *path* is not on the alert (§2). Plumbing `config.Source.Path` onto `Alert` is possible but is a change to `engine.Match`'s signature for one attribute; not proposed for v1 |
 | `original_time` | recommended | `Alert.Time` as RFC 3339 (`2026-10-31T12:00:00Z`) when non-zero; omit when the sink had to fall back to `Now()` so the fallback is visible |
 | `logged_time` | optional | omit (would be `Now()`, which only makes goldens non-deterministic for no SIEM value) |
@@ -253,7 +253,7 @@ Comparison is case-insensitive, like `journal.go`'s `severityFor`. OCSF `6 Fatal
 | `uid` | required | deterministic id, below | same |
 | `title` | required (1.3.0) | `Alert.Title` | `Alert.Title` (`"IOC match: 192.0.2.44"`) |
 | `desc` | optional | **omit in v1**: `Rule.Description` is not on `Alert`. Copying it is a one-field addition to `Alert` and `engine.Match`; worth doing (open question 6) | omit |
-| `analytic.type_id` / `type` | required | `1` / `"Rule"` | `9` / `"Exact Data Match"` — a flat indicator list matched by set membership is exactly that enum entry (present in 1.3.0) |
+| `analytic.type_id` / `type` | required | `1` / `"Rule"` | `9` / `"Exact Data Match"` - a flat indicator list matched by set membership is exactly that enum entry (present in 1.3.0) |
 | `analytic.name` | rec. (one of name/uid) | `Alert.Rule` (`"reverse_shell"`) | `Alert.Rule` (the feed file, `"evil-c2.txt"`) |
 | `analytic.uid` | recommended | `Alert.RuleID` (the Sigma UUID) when non-empty | omit (feeds have no id) |
 | `analytic.version` | optional | omit (Sigma rules carry `date`/`modified`, not a version; not parsed) | omit |
@@ -273,7 +273,7 @@ uid = hex(sha256("banken-ocsf-uid-v1\n" + Kind + "\n" + Rule + "\n" + RuleID + "
                  + Image + "\n" + CommandLine + "\n" + User + "\n" + IOC + "\n" + Field + "\n"))[:32]
 ```
 
-Why: banken's cursor is "never fatal" — a corrupt state file re-reads a source and re-emits its
+Why: banken's cursor is "never fatal" - a corrupt state file re-reads a source and re-emits its
 alerts, and `docs/architecture.md` calls that a "self-healing duplicate". With a content-derived uid
 the re-emitted finding has the *same* uid and a SIEM de-duplicates it; with a random UUID the
 operator sees two findings. It also makes the golden tests trivially deterministic. The leading
@@ -304,7 +304,7 @@ sub-technique; other namespaces (`attack.gNNNN` groups, `attack.sNNNN` software,
    same reason (Sigma tags carry no matrix version).
 4. Emit one `attack` object per **technique** (or per sub-technique), each carrying the rule's
    tactic. A rule with a tactic tag and no technique emits one object with only `tactic`. A rule
-   with no `attack.*` tags emits **no `attacks`** — nothing is guessed from the directory name
+   with no `attack.*` tags emits **no `attacks`** - nothing is guessed from the directory name
    (open question 3). Unknown tactic names (a typo) are dropped with nothing emitted for that tag;
    the rule-loader already reports structural problems, and a tag typo lint could join it later.
 
@@ -343,12 +343,12 @@ sub-objects; banken always has a process (or, degenerately, a file).
 | `process.file.name` | required | `Event.Image` | `path.Base(Image)` |
 | `process.file.type_id` / `type` | required | constant | `1` / `"Regular File"` (the kernel exec'd it; 1.3.0 has no Executable File value) |
 | `process.user.name` | rec. (one of name/uid/account) | `Event.User` | when `User` is **not** all digits |
-| `process.user.uid` | rec. | `Event.User` | when `User` **is** all digits (`"1000"`, `"0"`) — the parsers already do this split: a name if the source translated the uid, else the number |
-| `process.user.type_id` | recommended | — | omit; guessing Admin from uid 0 is a heuristic the SIEM can apply itself |
+| `process.user.uid` | rec. | `Event.User` | when `User` **is** all digits (`"1000"`, `"0"`) - the parsers already do this split: a name if the source translated the uid, else the number |
+| `process.user.type_id` | recommended | - | omit; guessing Admin from uid 0 is a heuristic the SIEM can apply itself |
 | `process.parent_process.pid` | rec. (constraint) | `Event.ParentProcessID` (new) | |
 | `process.parent_process.name` / `.file.{name,path,type_id}` | rec. | `Event.ParentImage` | same rules as the process; whole `parent_process` omitted when both `ParentImage` and `ParentProcessID` are empty |
-| `process.working_directory` | — | `Event.CurrentDirectory` | **not in 1.3.0**; goes to `unmapped` (§3.2) |
-| `file` (sibling of `process` inside the same evidence) | rec. | `Event.TargetFilename` | `{name: path.Base, path: full, type_id: 0 Unknown}` when non-empty — the acted-on PATH record (e.g. `/etc/shadow` for `credential_file_read`). banken does not know whether it is a regular file, so `0 Unknown` |
+| `process.working_directory` | - | `Event.CurrentDirectory` | **not in 1.3.0**; goes to `unmapped` (§3.2) |
+| `file` (sibling of `process` inside the same evidence) | rec. | `Event.TargetFilename` | `{name: path.Base, path: full, type_id: 0 Unknown}` when non-empty - the acted-on PATH record (e.g. `/etc/shadow` for `credential_file_read`). banken does not know whether it is a regular file, so `0 Unknown` |
 | whole `process` object | | | omitted only when `Image`, `CommandLine` and `ProcessID` are all empty (then `file` and/or `user` must be present or the alert could not have matched anything) |
 
 **The pid problem.** OCSF's `process` object has `"constraints": {"at_least_one": ["pid","uid"]}`
@@ -374,7 +374,7 @@ consumer may drop the object. So:
 
 | Attribute | Req. | Value |
 | --- | --- | --- |
-| `type_id` / `type` | required | `0` / `"Unknown"` — banken cannot tell a server from a VM from a laptop; the operator's SIEM inventory can |
+| `type_id` / `type` | required | `0` / `"Unknown"` - banken cannot tell a server from a VM from a laptop; the operator's SIEM inventory can |
 | `hostname` | rec. (one of hostname/uid/name/ip required) | `Options.Hostname`: `os.Hostname()` once at sink construction in `main.buildSinks`, injected in tests |
 
 If `os.Hostname()` fails or returns empty, `device` is omitted (the constraint would otherwise be
@@ -394,7 +394,7 @@ stable): command line, process name, process path, user, target file, hostname, 
 | 4 | User Name | `Event.User` | non-empty and not all digits |
 | 7 | File Name | `Event.TargetFilename` | non-empty |
 | 1 | Hostname | `Options.Hostname` | non-empty |
-| 2 / 1 / 7 | IP Address / Hostname / File Name | `Alert.IOC` | IOC alerts: by the indicator's shape, re-deriving `ioc.classify` (IP → 2, domain → 1, path → 7). The alert does not carry `ioc.Kind`; re-classifying the string is cheap and uses the same regexps (export `ioc.Classify` or duplicate three lines — the former) |
+| 2 / 1 / 7 | IP Address / Hostname / File Name | `Alert.IOC` | IOC alerts: by the indicator's shape, re-deriving `ioc.classify` (IP → 2, domain → 1, path → 7). The alert does not carry `ioc.Kind`; re-classifying the string is cheap and uses the same regexps (export `ioc.Classify` or duplicate three lines - the former) |
 
 `observable.name` (the JSON-pointer-ish path to the attribute, e.g. `evidences.process.cmd_line`)
 is recommended, not required. OCSF documents three notations for array members and the exact
@@ -423,7 +423,7 @@ alert; `kind` is always set).
 
 | banken field | Status |
 | --- | --- |
-| `Alert.Kind` | `unmapped.kind` plus `analytic.type_id` (Rule vs Exact Data Match) — the latter is the real OCSF home, the former is for humans |
+| `Alert.Kind` | `unmapped.kind` plus `analytic.type_id` (Rule vs Exact Data Match) - the latter is the real OCSF home, the former is for humans |
 | `Alert.Field` (IOC) | `unmapped.ioc_field`; OCSF has no "where in the event the indicator was seen" attribute short of `observable.name`, which is a schema path, not a source field |
 | `Event.CurrentDirectory` | `unmapped` until ≥ 1.4.0 |
 | `Event.Raw` | `unmapped.raw.*`; by definition fields without a dedicated home |
@@ -439,7 +439,7 @@ Input: the first event of `tests/fixtures/revshell.expect-reverse_shell.json`, g
 a ppid and a parent image (the fixture has none of these; the values below are illustrative), matched by
 `rules/command-and-control/reverse_shell.yml` (`level: critical`, id
 `0c9b10de-25ea-4ad5-8e07-d33508386857`). The `attacks` block assumes the **proposed** tags
-`attack.command-and-control` and `attack.t1059.004` (Unix Shell) — the rule carries no tags today,
+`attack.command-and-control` and `attack.t1059.004` (Unix Shell) - the rule carries no tags today,
 so as the code stands that block would be absent (§4.4.2). Options: hostname `hokkaido`, product
 version `0.3.0`.
 
@@ -536,7 +536,7 @@ alert's tuple:
 
 Things to notice: no `user` observable (the user is a numeric uid, not a name); no `file` evidence
 (no `TargetFilename`); `raw_data` is the camelCase banken event, verbatim, so the native shape is
-always recoverable from the OCSF record; the IP `192.0.2.30` is **not** extracted as an observable —
+always recoverable from the OCSF record; the IP `192.0.2.30` is **not** extracted as an observable -
 banken did not parse it (it is a substring the rule matched on), and inventing network observables
 by regexp over command lines is a different feature.
 
@@ -593,7 +593,7 @@ the question of two sinks writing the same directory.
 
 ### 6.2 Signatures (sketch; names are proposals)
 
-`internal/alert/ocsf.go` — the whole OCSF surface, no new package:
+`internal/alert/ocsf.go` - the whole OCSF surface, no new package:
 
 ```go
 package alert
@@ -722,7 +722,7 @@ alerts:
 `main.go`: `-jsonl-format banken|ocsf` next to `-jsonl-dir`; `-webhook-style` help text gains
 `ocsf`. `buildSinks` builds one `OCSFOptions{ProductVersion: version, Hostname: hostname(), Now:
 time.Now}` and passes it to both. The NixOS module (when it lands) gets the same two option names.
-An unknown `format` is a startup error naming the value, like an unknown source type is reported —
+An unknown `format` is a startup error naming the value, like an unknown source type is reported -
 never a silent fallback to the native shape, because an operator who asked for OCSF and got banken
 JSON would find out from their SIEM.
 
@@ -755,7 +755,7 @@ The authoritative "what does banken's OCSF look like" test, mirroring `internal/
 `TestGolden` and its `-update` flag:
 
 - Input: every `tests/fixtures/NAME.expect-<rule>.json` (the same events the detection fixtures
-  use, so a rule's OCSF golden is produced by the rule actually firing on a real-ish event — not by a
+  use, so a rule's OCSF golden is produced by the rule actually firing on a real-ish event - not by a
   hand-written `Alert`). The IOC path gets a dedicated fixture with an indicator from an `ioc/`
   feed in the baseline tree (or a test-local feed) so `Kind: ioc` has a golden too.
 - Fixed `OCSFOptions{ProductVersion: "test", Hostname: "golden-host", Now: 2026-10-31T12:00:00Z}`.
@@ -789,7 +789,7 @@ critical" on day one, before the golden was committed with the bug baked in.
 
 ### 7.4 Schema validation: a pinned tool, not a dependency
 
-The real question — does the OCSF *schema* accept it — is answered by validating the goldens with
+The real question - does the OCSF *schema* accept it - is answered by validating the goldens with
 the official validator, run from `just` and CI, never linked into the binary:
 
 ```
@@ -814,11 +814,11 @@ ocsf-validate: ocsf-schema
   Releases; needs Go 1.25+ to build, the repo is on 1.27) validates events against a *compiled*
   schema and exits 1 on errors with `--fail-on-validation-errors`. It is profile-aware (it reads
   `metadata.profiles`), checks enums, siblings and constraints, and can also *add* observables and
-  sibling captions — which is the check that our hand-written ones match.
+  sibling captions - which is the check that our hand-written ones match.
 - The **compiled schema** comes from `ocsf-schema-compiler` (Python, PyPI) over a checkout of
   `ocsf/ocsf-schema` at tag `v1.3.0`. `uv` is already the repo's Python runner (`conformance/`,
   `attackrange/`), so this is no new kind of tooling. The compiled JSON is a build artefact under
-  `output/` (gitignored), regenerated from the pinned tag — not checked in (open question 8).
+  `output/` (gitignored), regenerated from the pinned tag - not checked in (open question 8).
 - CI: a separate `ocsf` job in `ci.yml`, after `default`, that installs the two pinned tools and
   runs `just ocsf-validate`; it fails on validation **errors** and prints warnings into the step
   summary (the pid-less golden is expected to warn). Pins are bumped deliberately, in their own
@@ -828,7 +828,7 @@ Why not the other options:
 
 | Option | Why not (or: when) |
 | --- | --- |
-| Check in the JSON Schema from `https://schema.ocsf.io/schema/classes/detection_finding` and validate in `go test` | The export is **unversioned** (it is whatever the server's default is, 1.9.0 today; the `/1.3.0/schema/...` path returns HTML), its `required` list **flattens profiles** — it requires `cloud` and `osint`, so a correct finding without those profiles fails it — and draft-07 validation in Go needs `santhosh-tekuri/jsonschema` or similar: a dependency, for a schema that is wrong for our document. |
+| Check in the JSON Schema from `https://schema.ocsf.io/schema/classes/detection_finding` and validate in `go test` | The export is **unversioned** (it is whatever the server's default is, 1.9.0 today; the `/1.3.0/schema/...` path returns HTML), its `required` list **flattens profiles** - it requires `cloud` and `osint`, so a correct finding without those profiles fails it - and draft-07 validation in Go needs `santhosh-tekuri/jsonschema` or similar: a dependency, for a schema that is wrong for our document. |
 | Vendor the whole `ocsf-schema` repo and write our own checker | That is writing an OCSF validator. No. |
 | `aws-samples/amazon-security-lake-ocsf-validation` (Python) | A reasonable *second* validator precisely because Security Lake is the 1.3 consumer; it can join `ocsf-validate` later. Not the primary because it is AWS-shaped (Parquet, partitions) and less maintained than the OCSF org's own tool. |
 | `ocsf-toolkit` as a Go library in a `//go:build ocsfvalidate` test | Pulls its module graph into `go.sum` even behind a build tag; a separate `tools/ocsfcheck/go.mod` would avoid that but `gofumpt`'s walker (see the `fmt` recipe comment) and `go vet ./...` would then need care. The binary is simpler and has no footprint. |
@@ -836,11 +836,11 @@ Why not the other options:
 ### 7.5 Never-die, in the house style
 
 `FuzzOCSF` / a `rapid` property in `internal/alert`: an arbitrary `Alert` (random strings in every
-field, including non-UTF-8 and control characters in `CommandLine` — the parsers hex-decode
+field, including non-UTF-8 and control characters in `CommandLine` - the parsers hex-decode
 anything) must encode without error, the output must parse as JSON, and the §7.3 shape rules must
 hold. The one external caller of this code is the dispatcher; an encoder error is returned as the
 sink's `Emit` error and the other sinks still run, so a mapper bug degrades one output, never the
-scan — same contract as every sink today.
+scan - same contract as every sink today.
 
 ### 7.6 What "done" looks like
 
@@ -861,7 +861,7 @@ Security Lake path), Fluent Bit, OpenTelemetry Collector `filelog`, Splunk Unive
 **HTTP path.** `alerts.webhook.style: ocsf` POSTs the bare finding as `application/json`. That is
 what a generic OCSF HTTP receiver, Datadog's log intake, or Splunk's HEC **raw** endpoint
 (`/services/collector/raw`) accept. Splunk's HEC *event* endpoint wants an `{"event": {...}}`
-envelope and `Authorization: Splunk <token>` — a `style: splunk-hec` is a 10-line follow-up if
+envelope and `Authorization: Splunk <token>` - a `style: splunk-hec` is a 10-line follow-up if
 wanted, not part of this design (open question 9). Splunk's OCSF-CIM add-on then maps the finding
 into CIM for Enterprise Security.
 
@@ -871,7 +871,7 @@ a second ~150-line mapper behind the same `Encoder` seam if there is demand, but
 ingests OCSF via an integration, so it is not needed for reach. CEF (`CEF:0|banken|banken|0.3.0|
 reverse_shell|Reverse shell spawned|10|...`) is the syslog-line format ArcSight, QRadar and Sentinel
 grew up on; it is lossy (flat key=value, no nesting, no ATT&CK structure) and its one real advantage
-— syslog transport — banken's journal sink already provides. Neither is designed here; the `Encoder`
+- syslog transport - banken's journal sink already provides. Neither is designed here; the `Encoder`
 seam is what makes them cheap later, and OCSF is the one format that reaches the most modern
 consumers without a per-SIEM mapping on the operator's side.
 
@@ -898,7 +898,7 @@ consumers without a per-SIEM mapping on the operator's side.
 | **Uid collisions / uid churn.** A content digest collapses identical-tuple hits; changing the tuple later changes every uid. | Pid in the tuple; the `banken-ocsf-uid-v1` prefix versions the scheme; §4.4.1 states the trade-off. |
 | **Lint friction.** `tagliatelle` rejects snake_case tags. | One path exclusion with a comment; not a repo-wide loosening. |
 | **Validator fidelity.** `ocsf-toolkit` is v0.x; its constraint checks may be incomplete, and the compiled-schema pipeline has two tools to pin. | The §7.3 shape test is independent of the tool; AWS's validator can be added as a second opinion; both tools are pinned and bumped deliberately. |
-| **`raw_data` is not raw.** A SOC analyst may expect the audit line. | The field's doc comment and this design say what it is; the parsers could keep the original line in `Event.Raw["_line"]` later, which the `unmapped.raw.*` rule would then carry automatically — a parser change, not a sink change. |
+| **`raw_data` is not raw.** A SOC analyst may expect the audit line. | The field's doc comment and this design say what it is; the parsers could keep the original line in `Event.Raw["_line"]` later, which the `unmapped.raw.*` rule would then carry automatically - a parser change, not a sink change. |
 | **Observable `name` spelling.** Omitted in v1; some consumers want it. | Confirm the array notation with `ocsf-toolkit`'s generated observables, then add; goldens make the change reviewable. |
 | **Config footgun.** Switching an existing jsonl directory to `format: ocsf` mixes two shapes in one directory across the retention window. | Document it; or encode the format in the file name (open question 7). |
 | **Webhook receivers.** Someone sets `style: ocsf` on a Slack URL. | Same failure mode as `style: generic` on Slack today (a 400); no new risk. |
@@ -910,7 +910,7 @@ consumers without a per-SIEM mapping on the operator's side.
    that needs more exists or AWS raises its ceiling.
 2. **Add `ProcessID`/`ParentProcessID` to `Event` (both parsers already have the values in hand;
    parser goldens change; `Event.Field` exposes `ProcessId`/`ParentProcessId` to rules)?** Proposed:
-   yes, as a prerequisite PR on its own — it also unblocks SigmaHQ rules that reference `ProcessId`.
+   yes, as a prerequisite PR on its own - it also unblocks SigmaHQ rules that reference `ProcessId`.
 3. **Tag the six untagged baseline rules?** Proposed tags: `reverse_shell` →
    `attack.command-and-control`, `attack.t1059.004`; `download_ip_to_tmp` →
    `attack.command-and-control`, `attack.t1105`; `pipe_to_shell` → `attack.execution`,
@@ -927,12 +927,12 @@ consumers without a per-SIEM mapping on the operator's side.
    (→ `metadata.log_name`) onto `Alert`?** Both small; both widen `engine.Match`/`Alert`. Proposed:
    `desc` yes (it is the analyst's first read), `log_name` later.
 7. **Should the jsonl file name encode the format (`alerts-ocsf-YYYY-MM-DD.jsonl`), so a directory
-   can hold both and the retention regexp distinguishes them?** Proposed: no — one directory, one
+   can hold both and the retention regexp distinguishes them?** Proposed: no - one directory, one
    format, keep the file name and the prune regexp untouched; document the switch-over caveat.
 8. **Compiled OCSF schema: regenerate in CI from the pinned tag (proposed) or check the JSON in
    (several MB, but makes `just ocsf-validate` offline and single-tool)?**
 9. **Is a Splunk HEC envelope style (`style: splunk-hec`) wanted now, or wait for a user?**
-10. **`banken check -format ocsf`** — print the finding(s) a hypothetical event would produce, for
+10. **`banken check -format ocsf`** - print the finding(s) a hypothetical event would produce, for
     purple-teaming the SIEM side? Cheap given `ToOCSF`, but `check` prints rules not alerts today;
     it would need to build `Alert`s the way `engine.Match` does. Proposed: later.
 11. **Declare the `security_control` profile now with `action_id: 16 Alert`?** Some consumers key
@@ -942,7 +942,7 @@ consumers without a per-SIEM mapping on the operator's side.
 
 ## References (all checked 2026-10-31)
 
-- OCSF schema browser and API: https://schema.ocsf.io — versions list
+- OCSF schema browser and API: https://schema.ocsf.io - versions list
   (`/api/versions`: default 1.9.0, 1.10.0-dev in progress); Detection Finding
   (`/1.3.0/api/classes/detection_finding`, `/api/classes/detection_finding`); objects
   `process`, `file`, `user`, `device`, `evidences`, `finding_info`, `analytic`, `attack`, `tactic`,

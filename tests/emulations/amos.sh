@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# amos.sh — benign emulation of AMOS / "Atomic Stealer" for detection-rule testing.
+# amos.sh - benign emulation of AMOS / "Atomic Stealer" for detection-rule testing.
 #
 # What AMOS does on a victim: harvest browser credentials, crypto wallets and keychain/SSH keys,
 # stage them into an archive, and curl the archive to a C2. This does the harmless analogue: it

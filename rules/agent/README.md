@@ -4,7 +4,7 @@ Detections written for the behaviour of an autonomous AI agent (a coding agent l
 a CI/build agent) running under its own account. This is a rule class **SigmaHQ does not cover**:
 its rules target classic threats and catch an agent only incidentally (a reverse shell is a reverse
 shell whoever spawns it). These rules instead ask a question only the agent's *identity* makes
-meaningful — "should this account be doing this at all?" — which is how you detect an agent that has
+meaningful - "should this account be doing this at all?" - which is how you detect an agent that has
 been prompt-injected, has gone off its task, or is being driven by an attacker who got into its
 session.
 
@@ -16,14 +16,14 @@ gives each agent its own uid and audits it, which is where the account names com
 
 ## Rules here
 
-- `agent_ssh_access` — an agent account touched an SSH file (private key, authorized_keys, config,
+- `agent_ssh_access` - an agent account touched an SSH file (private key, authorized_keys, config,
   known_hosts): theft, a backdoor, or lateral-movement recon.
-- `agent_ssh_outbound` — the agent *ran* ssh/scp/sshpass or git-over-ssh (it has no host to reach).
-- `agent_exfil_to_code_host` — pushed to a gist/release/new repo, published or uploaded (T1567.001).
-- `agent_proxy_bypass` — unset/overrode the egress proxy, `--noproxy`, proxychains.
-- `agent_git_config_persistence` — a git config or hook that runs code or steals credentials.
-- `agent_self_config_modification` — wrote its own harness config: settings, hooks, skills, CLAUDE.md.
-- `agent_decode` — the agent decoded encoded data (base64/base32/xxd/uudecode/openssl -d): unpacking
+- `agent_ssh_outbound` - the agent *ran* ssh/scp/sshpass or git-over-ssh (it has no host to reach).
+- `agent_exfil_to_code_host` - pushed to a gist/release/new repo, published or uploaded (T1567.001).
+- `agent_proxy_bypass` - unset/overrode the egress proxy, `--noproxy`, proxychains.
+- `agent_git_config_persistence` - a git config or hook that runs code or steals credentials.
+- `agent_self_config_modification` - wrote its own harness config: settings, hooks, skills, CLAUDE.md.
+- `agent_decode` - the agent decoded encoded data (base64/base32/xxd/uudecode/openssl -d): unpacking
   an obfuscated payload (T1140). `deobfuscate_and_run` catches a decode piped into a shell host-wide.
 - `agent_ai_enabled_exfil` - the agent ran a bulk transfer to external storage (rclone/aws s3/gsutil/
   curl --upload-file ...): **T1700 AI-Enabled Exfiltration** (new in ATT&CK v20). Owns object-storage

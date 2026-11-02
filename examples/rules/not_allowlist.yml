@@ -1,4 +1,4 @@
-# Showcase: an allow-list carve-out with `and not` — the standard way to tune
+# Showcase: an allow-list carve-out with `and not` - the standard way to tune
 # out a known-good false positive without disabling the whole rule.
 title: curl to an unexpected host
 id: example-curl-not-allowlisted

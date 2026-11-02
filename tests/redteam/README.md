@@ -1,4 +1,4 @@
-# Red-team account — purple-teaming banken on a live host
+# Red-team account - purple-teaming banken on a live host
 
 A standing invitation to find where banken is blind, on a real system rather than a VM. An AI
 operator logs in as the contained `redteam` user on hokkaido, plays an attacker who has just
@@ -17,7 +17,7 @@ Every action holds to the emulations' [safety contract](../emulations/README.md#
 and to these:
 
 - **Benign stand-ins only.** Imitate the *shape* of a behaviour so it produces the same audit
-  events — exec a harmless placeholder under a tool's name, read dummy data from a scratch dir,
+  events - exec a harmless placeholder under a tool's name, read dummy data from a scratch dir,
   connect to an unroutable TEST-NET address (`192.0.2.0/24`) with a short timeout. Never run real
   malware, a real exploit, or a real attack tool against anything.
 - **This account only.** Stay inside `redteam`'s own home and `mktemp` scratch. No touching other
@@ -31,7 +31,7 @@ and to these:
   after each run.
 - **Keep ground truth.** Append every action to `~/redteam-log.ndjson` as
   `{"t": "<iso8601>", "technique": "<id or name>", "command": "<what ran>", "expect": "<rule or 'none'>"}`
-  before running it, so banken's alerts can be scored against what was actually done — including
+  before running it, so banken's alerts can be scored against what was actually done - including
   the actions that *should* stay quiet (a false-positive check).
 
 If an action cannot be done within this contract, it does not belong here. The point is never to
@@ -40,7 +40,7 @@ harm the host; it is to learn what banken does and does not see, and to write th
 ## How a session goes
 
 1. Read this file and the [emulations](../emulations/README.md) for the house style.
-2. Pick a behaviour to test — start from ATT&CK tactics banken claims to cover, then the gaps the
+2. Pick a behaviour to test - start from ATT&CK tactics banken claims to cover, then the gaps the
    range flagged (credentials-in-files, history clearing, shell variants; see the project tasks).
 3. Log it to `~/redteam-log.ndjson`, run the benign stand-in, note the time.
 4. After a scan interval, read banken's alerts (`journalctl -u banken -p err`, or
@@ -50,8 +50,8 @@ harm the host; it is to learn what banken does and does not see, and to write th
 
 ## The two accounts
 
-- **`redteam`** (uid 1102): the scored harness above — tight limits, no egress, no Nix builds.
-- **`lab`** (uid 1103): a freer-range version of the same idea — still no egress, but roomier
+- **`redteam`** (uid 1102): the scored harness above - tight limits, no egress, no Nix builds.
+- **`lab`** (uid 1103): a freer-range version of the same idea - still no egress, but roomier
   limits and fewer restrictions, so a session can move around a realistic multi-step scenario
   (land, look around, stage, "exfil" to a dead address) rather than one probe at a time. Same
   rules of engagement; same ground-truth log.

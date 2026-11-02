@@ -47,7 +47,7 @@ Under systemd banken logs at the right priorities: alerts at `crit`/`err`, its o
 anything else it shows at `warning` or above is banken telling you something is wrong.
 
 The interval is the main detection-latency knob: a threat is flagged within one interval of being
-logged (plus ~microseconds of matching — see [Performance](../README.md#performance)). Shorten it,
+logged (plus ~microseconds of matching - see [Performance](../README.md#performance)). Shorten it,
 or run `banken --watch` as a daemon, for lower latency.
 
 ## Log source
@@ -73,7 +73,7 @@ live distro matrix, [tests/distros](../tests/distros/README.md)):
 
 [Laurel](https://github.com/threathunters-io/laurel) is
 supported and recommended as an enricher (it turns the multi-line audit records into clean JSON),
-but not required — the raw auditd parser reads `/var/log/audit/audit.log` directly.
+but not required - the raw auditd parser reads `/var/log/audit/audit.log` directly.
 
 ## Configuration
 

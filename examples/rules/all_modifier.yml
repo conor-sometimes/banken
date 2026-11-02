@@ -1,4 +1,4 @@
-# Showcase: the |all modifier — EVERY value must be present, not just one.
+# Showcase: the |all modifier - EVERY value must be present, not just one.
 # A classic "decode a blob and pipe it to a shell" one-liner.
 title: Encoded payload piped to a shell
 id: example-decode-pipe-shell

@@ -7,7 +7,7 @@ to be reviewed, argued with, and then either built or shelved. Written 2026-10-3
 ## 1. Summary and recommendation
 
 banken matches *events* (one process execution, one file access) against Sigma rules and IOC lists.
-YARA matches *content* — the bytes of a file (or a process's memory) against signatures. That is a
+YARA matches *content* - the bytes of a file (or a process's memory) against signatures. That is a
 genuinely new detection surface: it does not fit the `Event` → `Matcher` path and should not be
 forced into it. The right fit is **a scan of a file that an existing alert already pointed at**: when
 a Sigma/IOC alert names a `TargetFilename` (or the `Image` that ran), banken asks "does that file trip
@@ -24,7 +24,7 @@ off, a static binary you can read". Section 3 lays out the four real options. Th
 > only active when the operator enables it and names (or the package finds) a `yara` binary.** The
 > Go binary stays pure, CGO-off and static with zero new modules. The hostile-input parsing (libyara's
 > PE/ELF/Mach-O parsers chewing an attacker's file, libyara's rule compiler chewing a rule) happens in
-> a **separate process** that can crash, hang or be killed without touching the scan — which is
+> a **separate process** that can crash, hang or be killed without touching the scan - which is
 > exactly banken's never-die rule, obtained for free from the process boundary rather than from a
 > `recover()`. The in-process CGO binding is kept as a documented, build-tagged *future* backend
 > behind the same `Engine` interface, not built now.
@@ -85,9 +85,9 @@ into a trojan is worse than no detector*. Everything YARA touches is hostile inp
   process (A/C), a bug there is memory corruption in a root process whose only job is to be
   trustworthy. In a child (B), it is a crashed child and an error line.
 - **The rules may be attacker-authored** once remote rule sync exists (README security model, items
-  3–5). libyara's rule compiler is a yacc grammar plus a regex compiler; a hostile `.yar` can crash
+  3-5). libyara's rule compiler is a yacc grammar plus a regex compiler; a hostile `.yar` can crash
   it, and its `include` directive reads arbitrary files. In process, a hostile rule crashes the
-  detector at load — a silent way to switch detection off, the exact failure the never-die contracts
+  detector at load - a silent way to switch detection off, the exact failure the never-die contracts
   exist to prevent. In a child, it fails the YARA step and the Sigma scan proceeds untouched.
 - **A hang is a DoS.** A pathological regex in a rule or a crafted file can make a scan take minutes.
   In process, that stalls the one-shot run and the cursor does not advance. In a child, it is a
@@ -99,7 +99,7 @@ caveats in `just build`, `govulncheck` keeps covering 100% of the binary, and th
 
 The price of B is real and is listed in §9. The two that matter most: the CLI's text output is an
 interface we do not control (mitigated by driving the CLI with a fixed, minimal flag set and golden
-tests per supported version — §6), and the hardened unit must be loosened in two places to let the
+tests per supported version - §6), and the hardened unit must be loosened in two places to let the
 scan *see* the files (§5.5). If either proves unacceptable in practice, C is the fallback, behind the
 same interface, with no change to the policy layer.
 
@@ -148,7 +148,7 @@ Reasons for putting it in the engine rather than behind the existing `Responder`
   the artifact copy it just made (§4.2b). The scanner is a library both call sites share.
 
 A YARA hit is a **separate alert**, `Kind: "yara"`, not a mutation of the triggering alert. The
-triggering alert has already gone to the sinks by the time the scan finishes (and must — a slow or
+triggering alert has already gone to the sinks by the time the scan finishes (and must - a slow or
 failed scan must never delay or suppress the Sigma hit). The two are correlated by the `Trigger`
 field on the YARA alert plus the shared `Event`.
 
@@ -159,11 +159,11 @@ security model item 2). Defaults:
 
 - the triggering alert's `Level` is at or above `yara.minLevel` (default `medium`);
 - the path to scan is, in order, `Event.TargetFilename` if non-empty, else `Event.Image` if
-  `yara.scanImage` is true (default **true** — the `Image` of a `download_ip_to_tmp` or
+  `yara.scanImage` is true (default **true** - the `Image` of a `download_ip_to_tmp` or
   `pipe_to_shell` hit is often the dropper itself, and binaries are what community YARA sets are
   best at);
 - the path is not under an excluded prefix (`yara.excludePaths`, default `/proc`, `/sys`, `/dev`,
-  `/var/log/audit`, `/var/log/laurel`, `/var/lib/banken`, and the jsonl sink's `dir` — the last two
+  `/var/log/audit`, `/var/log/laurel`, `/var/lib/banken`, and the jsonl sink's `dir` - the last two
   prevent banken scanning its own state and alert files, see §5.6);
 - the scanner has not already scanned that (device, inode) this run (per-run dedupe) and has not hit
   `yara.maxScansPerRun` (default 25).
@@ -187,7 +187,7 @@ size, engine version, rule-set version) in the artifact's manifest. This scan ha
 problems: the copy cannot change, it lives inside `ReadWritePaths`, and the sandbox already sees it.
 If response actions are designed with a different artifact layout, only the call site moves.
 
-**(c) On demand.** `banken yara [flags] FILE...` — §4.4.
+**(c) On demand.** `banken yara [flags] FILE...` - §4.4.
 
 ### 4.3 How a match maps to an `Alert`
 
@@ -204,14 +204,14 @@ existing pattern of `IOC`/`Field` (optional, `omitempty`, camelCase JSON tags pe
 | `Source` | the triggering event's `Source` (or `"yara"` for the on-demand/quarantine paths with no event) |
 | `Field` | which event field supplied the path: `TargetFilename` or `Image` (reuses the IOC convention of "which field fired") |
 | `File` *(new)* | the path that was opened |
-| `SHA256` *(new)* | hex SHA-256 of the exact bytes scanned (computed by banken from the fd it opened — §5.1) |
+| `SHA256` *(new)* | hex SHA-256 of the exact bytes scanned (computed by banken from the fd it opened - §5.1) |
 | `Trigger` *(new)* | `Kind/Rule` of the alert that caused the scan, e.g. `sigma/download_ip_to_tmp`; empty for on-demand |
 | `Message` | `yara rule %q matched %s (sha256 %s, %d bytes), triggered by %s` |
 | `Event` | the triggering event, verbatim |
 | `Time` | the triggering event's time (so jsonl day-files line up with the Sigma hit) |
 
 Why tags for severity rather than `meta:` fields: `yara -g` prints tags as identifiers in brackets
-— trivially and unambiguously parseable. `-m` prints meta values, which are free-form strings that
+- trivially and unambiguously parseable. `-m` prints meta values, which are free-form strings that
 may contain spaces and brackets, so parsing them from the one-line text format is ambiguous. The
 cost: upstream rule sets express severity as `meta: score = 75` (YARA-Forge) or not at all, so most
 imported rules land at `defaultLevel`. That is acceptable for v1 (a YARA hit on a file an alert
@@ -221,7 +221,7 @@ the summary line need no change.
 
 What is deliberately **not** on the alert: matched strings, offsets, or any bytes of the file. The
 scan is run without `-s`; an alert goes to a webhook, and a file banken was tricked into opening
-(§5.1) must not have its contents echoed to Slack. Rule, path, hash, size — never content.
+(§5.1) must not have its contents echoed to Slack. Rule, path, hash, size - never content.
 
 One file with N rule hits produces N alerts (one per rule), mirroring one event with N Sigma hits.
 `yara -l` (`--max-rules`) caps N at `yara.maxMatchesPerFile` (default 10) so a rule set that
@@ -244,7 +244,7 @@ banken yara [-rules DIR,...] [-engine /path/to/yara] [-json] FILE...
   not a silent no-match.
 - Exit status 0 regardless of match (as `check`), unless `-exit-code` is given (open question §11).
 - `banken yara -selftest` scans the embedded canary bytes against the embedded canary rule and prints
-  the engine version — a one-line "is YARA wired up on this host?" for operators, the EICAR idea.
+  the engine version - a one-line "is YARA wired up on this host?" for operators, the EICAR idea.
 
 ### 4.5 Rules: layout, sourcing, trust
 
@@ -274,7 +274,7 @@ wrong for signature feeds). Handing the embedded rule to the CLI means writing i
 skipped when an operator rule set is configured.
 
 **Sourcing.** The on-disk path mirrors Sigma's: the operator (or the NixOS module) puts a rule tree
-on disk and lists it under `rules:`. Recommended external source: **YARA-Forge** (`yarahq`) — it
+on disk and lists it under `rules:`. Recommended external source: **YARA-Forge** (`yarahq`) - it
 aggregates the public sets (Neo23x0 signature-base, Elastic, ReversingLabs, …), de-duplicates,
 quality-scores, and publishes `core` / `extended` / `full` packages as single `.yar` files with
 `meta: score` and a known-good compile against current libyara. `core` is the right default feed:
@@ -284,7 +284,7 @@ is a Nix fetch, not a banken fetch (README security model item 4: there is no fe
 **Precompiled rules.** Compiling a few thousand YARA rules takes on the order of a second per
 `yara` invocation, which is fine for a handful of scans per run but wasteful. `yarac` (ships with
 yara) compiles a tree to a `.yarc` that `yara -C` loads in milliseconds. A `.yarc` is bound to the
-libyara major.minor that produced it — which is exactly the guarantee a Nix derivation gives: the
+libyara major.minor that produced it - which is exactly the guarantee a Nix derivation gives: the
 module compiles the rule set with the same `pkgs.yara` it installs, at build time, and points
 `yara.compiled` at the store path. The CLI-and-tree path stays for non-Nix hosts and for
 `banken yara -rules DIR` iteration. A `.yarc` also cannot carry `include` directives or externals,
@@ -293,13 +293,13 @@ which removes two hostile-rule surfaces (§5.4) at the same time.
 **Trust.** Same rule as Sigma (README item 3, planned): as root, distrust a rules path writable by
 anyone but its owner. For YARA this check should land *with* the feature, not after: a YARA rule is
 closer to code than a Sigma rule (it has `include`, externals, and a compiler with a CVE history),
-and the engine binary itself is a trust point — `yara.engine` is an **absolute path**, checked to be
+and the engine binary itself is a trust point - `yara.engine` is an **absolute path**, checked to be
 root-owned and not group/world-writable before every exec; banken never searches `PATH` as root.
 The NixOS module sets it to the store path.
 
 ### 4.6 Config shape and the NixOS module
 
-Follows `internal/config` (YAML, camelCase, flag overrides on top, secrets never inline — there are
+Follows `internal/config` (YAML, camelCase, flag overrides on top, secrets never inline - there are
 none here):
 
 ```yaml
@@ -319,8 +319,8 @@ yara:
 
 Flags: `-yara` (enable), `-yara-engine PATH`, `-yara-rules DIR,...` for one-off runs; everything
 else config-only. The NixOS module exposes the same shape under `services.banken.yara.*` with
-`package = pkgs.yara`, derives `engine` from it, compiles `rules` to a `.yarc` in the store, and —
-this is the part that must be visible in the module's description — **adjusts the unit's sandbox**
+`package = pkgs.yara`, derives `engine` from it, compiles `rules` to a `.yarc` in the store, and -
+this is the part that must be visible in the module's description - **adjusts the unit's sandbox**
 when `yara.enable` is true (§5.5).
 
 ## 5. Safety model
@@ -334,7 +334,7 @@ hostile-until-trusted, and the engine as a crashable third party.
 1. **Open discipline.** `os.OpenFile(path, O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_NOCTTY|O_CLOEXEC, 0)`.
    `O_NOFOLLOW` refuses a final-component symlink; `O_NONBLOCK` means a FIFO cannot block the open;
    `O_NOCTTY` means a tty device cannot become our controlling terminal. Then `fstat` and require
-   `S_IFREG` — a directory, device, socket, FIFO or anything else is **skipped with a reason**, never
+   `S_IFREG` - a directory, device, socket, FIFO or anything else is **skipped with a reason**, never
    scanned. Then compare `Size` against `maxFileBytes`; over the cap is skipped (a partial scan would
    be a false "clean").
 2. **Scan the fd, not the path.** The child receives the open fd as fd 3 (`cmd.ExtraFiles`) and is
@@ -346,16 +346,16 @@ hostile-until-trusted, and the engine as a crashable third party.
 3. **Residual: intermediate symlinks.** `O_NOFOLLOW` only guards the last component; a symlinked
    parent directory can still redirect the open. A fully race-free resolve needs `openat2` with
    `RESOLVE_NO_SYMLINKS` (Linux 5.6+), which is not in the standard library's `syscall` package and
-   would need `golang.org/x/sys` — a new module. v1 accepts the residual, because what the attacker
-   gains is *banken reading a file of their choosing into yara* — and item 5 makes that read
+   would need `golang.org/x/sys` - a new module. v1 accepts the residual, because what the attacker
+   gains is *banken reading a file of their choosing into yara* - and item 5 makes that read
    worthless to them. Revisit if `x/sys` arrives for another reason.
 4. **Never execute, never write, never move.** The file is opened read-only and the child gets a
    read-only fd. There is no code path that `exec`s, `chmod`s, copies or deletes the target. (The
-   quarantine *action* copies — that is its job, in its own design — and then calls the scanner on
+   quarantine *action* copies - that is its job, in its own design - and then calls the scanner on
    the copy.)
 5. **Never echo content.** No `-s` (print matching strings), no `-D` (module data dump), no meta.
    stderr from the child is captured, truncated to 4 KiB, and only ever logged to banken's own
-   stderr — never placed on an alert. A libyara error message can quote a line of a rule or the
+   stderr - never placed on an alert. A libyara error message can quote a line of a rule or the
    name of an unreadable include; neither goes to a webhook.
 6. **Exclusions** (§4.2) keep the scanner out of `/proc` (where a "file" can be `kcore` or a
    process's memory), `/dev`, `/sys`, the audit logs (large, and the attacker writes into them by
@@ -387,8 +387,8 @@ hostile-until-trusted, and the engine as a crashable third party.
 
 ### 5.3 Never-die, concretely
 
-A YARA failure of any kind — binary missing, binary not executable, rule compile error, scan timeout,
-child crash (`SIGSEGV`), output unparseable, output truncated — is **one error in `Result.Errors`
+A YARA failure of any kind - binary missing, binary not executable, rule compile error, scan timeout,
+child crash (`SIGSEGV`), output unparseable, output truncated - is **one error in `Result.Errors`
 and one stderr line**, counted in the run summary (`banken: yara: 3 scanned, 1 matched, 1 failed
 (timeout)`). It never:
 
@@ -404,8 +404,8 @@ cap hit) is a `Result.Skipped` reason, distinct from an error, so the summary te
 
 The one failure that must be loud at startup, not per scan: `yara.enable: true` with no usable
 engine. That is a misconfiguration, logged once per run as a `banken: yara: enabled but …` line,
-and the run continues without YARA. It does not abort — a broken optional feature must not stop
-Sigma detection — but it must not be silent either.
+and the run continues without YARA. It does not abort - a broken optional feature must not stop
+Sigma detection - but it must not be silent either.
 
 ### 5.4 Hostile rules
 
@@ -430,21 +430,21 @@ Until signed bundles exist, a rule tree is as trusted as its directory. For YARA
 This is the least clean part of the design and it must be in the review, not discovered in a VM.
 `packaging/systemd/banken.service` (and the module that mirrors it) sets:
 
-- `PrivateTmp=true` — the unit sees its own empty `/tmp` and `/var/tmp`. A `download_ip_to_tmp`
+- `PrivateTmp=true` - the unit sees its own empty `/tmp` and `/var/tmp`. A `download_ip_to_tmp`
   alert names `/tmp/x`; the scanner would open the unit's private `/tmp/x` and report "missing".
   **Every dropper the baseline rules are written to catch lands in exactly these directories.**
-- `ProtectHome=true` — `/home`, `/root`, `/run/user` are inaccessible. Persistence scripts and user
+- `ProtectHome=true` - `/home`, `/root`, `/run/user` are inaccessible. Persistence scripts and user
   droppers live there.
-- `ProtectSystem=strict` — the rest of the filesystem is read-only, which is fine: reading is all
+- `ProtectSystem=strict` - the rest of the filesystem is read-only, which is fine: reading is all
   the scanner does.
-- `ProtectProc=invisible` — `/proc/1/root` (the "escape hatch" to the real `/tmp`) is invisible, so
+- `ProtectProc=invisible` - `/proc/1/root` (the "escape hatch" to the real `/tmp`) is invisible, so
   there is no clever way round `PrivateTmp`.
 
 So, when `yara.enable` is true, the unit must change: `PrivateTmp=false` and `ProtectHome=read-only`.
 Both are weakenings, and the design does not pretend otherwise:
 
 - `PrivateTmp=false` exposes banken to the classic shared-`/tmp` attacks (symlink races on tmp
-  files). banken writes nothing to `/tmp` — except the embedded canary rule file (§4.5), which must
+  files). banken writes nothing to `/tmp` - except the embedded canary rule file (§4.5), which must
   then be written under `/var/lib/banken` (its `StateDirectory`) instead, with `O_EXCL`, so the
   design moves it there unconditionally and the private tmp is not needed at all.
 - `ProtectHome=read-only` lets a parser bug in banken (not the child) read user files. The parsers
@@ -473,8 +473,8 @@ YARA-X (§3.3).
 
 ### 5.7 Resource exhaustion
 
-An attacker who can generate alerts can generate scans. The caps — `maxScansPerRun`, per-run
-(device, inode) dedupe, `maxFileBytes`, `timeout`, `maxMatchesPerFile`, bounded child output — put
+An attacker who can generate alerts can generate scans. The caps - `maxScansPerRun`, per-run
+(device, inode) dedupe, `maxFileBytes`, `timeout`, `maxMatchesPerFile`, bounded child output - put
 a hard ceiling on one run's YARA cost of `maxScansPerRun × timeout` wall-clock worst case (25 × 10 s
 ≈ 4 min at the defaults, which is longer than a 2 min timer interval; see §11 on whether the
 default should be lower, or scans should run concurrently with a small worker pool). Scans are
@@ -501,7 +501,7 @@ skips itself cleanly.
 | Subcommand | `TestRunYara` with the fake engine (mirrors `TestRunCheck`); the `-selftest` path is covered by the golden test above | no |
 
 Determinism: the canary rule is `rule banken_canary : low { strings: $c = "BANKEN-YARA-CANARY-7f3e…"
-condition: $c }` — a fixed ASCII string, no regex, no modules, so the match is identical across
+condition: $c }` - a fixed ASCII string, no regex, no modules, so the match is identical across
 engine versions and the no-match case cannot be flaky. The golden *output* files are the thing that
 drifts with engine versions, and they drift visibly (a new version gets a new recorded file, and the
 parser must pass all of them).
@@ -510,13 +510,13 @@ CI: the default job is unchanged. A second, separate job `yara` installs the dis
 (`apt-get install -y yara` on `ubuntu-latest`) and runs `go test ./internal/yara -run Golden` with
 `BANKEN_YARA=/usr/bin/yara`. On hokkaido, the module's VM test (when it lands) enables
 `services.banken.yara` with `pkgs.yara` and asserts `banken yara -selftest` passes under the real
-unit — which is also the test that catches the §5.5 sandbox problem if the module gets it wrong.
+unit - which is also the test that catches the §5.5 sandbox problem if the module gets it wrong.
 `just test` stays as is; `just test-yara` is the new, opt-in recipe.
 
 ## 7. Interface sketches (signatures only)
 
 ```go
-// internal/yara — the policy layer and the engine seam. No CGO, no new modules.
+// internal/yara - the policy layer and the engine seam. No CGO, no new modules.
 package yara
 
 type Config struct {
@@ -615,7 +615,7 @@ func LintSource(src []byte) error
 ```
 
 ```go
-// internal/alert — additions only.
+// internal/alert - additions only.
 const KindYara = "yara"
 
 type Alert struct {
@@ -627,7 +627,7 @@ type Alert struct {
 ```
 
 ```go
-// internal/engine — one optional collaborator; New's signature is unchanged.
+// internal/engine - one optional collaborator; New's signature is unchanged.
 func (e *Engine) SetYara(s *yara.Scanner)   // nil = off (the default)
 // Process: after dispatching each alert, if s != nil && ShouldScan -> ScanPath ->
 // AlertsFor -> Dispatch, all inside the existing per-event recover guard; errors
@@ -635,7 +635,7 @@ func (e *Engine) SetYara(s *yara.Scanner)   // nil = off (the default)
 ```
 
 ```go
-// internal/config — one new section, defaults in Default().
+// internal/config - one new section, defaults in Default().
 type Config struct {
     // ... existing ...
     Yara yara.Config `yaml:"yara"`
@@ -643,7 +643,7 @@ type Config struct {
 ```
 
 ```go
-// main.go — wiring and the subcommand.
+// main.go - wiring and the subcommand.
 // run(): if cfg.Yara.Enable { eng, err := yara.NewCLIEngine(cfg.Yara.Engine); on err log once, continue without }
 //        rules, problems := yara.Load(cfg.Yara, stateDir, cfg.Rules...); log problems like Sigma's
 //        engine.SetYara(yara.New(cfg.Yara, eng, rules))
@@ -700,7 +700,7 @@ with `json.Unmarshal` behind the same `Engine`.
   at `defaultLevel` until the output parser has earned trust.
 - In-process CGO backend. Designed-for (the `Engine` seam), not built.
 - Hash IOCs. The scanner computes SHA-256 anyway, and `ioc` has no hash kind yet; wiring the hash
-  into the IOC set is a natural follow-up (the README promises hash IOCs "with the eBPF sources" —
+  into the IOC set is a natural follow-up (the README promises hash IOCs "with the eBPF sources" -
   this would deliver them earlier, for files alerts already named), but it is its own small design.
 
 ## 11. Open questions for Conor
@@ -709,7 +709,7 @@ with `json.Unmarshal` behind the same `Engine`.
    `PrivateTmp=false` + `ProtectHome=read-only` (§5.5). Options: (a) the module flips both when
    `yara.enable`, documented loudly; (b) a separate `banken-yara.service` with the looser sandbox
    that only ever runs scans (more parts, but the main unit stays as tight as today; the scan
-   request would have to cross units — a spool dir — which is close to the sidecar); (c) accept
+   request would have to cross units - a spool dir - which is close to the sidecar); (c) accept
    that on-alert scanning only sees non-tmp, non-home files and rely on quarantine-time scanning.
    The design recommends (a) with (c) expressible.
 2. **Default `scanImage: true`?** It makes scans of `/usr/bin/curl` happen on every
@@ -719,7 +719,7 @@ with `json.Unmarshal` behind the same `Engine`.
    noisy community set would be noisy there. `medium` keeps it to jsonl/webhook. The design says
    `high` with YARA-Forge `core`; is that the right bet for "SentinelOne for the masses"?
 4. **Caps.** `maxScansPerRun: 25` × `timeout: 10s` can exceed a 2 min interval under attack. Lower
-   defaults (10 × 5 s), or a 2–4 worker pool for the scan loop in v1?
+   defaults (10 × 5 s), or a 2-4 worker pool for the scan loop in v1?
 5. **`banken yara` exit status.** Mirror `check` (always 0) or `-exit-code` for scripting (1 on
    match, 2 on error)? The design leans `-exit-code` opt-in.
 6. **Child credentials.** Drop the child to an unprivileged uid when the target is world-readable
@@ -750,7 +750,7 @@ the installed version before the parser is written, and the goldens will catch a
   the known suffix the parser strips).
 - `yara` opens the target by path, so `/proc/self/fd/3` with the fd inherited via `ExtraFiles`
   scans the already-open inode (standard magic-link behaviour; confirm no `O_NOFOLLOW` inside yara
-  defeats it — `-N` concerns recursive directory walks, not the argument itself).
+  defeats it - `-N` concerns recursive directory walks, not the argument itself).
 - The classic CLI has no flag to disable `include` (hence the lint) and no stdin target mode (hence
   the fd trick rather than a pipe).
 - `yarac` output is accepted by `yara -C` only for the same libyara major.minor.

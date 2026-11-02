@@ -108,7 +108,7 @@ func TestEveryRuleHasAFixture(t *testing.T) {
 	}
 	for _, r := range rules {
 		if !tested[r.Name] {
-			t.Errorf("rule %q (%s) has no tests/fixtures/*.expect-%s.json — every rule must ship with a test",
+			t.Errorf("rule %q (%s) has no tests/fixtures/*.expect-%s.json - every rule must ship with a test",
 				r.Name, r.Path, r.Name)
 		}
 	}

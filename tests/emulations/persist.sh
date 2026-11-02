@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# persist.sh — benign emulation of persistence establishment for detection-rule testing.
+# persist.sh - benign emulation of persistence establishment for detection-rule testing.
 #
-# What an attacker does: arrange to run again after a reboot — drop a systemd user unit, append to
+# What an attacker does: arrange to run again after a reboot - drop a systemd user unit, append to
 # a shell rc, install a crontab. This does the harmless analogue: it writes the SAME kinds of files
 # but ENTIRELY INSIDE its own mktemp scratch (a fake $HOME), never a real ~/.bashrc, never a real
 # ~/.config/systemd/user, never the real crontab. Nothing survives the run. See ./README.md.

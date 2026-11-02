@@ -25,7 +25,7 @@ type Cursor struct {
 // usable cursor. A missing, empty, or unreadable file is a silent fresh start
 // (first run). A non-empty file that does not parse is also recovered to a
 // fresh cursor but reports corrupted=true so the caller can warn. This is the
-// EDR-availability rule — losing the cursor means at worst re-reading a log
+// EDR-availability rule - losing the cursor means at worst re-reading a log
 // once (a possible duplicate alert, self-healed by the next Save), whereas
 // halting on a bad byte would silently stop protection.
 func LoadCursor(path string) (c *Cursor, corrupted bool) {
