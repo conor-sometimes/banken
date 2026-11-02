@@ -58,6 +58,12 @@ func Decide(in Input) Decision {
 		Scope:    entry.Scope,
 		Target:   buildTarget(entry, a),
 	}
+	// Record a name-vs-path masquerade on the target regardless of the verdict,
+	// so the ledger shows the cloak was seen through even when a later rail
+	// (rate limit, observe) stops the action for another reason.
+	if d.Target.Process != nil {
+		d.Masquerade = isMasquerade(d.Target.Process)
+	}
 
 	// An entry that explicitly maps to none never acts; no rail is needed.
 	if entry.Action == ActionNone {
@@ -162,9 +168,14 @@ func denylisted(in Input, pr *ProcessRef) (Rail, string) {
 	if pr.PPID == 0 || pr.PPID == 2 {
 		return RailDenylist, fmt.Sprintf("ppid %d is a kernel thread", pr.PPID)
 	}
-	base := filepath.Base(pr.Image)
-	if builtinDenyNames[base] {
-		return RailDenylist, fmt.Sprintf("image %q is a built-in protected process", base)
+	// A built-in protected NAME shields a process only when its image path is
+	// under a trusted system prefix. A payload named after a daemon in a
+	// world-writable dir (/tmp/.x/sshd) is a masquerade, not a protected
+	// process, and must stay actionable -- shielding it by name would let any
+	// attacker make malware un-killable just by naming it `sshd` (F2). The
+	// executor re-checks this against the LIVE exe realpath before acting.
+	if builtinDenyNames[filepath.Base(pr.Image)] && underTrustedExePrefix(pr.Image) {
+		return RailDenylist, fmt.Sprintf("image %q is a built-in protected process", pr.Image)
 	}
 	if in.Self.Exe != "" && pr.Image == in.Self.Exe {
 		return RailDenylist, "target is banken itself"
@@ -246,6 +257,37 @@ func underAllowPaths(allow []string, path string) bool {
 		}
 	}
 	return false
+}
+
+// trustedExePrefixes are the on-disk locations a genuine system binary lives
+// under. A process earns name-based built-in protection only if its image path
+// is under one of these; a protected name anywhere else is a masquerade. This
+// is NOT the never-touch list (that bounds quarantine): /home and /tmp are not
+// here because a daemon never legitimately runs from them.
+var trustedExePrefixes = []string{
+	"/nix/store",
+	"/usr",
+	"/bin",
+	"/sbin",
+	"/run/current-system/sw/bin",
+	"/run/wrappers/bin",
+}
+
+func underTrustedExePrefix(path string) bool {
+	clean := filepath.Clean(path)
+	for _, pfx := range trustedExePrefixes {
+		if clean == pfx || strings.HasPrefix(clean, pfx+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// isMasquerade reports a target that carries a built-in protected name but
+// runs from an untrusted path: a cloak (T1036.005), seen through and left
+// actionable.
+func isMasquerade(pr *ProcessRef) bool {
+	return builtinDenyNames[filepath.Base(pr.Image)] && !underTrustedExePrefix(pr.Image)
 }
 
 func isRoot(user string) bool { return user == "root" || user == "0" }

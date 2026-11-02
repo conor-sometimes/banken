@@ -462,19 +462,47 @@ different process by now. The executor:
 3. `poll(pidfd, 0)`: `POLLIN` means the process the fd refers to has exited. If so → `ErrGone`
    (step 2 may have read a *successor's* `/proc` entry; discard it).
 4. Because the fd's process is still alive (not even reaped), the pid cannot have been reused, so
-   the `/proc/<pid>` read in step 2 described the same process. Now verify identity:
-   - if `ProcessRef.StartTime` is known: `|starttime - ref.StartTime| ≤ 1 tick`;
-   - if unknown (auditd, Laurel): `starttime ≤ ref.EventTime + skew` (default 2s). This is sound,
-     not a heuristic: a pid can only be reused after its previous holder exits, and the holder
-     described by the alert was alive at `EventTime`, so any reuser was forked *after*
-     `EventTime` and fails the bound. The only thing that breaks it is a backwards wall-clock
-     step between the event and now, which is why there is a tolerance and why the `exe`
-     comparison below exists.
-   - `exe` is compared to `ProcessRef.Image` and the mismatch is recorded in the ledger but is
-     **not** a refusal: a shell legitimately execs on (`bash -c 'curl … | sh'`), same pid, same
-     start time, same lineage.
-   Any failure → `ErrStaleTarget`. Refusing is always preferred to acting on the wrong process.
-5. Act **through the fd**: `pidfd_send_signal(pidfd, SIGKILL, NULL, 0)`. Never `kill(2)`.
+   the `/proc/<pid>` read in step 2 described the same process. Now verify identity, **failing
+   closed**: any failure to positively confirm identity is `ErrStaleTarget`, never a verified
+   handle.
+   - start time MUST be readable. If `/proc/<pid>/stat` field 22 cannot be read or parsed, the
+     target is refused: a pid whose start time cannot be confirmed is a pid-reuse risk. (The
+     pre-arming bug was the opposite: an unreadable start time SKIPPED the check and returned a
+     verified pidfd. Closed.)
+   - if `ProcessRef.StartTime` is known: `|starttime - ref.StartTime| <= 1 tick`, else refuse;
+   - if unknown (auditd, Laurel): `starttime <= ref.EventTime + skew` (default 2s), else refuse.
+     This is sound, not a heuristic: a pid can only be reused after its previous holder exits, and
+     the holder described by the alert was alive at `EventTime`, so any reuser was forked *after*
+     `EventTime` and fails the bound. The only thing that breaks it is a backwards wall-clock step
+     between the event and now, which is why there is a tolerance and why the `exe` comparison
+     below also runs.
+   - `exe` is bound to `ProcessRef.Image` where the alert recorded one: the live
+     `/proc/<pid>/exe` must resolve to the SAME on-disk binary as the image. Comparison is by the
+     real file's `(dev, ino)` (stat follows the magic exe symlink and the image path's own
+     symlinks), so a PATH entry or a coreutils-multicall name matches the actual binary, while a
+     genuinely different binary (or a process that has since exec'd onto another image) is
+     refused. A mismatch, or an unreadable exe when an image was recorded, is `ErrStaleTarget`.
+     (This closes what was previously a record-but-do-not-refuse exe check; with real enforcement
+     being armed, fail-closed on the exe binding wins over the exec-on convenience. The verified
+     exe and start time are recorded in the ledger as the identity that was acted on.)
+5. **Live safety rails (`ErrDenied`), re-checked against what is true NOW.** A built-in protected
+   NAME (`sshd`, `systemd`, `auditd`, ...) shields a process ONLY when its LIVE exe realpath is
+   under a trusted system prefix (`/nix/store`, `/usr`, `/bin`, `/sbin`,
+   `/run/current-system/sw/bin`, `/run/wrappers/bin`) or its cgroup is a protected unit. A payload
+   named after a daemon in a world-writable dir (`/tmp/.x/sshd`) is a MASQUERADE (T1036.005): it is
+   deliberately NOT shielded (shielding by basename alone let any attacker make malware un-killable
+   just by naming it `sshd`), stays actionable, and is recorded `masquerade: true`. Independently,
+   the executor refuses a live uid-0 target unless `allowRoot`, and refuses any process whose
+   cgroup resolves to a protected unit (`init.scope` or a critical unit); blanket `*.service`
+   protection is deliberately NOT applied, since a reverse shell inherits a compromised service's
+   cgroup. uid that cannot be read is refused when `allowRoot` is false (fail closed).
+6. Act **through the fd**: `pidfd_send_signal(pidfd, SIGKILL, NULL, 0)`. Never `kill(2)`.
+
+This identity-and-rails procedure is shared by `kill`, `freeze` AND `collect`: `collect` binds to
+the same confirmed process before it snapshots `/proc`, so evidence is of the process the alert
+named, not of whoever holds the pid at collection time (a mismatch returns `ErrStaleTarget`/
+`ErrGone` rather than a snapshot of the wrong process). `Verify` runs the whole procedure read-only
+so `respond explain` can show the target, the masquerade flag and the refusal reason without acting.
 
 Newer kernels expose `PIDFD_GET_INFO` (an ioctl on the pidfd returning pid/ppid/exit info) which can
 replace the `/proc` read; treat it as an optimisation to verify on the target kernel, not a
