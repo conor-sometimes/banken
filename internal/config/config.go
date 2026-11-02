@@ -36,8 +36,36 @@ type Config struct {
 	StatePath string `yaml:"statePath"`
 	// Sources are the log inputs to scan.
 	Sources []Source `yaml:"sources"`
+	// Intel are threat-intel feeds (STIX 2.1 / MISP files, TAXII 2.1
+	// collections) whose indicators are normalised into the same IOC set the
+	// rules/ioc/*.txt lists feed, so the match engine consumes them unchanged.
+	// Empty is the common case: an operator with no external feed still gets
+	// the embedded baseline and any on-disk rules/ioc lists. A feed that fails
+	// to load or poll is warned about and the run continues (never-die); it is
+	// not a startup error, so one dead TAXII server cannot stop detection.
+	Intel []IntelFeed `yaml:"intel"`
 	// Alerts configures the sinks.
 	Alerts Alerts `yaml:"alerts"`
+}
+
+// IntelFeed is one threat-intel feed. Type selects the ingest path:
+//   - "stix" / "misp": Path is a local bundle/export file, parsed each run.
+//   - "taxii": URL is the TAXII 2.1 API root and Collection the collection id,
+//     polled each run. TokenFile (bearer) or Username/Password (basic) carry
+//     optional auth; a secret lives in TokenFile (a credential path), never
+//     inline, the same rule the webhook URL follows.
+//
+// Name labels every indicator the feed contributes, so an alert says which
+// feed paged. An empty Name defaults to the file base name or the feed type.
+type IntelFeed struct {
+	Type       string `yaml:"type"`
+	Name       string `yaml:"name"`
+	Path       string `yaml:"path"`
+	URL        string `yaml:"url"`
+	Collection string `yaml:"collection"`
+	TokenFile  string `yaml:"tokenFile"`
+	Username   string `yaml:"username"`
+	Password   string `yaml:"password"`
 }
 
 // Source is one log input.

@@ -1,0 +1,60 @@
+{
+  "Event": {
+    "uuid": "5f8e3a1c-1234-4a2b-8c9d-0e1f2a3b4c5d",
+    "info": "Commodity loader campaign",
+    "date": "2026-01-11",
+    "Attribute": [
+      {
+        "type": "ip-dst",
+        "category": "Network activity",
+        "value": "198.51.100.45",
+        "to_ids": true,
+        "comment": "C2"
+      },
+      {
+        "type": "domain",
+        "category": "Network activity",
+        "value": "loader.evil.example",
+        "to_ids": true
+      },
+      {
+        "type": "url",
+        "category": "Network activity",
+        "value": "http://loader.evil.example/beacon",
+        "to_ids": true
+      },
+      {
+        "type": "sha256",
+        "category": "Payload delivery",
+        "value": "aa61ce8c3b2f9e6d5a4b7c8d9e0f1a2b3c4d5e6f70819a2b3c4d5e6f7a8b9c0d1",
+        "to_ids": true
+      },
+      {
+        "type": "ip-src",
+        "category": "Network activity",
+        "value": "203.0.113.200",
+        "to_ids": false,
+        "comment": "benign jump host, not for detection"
+      }
+    ],
+    "Object": [
+      {
+        "name": "file",
+        "Attribute": [
+          {
+            "type": "filename",
+            "category": "Payload delivery",
+            "value": "/tmp/update-helper",
+            "to_ids": true
+          },
+          {
+            "type": "md5",
+            "category": "Payload delivery",
+            "value": "d41d8cd98f00b204e9800998ecf8427e",
+            "to_ids": true
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "more": true,
+  "next": "402cde4b-9137-4d3c-8d0e-1a2b3c4d5e6f",
+  "objects": [
+    {
+      "type": "indicator",
+      "spec_version": "2.1",
+      "id": "indicator--d1e2f3a4-b5c6-4788-99aa-bbccddeeff00",
+      "created": "2026-01-12T09:00:00.000Z",
+      "modified": "2026-01-12T09:00:00.000Z",
+      "name": "TAXII feed C2",
+      "pattern": "[ipv4-addr:value = '198.51.100.123']",
+      "pattern_type": "stix",
+      "valid_from": "2026-01-12T09:00:00Z"
+    },
+    {
+      "type": "domain-name",
+      "spec_version": "2.1",
+      "id": "domain-name--11112222-3333-4444-5555-666677778888",
+      "value": "poll.evil.example"
+    }
+  ]
+}

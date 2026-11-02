@@ -1,0 +1,16 @@
+{
+  "more": false,
+  "objects": [
+    {
+      "type": "indicator",
+      "spec_version": "2.1",
+      "id": "indicator--99887766-5544-4332-2110-ffeeddccbbaa",
+      "created": "2026-01-12T09:05:00.000Z",
+      "modified": "2026-01-12T09:05:00.000Z",
+      "name": "TAXII feed payload hash",
+      "pattern": "[file:hashes.'SHA-256' = 'b5a2c96250612366ea272ffac6d9744aaf4b45aacd96aa7cfcb931ee3b558259']",
+      "pattern_type": "stix",
+      "valid_from": "2026-01-12T09:05:00Z"
+    }
+  ]
+}

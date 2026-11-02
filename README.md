@@ -91,8 +91,14 @@ the detail and how each claim is checked. In-progress items are marked as such, 
   a rule using any of these is reported at load with the file and reason, never silently dropped.
 - IOC lists (`ioc/*.txt`): the matcher types each indicator by shape and matches filename/path, IP
   (IPv4/IPv6) and domain (exact or dot-suffix) indicators against the Image, CommandLine,
-  TargetFilename and CurrentDirectory fields. Hash indicators are not yet a kind. No baseline feeds
-  ship in the binary -- drop your own `ioc/*.txt` into a rules dir.
+  TargetFilename and CurrentDirectory fields. No baseline feeds ship in the binary -- drop your own
+  `ioc/*.txt` into a rules dir.
+- Threat-intel feed ingestion (`internal/intel`): STIX 2.1 bundles, TAXII 2.1 collections and MISP
+  JSON exports are normalised into that same IOC set, so the match engine and OCSF finding consume a
+  feed unchanged. Feeds are named in config (`intel:`); a hash or URL from a feed matches as a
+  substring value. See [docs/design/threat-intel-feeds.md](docs/design/threat-intel-feeds.md) and
+  [rules/ioc/README.md](rules/ioc/README.md). Reaching a live TAXII server needs egress; the parsers
+  and the TAXII client are proven offline against committed sample feeds and a local stub.
 - Optional rules shipped-but-off, with an observe mode that records without paging.
 - An Aho-Corasick literal prefilter makes match time independent of the rule count, fuzz-proven to
   only ever over-admit, never miss a detection.
@@ -105,8 +111,9 @@ Debian 13, Ubuntu 24.04, openSUSE Leap 16, Arch.
 
 **Standards done and checked in CI:** SigmaHQ conformance against pySigma, OCSF 1.3.0 Detection
 Findings (validated by the OCSF project's own validator), ECS 8.11.0, OTLP export, and ATT&CK
-Navigator layer export. Aspirational ones (YARA, STIX/TAXII, SBOM/SLSA) are listed as planned, not
-supported.
+Navigator layer export, and STIX 2.1 / TAXII 2.1 / MISP threat-intel feed ingestion (parsers and the
+TAXII client proven offline; a live TAXII poll needs a reachable server). Aspirational ones (YARA,
+SBOM/SLSA) are listed as planned, not supported.
 
 **Configuration surface:** every setting is both a CLI flag and a NixOS option (the module writes the
 YAML the binary reads), so nothing is reachable only one way.
@@ -195,8 +202,9 @@ checks banken's output; "measured" means a public test suite is run against it.
 broken claim fails the run (on NixOS: `nix develop .#conformance -c just conformance`).
 `just conformance-live` adds the checks that need KVM: the distro matrix and the ATT&CK range.
 
-Planned, not yet implemented: YARA, STIX/TAXII threat-intel feeds, an SBOM and SLSA provenance
-for releases, and the OpenSSF Scorecard.
+Planned, not yet implemented: YARA, an SBOM and SLSA provenance for releases, and the OpenSSF
+Scorecard. (STIX 2.1 / TAXII 2.1 / MISP threat-intel feed ingestion landed -- see
+docs/design/threat-intel-feeds.md.)
 
 ## Log sources
 
