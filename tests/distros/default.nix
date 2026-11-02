@@ -23,11 +23,15 @@ let
     (builtins.toJSON (lib.listToAttrs (map (d: lib.nameValuePair d.name "${image d}") distros)));
 
   # The whole repository's source (its Go code with every test, fixture and
-  # golden), so banken's own test suite can run inside each guest (E1).
+  # golden), so banken's own test suite can run inside each guest (E1). bench is
+  # included for its non-test source: the recursive _test.go filter below pulls
+  # bench/benchlib's test in, so `go list ./...` builds a test binary for it, and
+  # that binary cannot compile without bench's own packages (banken.fileset, the
+  # product, does not carry bench).
   src = lib.fileset.toSource {
     root = ../..;
     fileset = lib.fileset.unions [
-      banken.fileset ../../examples ../../tests ../../tools
+      banken.fileset ../../bench ../../examples ../../tests ../../tools
       (lib.fileset.fileFilter (f: lib.hasSuffix "_test.go" f.name) ../..)
     ];
   };
