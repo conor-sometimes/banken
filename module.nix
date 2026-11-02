@@ -831,11 +831,15 @@ in
         ProtectControlGroups = false;
         PrivateTmp = false;
         ProtectHome = false;
-        # The cgroup root (freeze/tree-kill writes child cgroups there; '-' so a
-        # kill-only host where it was never created still starts), the quarantine
-        # allowPaths (fileActions only), and a ledgerDir outside the state dir.
+        # The cgroup root (freeze/tree-kill writes child cgroups there), the
+        # quarantine allowPaths (fileActions only), and a ledgerDir outside the
+        # state dir. The cgroup root and the allowPaths are '-' prefixed (ignore
+        # if absent): a host without, say, /opt must still start the helper, and
+        # a dir that holds no file is nothing to quarantine from anyway -- without
+        # this an absent allowPath fails systemd's namespace setup and the helper
+        # never drains (the silent-disarm this very wiring exists to prevent).
         ReadWritePaths = [ "-${responseCgroupRoot}" ]
-          ++ lib.optionals cfg.response.fileActions cfg.response.quarantine.allowPaths
+          ++ lib.optionals cfg.response.fileActions (map (p: "-${p}") cfg.response.quarantine.allowPaths)
           ++ lib.optional
             (!(lib.hasPrefix "/var/lib/banken" cfg.response.ledgerDir))
             cfg.response.ledgerDir;
