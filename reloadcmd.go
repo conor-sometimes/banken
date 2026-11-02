@@ -56,7 +56,20 @@ func removePidFile(cfg config.Config) {
 // mechanism is exactly the signal systemctl reload sends; this is the
 // no-systemd / scriptable path to the same thing.
 func runReload(args []string, stdout, stderr io.Writer) error {
-	return reloadWith(args, stdout, stderr, syscall.Kill)
+	return reloadWith(args, stdout, stderr, sendSignal)
+}
+
+// sendSignal delivers a signal to another process by pid. It uses os.FindProcess
+// + Process.Signal rather than syscall.Kill so banken keeps cross-compiling for
+// every platform the build guard covers (syscall.Kill is Unix-only); on a system
+// that cannot deliver SIGHUP this surfaces as a runtime error, which is correct
+// -- the reload daemon is a Unix service.
+func sendSignal(pid int, sig syscall.Signal) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Signal(sig)
 }
 
 // reloadWith is runReload with an injectable signal sender, so a test can prove
