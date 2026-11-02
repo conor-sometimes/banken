@@ -173,6 +173,39 @@ let
     sigmahq_fe_doas_conf = [ "file_event_lnx_doas_conf_creation" ];
     sigmahq_fe_wget_tmp = [ "file_event_lnx_wget_download_file_in_tmp_dir" "proc_creation_lnx_wget_download_suspicious_directory" ];
 
+    # Batch 5 -- more process_creation rules. Same shape as earlier batches: a
+    # distinctive binary/flag combination an unprivileged user runs benignly
+    # (connects aimed at TEST-NET-1 so nothing is reached; sudo refused
+    # non-interactively; reads/writes that fail safe; payloads that are the stock
+    # `true` binary copied under the triggering name in a HOME scratch dir, used
+    # where the real tool is a heavy closure or not in nixpkgs and the rule keys
+    # only on the image name + flags). Twins, where one benign invocation inherently
+    # trips a second rule that genuinely matches the same behaviour, are listed so
+    # they are not counted as wild hits:
+    #   * nc without a listen flag also trips susp_network_utilities_execution;
+    #   * the curl/wget stager one-liner runs through `bash -c` carrying '/tmp/'
+    #     and 'sh -c', so it also trips curl_usage (the inner curl) and
+    #     susp_shell_script_exec_from_susp_location (shell -c referencing /tmp);
+    #   * `systemctl stop firewalld` also trips services_stop_and_disable;
+    #   * `find ... -name .htpasswd` also trips file_and_directory_discovery.
+    sigmahq_netcat_reverse_shell = [ "proc_creation_lnx_netcat_reverse_shell" "proc_creation_lnx_susp_network_utilities_execution" ];
+    sigmahq_ssh_shell_execution = [ "proc_creation_lnx_ssh_shell_execution" ];
+    sigmahq_curl_wget_exec_tmp = [ "proc_creation_lnx_curl_wget_exec_tmp" "proc_creation_lnx_curl_usage" "proc_creation_lnx_susp_shell_script_exec_from_susp_location" ];
+    sigmahq_install_root_certificate = [ "proc_creation_lnx_install_root_certificate" ];
+    sigmahq_install_suspicious_packages = [ "proc_creation_lnx_install_suspicious_packages" ];
+    sigmahq_security_tools_disabling = [ "proc_creation_lnx_security_tools_disabling" "proc_creation_lnx_services_stop_and_disable" ];
+    sigmahq_clipboard_collection = [ "proc_creation_lnx_clipboard_collection" ];
+    sigmahq_gobrat_grep = [ "proc_creation_lnx_malware_gobrat_grep_payload_discovery" ];
+    sigmahq_pnscan = [ "proc_creation_lnx_pnscan_binary_cli_pattern" ];
+    sigmahq_triple_cross_execve_hijack = [ "proc_creation_lnx_triple_cross_rootkit_execve_hijack" ];
+    sigmahq_triple_cross_install = [ "proc_creation_lnx_triple_cross_rootkit_install" ];
+    sigmahq_dd_process_injection = [ "proc_creation_lnx_dd_process_injection" ];
+    sigmahq_xterm_reverse_shell = [ "proc_creation_lnx_xterm_reverse_shell" ];
+    sigmahq_bpftrace_unsafe = [ "proc_creation_lnx_bpftrace_unsafe_option_usage" ];
+    sigmahq_bpf_kprobe = [ "proc_creation_lnx_bpf_kprob_tracing_enabled" ];
+    sigmahq_recon_indicators = [ "proc_creation_lnx_susp_recon_indicators" "proc_creation_lnx_file_and_directory_discovery" ];
+    sigmahq_shell_script_susp_location = [ "proc_creation_lnx_susp_shell_script_exec_from_susp_location" ];
+
     sigmahq_benign = [ ];
   };
 in
@@ -258,6 +291,13 @@ pkgs.testers.runNixOSTest {
       ruby # ruby (ruby_reverse_shell)
       vim # vim (vim_shell_execution)
       wget # wget (wget_download_suspicious_directory, fe_wget_tmp)
+      # Batch 5 additions, for the new emulations' tools. (sudo, dd, grep, find,
+      # dpkg, bash and systemctl are already present via the system or earlier
+      # batches; xterm/bpftrace/update-ca-certificates are emulated with a copied
+      # stock `true` under the triggering name, so no heavy closure is pulled in.)
+      netcat-gnu # nc with -e (netcat_reverse_shell, susp_network_utilities_execution)
+      openssh # ssh (ssh_shell_execution)
+      xclip # xclip (clipboard_collection)
     ];
     environment.etc."banken-emulations".source = ./emulations;
   };

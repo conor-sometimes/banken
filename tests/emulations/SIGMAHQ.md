@@ -23,20 +23,28 @@ entry and proves it, move that rule from a "pending/deferred" line here to the s
 drop any matching note). When a batch finds a rule genuinely unemulatable, record it here with the
 reason rather than leaving it silent.
 
-## Summary (as of batch 4, r2026-07-01)
+## Summary (as of batch 5, r2026-07-01)
 
 | SigmaHQ Linux category | Total | Supported here | Notes |
 | --- | --- | --- | --- |
-| `process_creation/` | 122 | ~73 (see `expected`) | the grind's main layer |
+| `process_creation/` | 122 | ~91 (see `expected`) | the grind's main layer |
 | `file_event/` | 8 | 6 (see `expected`) | reached via `audit.watchPaths` scratch files |
 | `network_connection/` | 5 | 0 | deferred - auditd-network-fields engine gap |
 | `auditd/` | 53 | 0 gated | auditd-logsource layer; some fire as bonus twins, none gated here yet |
 | `builtin/` | 22 | 0 | service-log / syslog message rules; see category note |
-| **total** | **210** | **~79 distinct rules** | |
+| **total** | **210** | **~97 distinct rules** | |
 
 Supported jumped from 54 (batches 1-3) to ~79 with batch 4 (+21 process_creation, +4 file_event;
 the `nohup`/`mkfifo` base rules were already supported and fire as twins of the new
-`_susp`/`_susp_location` refinements).
+`_susp`/`_susp_location` refinements), and to ~97 with batch 5 (+18 process_creation:
+`netcat_reverse_shell`, `ssh_shell_execution`, `curl_wget_exec_tmp`, `install_root_certificate`,
+`install_suspicious_packages`, `security_tools_disabling`, `clipboard_collection`,
+`malware_gobrat_grep_payload_discovery`, `pnscan_binary_cli_pattern`,
+`triple_cross_rootkit_execve_hijack`, `triple_cross_rootkit_install`, `dd_process_injection`,
+`xterm_reverse_shell`, `bpftrace_unsafe_option_usage`, `bpf_kprob_tracing_enabled`,
+`susp_recon_indicators`, `susp_shell_script_exec_from_susp_location`,
+`susp_network_utilities_execution`; the already-supported `curl_usage`, `services_stop_and_disable`
+and `file_and_directory_discovery` fire as twins of the new rules).
 
 ## Deferred to the distro matrix (task `d468b494`)
 
@@ -49,6 +57,7 @@ NixOS harness. These are matrix work (every-rule-x-every-distro north-star), **n
 | `process_creation/proc_creation_lnx_iptables_flush_ufw.yml` | `ufw` (and iptables) -> Ubuntu/Debian |
 | `process_creation/proc_creation_lnx_ssm_agent_abuse.yml` | AWS SSM agent -> Amazon Linux |
 | `process_creation/proc_creation_lnx_remote_access_tools_teamviewer_incoming_connection.yml` | `teamviewer` -> Ubuntu |
+| `process_creation/proc_creation_lnx_apt_shell_execution.yml` | `apt`/`apt-get` (not in nixpkgs) -> Ubuntu/Debian |
 | `process_creation/proc_creation_lnx_pua_trufflehog.yml` | `trufflehog` -> installable OSS, any distro |
 | `process_creation/proc_creation_lnx_susp_script_interpretor_spawn_credential_scanner.yml` | gitleaks/trufflehog-style credential scanner -> installable OSS, any distro |
 | `process_creation/proc_creation_lnx_susp_hktl_execution.yml` | named hacktools / nuclei -> installable OSS, any distro |
@@ -108,14 +117,18 @@ benign Linux-distro emulation is possible.
 ## Pending - emulatable, future grind batches (process_creation)
 
 Still unsupported but have no blocker beyond not-yet-written; good next-batch targets (rule names
-shown without the `proc_creation_lnx_` prefix): `netcat_reverse_shell`, `ssh_shell_execution`
-(fail-closed `LocalCommand`), `apt_shell_execution`, `curl_wget_exec_tmp`,
+shown without the `proc_creation_lnx_` prefix): `susp_git_clone`,
+`susp_shell_child_process_from_parent_tmp_folder` (needs a parent process whose image is under
+`/tmp/` - fiddly to stage benignly without tripping the tmp-exec rules).
+
+(Batch 5 proved `netcat_reverse_shell`, `ssh_shell_execution`, `curl_wget_exec_tmp`,
 `install_root_certificate`, `install_suspicious_packages`, `security_tools_disabling`,
-`clipboard_collection`, `susp_git_clone`, `susp_shell_script_exec_from_susp_location`,
-`susp_shell_child_process_from_parent_tmp_folder`, `malware_gobrat_grep_payload_discovery`,
-`pnscan_binary_cli_pattern`, `susp_network_utilities_execution`, `susp_recon_indicators`,
-`triple_cross_rootkit_execve_hijack`, `triple_cross_rootkit_install`, `xterm_reverse_shell`,
-`dd_process_injection`.
+`clipboard_collection`, `susp_shell_script_exec_from_susp_location`,
+`malware_gobrat_grep_payload_discovery`, `pnscan_binary_cli_pattern`,
+`susp_network_utilities_execution`, `susp_recon_indicators`, `triple_cross_rootkit_execve_hijack`,
+`triple_cross_rootkit_install`, `xterm_reverse_shell`, `dd_process_injection` from this list, plus
+`bpftrace_unsafe_option_usage` and `bpf_kprob_tracing_enabled`. `apt_shell_execution` moved to the
+distro-matrix table - `apt`/`apt-get` are not in nixpkgs.)
 
 ### Pending - harder (process_creation)
 
