@@ -36,7 +36,8 @@ func smokeLaurelNow() string {
 	return fmt.Sprintf(
 		`{"ID":"%d.000:1","SYSCALL":{"exe":"/usr/bin/cat","uid":"0"},"EXECVE":{"argc":"2","ARGV":["cat","/root/.ssh/id_rsa"]}}
 {"ID":"%d.000:2","SYSCALL":{"exe":"/usr/bin/cat","uid":"0"},"EXECVE":{"argc":"2","ARGV":["cat","/etc/hostname"]}}
-`, ts, ts+1)
+`, ts, ts+1,
+	)
 }
 
 func TestRunOneShotWritesAlertAndAdvancesCursor(t *testing.T) {
