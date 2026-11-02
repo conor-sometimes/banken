@@ -1,0 +1,326 @@
+# Security sources banken watches for threat and detection-engineering signal.
+#
+# Hand-maintained curated list (NOT generated). A future "watch and ingest" skill
+# reads this to pull the latest articles and surface rule ideas. See README.md.
+#
+# Fields per source:
+#   name            display name
+#   url             homepage or blog index (high confidence)
+#   rss             best-known feed URL -- UNVERIFIED starting point; the ingestion
+#                   skill should autodiscover (<link rel=alternate ...>) and validate.
+#                   null where no obvious feed / needs discovery.
+#   category        detection-engineering | threat-intel | linux-runtime | agentic-ai |
+#                   vuln-research | aggregator
+#   tier            essential | core | watch
+#   focus           one line: why it matters for banken (detection rules over Linux
+#                   host telemetry, OCSF out, plus the agentic-AI niche)
+
+meta:
+  updated: "2026-11-02"
+  rss_verified: true    # all url + rss links lychee/curl-checked 2026-11-02 (Mac, open internet)
+  rss_check_notes: >
+    Checked with lychee 0.24.2 then curl. Every url and every non-null rss returns 200.
+    Google TAG has no dedicated category feed (rss: null). Re-run the check in README.md
+    after editing; some sites (Cloudflare/Akamai) may 403 an automated client as a false
+    negative, so confirm those by hand rather than deleting them.
+  notes: >
+    tier essential = highest signal per minute for a detection-engineering builder.
+    "Hacker News" (news.ycombinator.com, YC front page) is NOT the same as
+    "The Hacker News" (thehackernews.com, a security news site); both are listed.
+
+sources:
+  # ---- detection engineering / blue team ----
+  - name: The DFIR Report
+    url: https://thedfirreport.com
+    rss: https://thedfirreport.com/feed/
+    category: detection-engineering
+    tier: essential
+    focus: full real intrusions step by step, ATT&CK-mapped with artifacts; the richest rule fuel
+
+  - name: Red Canary Blog
+    url: https://redcanary.com/blog/
+    rss: https://redcanary.com/blog/feed/
+    category: detection-engineering
+    tier: essential
+    focus: technique prevalence + detection guidance; the annual Threat Detection Report ranks where to aim coverage
+
+  - name: Elastic Security Labs
+    url: https://www.elastic.co/security-labs
+    rss: https://www.elastic.co/security-labs/rss/feed.xml
+    category: detection-engineering
+    tier: essential
+    focus: real Linux malware teardowns WITH the detection logic; closest to banken's lane
+
+  - name: SpecterOps Blog
+    url: https://specterops.io/blog/
+    rss: https://posts.specterops.io/feed
+    category: detection-engineering
+    tier: core
+    focus: Capability Abstraction / Funnel of Fidelity; theory for robust (not brittle) detections
+
+  - name: Nextron / Florian Roth
+    url: https://www.nextron-systems.com/blog/
+    rss: https://www.nextron-systems.com/feed/
+    category: detection-engineering
+    tier: core
+    focus: Sigma creator; rule-writing craft, YARA, threat hunting
+
+  - name: SigmaHQ
+    url: https://github.com/SigmaHQ/sigma
+    rss: https://github.com/SigmaHQ/sigma/releases.atom
+    category: detection-engineering
+    tier: core
+    focus: the upstream Sigma rule set banken matches against; watch releases for new rules
+
+  - name: Splunk Threat Research Team
+    url: https://www.splunk.com/en_us/blog/author/secmrkt-research.html
+    rss: null
+    category: detection-engineering
+    tier: watch
+    focus: steady stream of analytic logic and detection content
+
+  - name: Atomic Red Team (releases)
+    url: https://github.com/redcanaryco/atomic-red-team
+    rss: https://github.com/redcanaryco/atomic-red-team/releases.atom
+    category: detection-engineering
+    tier: core
+    focus: banken scores against ART; new tests = new coverage targets
+
+  # ---- threat intel / adversary research ----
+  - name: Mandiant (Google Cloud Threat Intelligence)
+    url: https://cloud.google.com/blog/topics/threat-intelligence
+    rss: https://cloud.google.com/blog/topics/threat-intelligence/rss
+    category: threat-intel
+    tier: core
+    focus: APT + malware writeups; each is a set of behaviours to detect
+
+  - name: Microsoft Threat Intelligence
+    url: https://www.microsoft.com/en-us/security/blog/topic/threat-intelligence/
+    rss: https://www.microsoft.com/en-us/security/blog/feed/
+    category: threat-intel
+    tier: core
+    focus: MSTIC research, nation-state and commodity threats
+
+  - name: Cisco Talos
+    url: https://blog.talosintelligence.com
+    rss: https://blog.talosintelligence.com/rss/
+    category: threat-intel
+    tier: core
+    focus: broad malware + vuln research with IOCs
+
+  - name: Unit 42 (Palo Alto)
+    url: https://unit42.paloaltonetworks.com
+    rss: https://unit42.paloaltonetworks.com/feed/
+    category: threat-intel
+    tier: core
+    focus: incident-driven research, Linux and cloud included
+
+  - name: CrowdStrike Blog
+    url: https://www.crowdstrike.com/blog/
+    rss: https://www.crowdstrike.com/blog/feed/
+    category: threat-intel
+    tier: watch
+    focus: adversary tradecraft and eCrime trends
+
+  - name: ESET WeLiveSecurity
+    url: https://www.welivesecurity.com
+    rss: https://www.welivesecurity.com/en/rss/feed/
+    category: threat-intel
+    tier: watch
+    focus: strong Linux malware research
+
+  - name: Kaspersky Securelist
+    url: https://securelist.com
+    rss: https://securelist.com/feed/
+    category: threat-intel
+    tier: watch
+    focus: APT campaigns and malware deep dives
+
+  - name: Volexity
+    url: https://www.volexity.com/blog/
+    rss: https://www.volexity.com/blog/feed/
+    category: threat-intel
+    tier: watch
+    focus: memory forensics and targeted-intrusion research
+
+  - name: CISA Advisories
+    url: https://www.cisa.gov/news-events/cybersecurity-advisories
+    rss: https://www.cisa.gov/cybersecurity-advisories/all.xml
+    category: threat-intel
+    tier: core
+    focus: what is being exploited now; pair with the KEV catalog for prioritisation
+
+  - name: CISA Known Exploited Vulnerabilities (KEV)
+    url: https://www.cisa.gov/known-exploited-vulnerabilities-catalog
+    rss: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+    category: threat-intel
+    tier: core
+    focus: machine-readable KEV feed; operational prioritisation signal
+
+  # ---- linux / eBPF / runtime security (banken + mimi niche) ----
+  - name: Aqua Security Blog (Nautilus / Tracee)
+    url: https://blog.aquasec.com
+    rss: https://blog.aquasec.com/rss.xml
+    category: linux-runtime
+    tier: essential
+    focus: Linux runtime threats + eBPF detection; closest peer to what banken/mimi build
+
+  - name: Sysdig Blog
+    url: https://sysdig.com/blog/
+    rss: https://sysdig.com/feed/
+    category: linux-runtime
+    tier: core
+    focus: cloud-native runtime detection, syscall-level rules
+
+  - name: Falco Blog
+    url: https://falco.org/blog/
+    rss: https://falco.org/feed.xml
+    category: linux-runtime
+    tier: core
+    focus: open-source runtime security rules; a sibling intake (standards.md adapter idea)
+
+  - name: Isovalent / Tetragon
+    url: https://isovalent.com/blog/
+    rss: https://isovalent.com/rss.xml
+    category: linux-runtime
+    tier: core
+    focus: eBPF observability + enforcement; relevant to mimi and the Tetragon-as-a-source idea
+
+  - name: Datadog Security Labs
+    url: https://securitylabs.datadoghq.com
+    rss: https://securitylabs.datadoghq.com/rss/feed.xml
+    category: linux-runtime
+    tier: watch
+    focus: Linux + cloud detection research
+
+  - name: Brendan Gregg
+    url: https://www.brendangregg.com/blog/
+    rss: https://www.brendangregg.com/blog/rss.xml
+    category: linux-runtime
+    tier: watch
+    focus: foundational eBPF/perf background for mimi (not threat-focused)
+
+  # ---- agentic-AI / LLM security (banken's novel detection niche) ----
+  - name: Embrace The Red (Johann Rehberger)
+    url: https://embracethered.com/blog/
+    rss: https://embracethered.com/blog/index.xml
+    category: agentic-ai
+    tier: essential
+    focus: sharpest practical work on agent/LLM attacks, prompt injection, the AI kill chain
+
+  - name: MITRE ATLAS
+    url: https://atlas.mitre.org
+    rss: null
+    category: agentic-ai
+    tier: core
+    focus: adversarial-threat framework for AI systems; maps to banken's v20 AI-technique rules
+
+  - name: Simon Willison
+    url: https://simonwillison.net
+    rss: https://simonwillison.net/atom/everything/
+    category: agentic-ai
+    tier: core
+    focus: prompt-injection discourse and running commentary that frames the field
+
+  - name: OWASP GenAI / Top 10 for LLM Apps
+    url: https://genai.owasp.org
+    rss: null
+    category: agentic-ai
+    tier: watch
+    focus: the reference risk taxonomy for LLM applications
+
+  - name: NVIDIA AI Red Team
+    url: https://developer.nvidia.com/blog/category/generative-ai/
+    rss: null
+    category: agentic-ai
+    tier: watch
+    focus: practical AI red-teaming findings
+
+  - name: Trail of Bits Blog
+    url: https://blog.trailofbits.com
+    rss: https://blog.trailofbits.com/feed/
+    category: agentic-ai
+    tier: watch
+    focus: AI/ML security plus general security engineering rigour
+
+  # ---- vuln / exploit research (defensive awareness) ----
+  - name: Google Project Zero
+    url: https://googleprojectzero.blogspot.com
+    rss: https://googleprojectzero.blogspot.com/feeds/posts/default
+    category: vuln-research
+    tier: core
+    focus: deep vuln + nation-state exploit research
+
+  - name: Google Threat Analysis Group (TAG)
+    url: https://blog.google/threat-analysis-group/
+    rss: null   # no dedicated category feed; blog.google/rss/ is the whole-Google firehose. skill should scrape the category page
+    category: vuln-research
+    tier: watch
+    focus: tracked 0-days and nation-state activity
+
+  - name: watchTowr Labs
+    url: https://labs.watchtowr.com
+    rss: https://labs.watchtowr.com/rss/
+    category: vuln-research
+    tier: watch
+    focus: fast, detailed n-day/0-day teardowns on widely deployed software
+
+  # ---- aggregators / newsletters / daily (the efficient keep-up layer) ----
+  - name: tl;dr sec (Clint Gibler)
+    url: https://tldrsec.com
+    rss: https://tldrsec.com/rss
+    category: aggregator
+    tier: essential
+    focus: best weekly roundup for appsec + detection; saves reading 50 other things
+
+  - name: Detection Engineering Weekly (Zack Allen)
+    url: https://www.detectionengineering.net
+    rss: https://www.detectionengineering.net/feed
+    category: aggregator
+    tier: essential
+    focus: exactly banken's discipline: rules, pipelines, Sigma, telemetry
+
+  - name: SANS Internet Storm Center (ISC)
+    url: https://isc.sans.edu
+    rss: https://isc.sans.edu/rssfeed_full.xml
+    category: aggregator
+    tier: core
+    focus: daily, short, practitioner-level handler diaries
+
+  - name: Risky Business
+    url: https://risky.biz
+    rss: https://risky.biz/feeds/risky-business/
+    category: aggregator
+    tier: core
+    focus: weekly news with judgement, low noise
+
+  - name: Krebs on Security
+    url: https://krebsonsecurity.com
+    rss: https://krebsonsecurity.com/feed/
+    category: aggregator
+    tier: watch
+    focus: breaches and ecosystem reporting
+
+  - name: Hacker News (YC front page)
+    url: https://news.ycombinator.com
+    rss: https://hnrss.org/frontpage
+    category: aggregator
+    tier: core
+    focus: >
+      front page surfaces security incidents, 0-days and tooling early; noisy, so the
+      ingestion skill should filter (hnrss.org supports points= and query= thresholds).
+      NOT the same site as The Hacker News below.
+
+  - name: The Hacker News
+    url: https://thehackernews.com
+    rss: https://feeds.feedburner.com/TheHackersNews
+    category: aggregator
+    tier: watch
+    focus: broad security news firehose; skim for breaking items (distinct from Hacker News above)
+
+  - name: BleepingComputer
+    url: https://www.bleepingcomputer.com
+    rss: https://www.bleepingcomputer.com/feed/
+    category: aggregator
+    tier: watch
+    focus: breaking malware/ransomware and vuln news
