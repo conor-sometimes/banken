@@ -33,6 +33,13 @@ let
   # rebuild. Operator-supplied refreshDirs come first, the puller's dir last.
   refreshDirs = cfg.refreshDirs ++ lib.optional cfg.refresh.enable cfg.refresh.dir;
 
+  # The response policy banken reads: the operator's own file if given, else the
+  # inline policy rendered to /etc/banken/response-policy.yml, else none.
+  responsePolicyPath =
+    if cfg.response.policyFile != null then toString cfg.response.policyFile
+    else if cfg.response.policy != "" then "/etc/banken/response-policy.yml"
+    else "";
+
   settings = {
     rules = [ "/etc/banken/rules" ] ++ map (p: "${p}") cfg.extraRules; # interpolation copies the tree to the store
     inherit refreshDirs;
@@ -75,6 +82,13 @@ let
       otlp = {
         inherit (cfg.alerts.otlp) enable endpoint headers;
       };
+    };
+    # The response layer. enable off (the default) makes this inert: banken is
+    # alert-only. enforce off (also the default, and kept off on every real
+    # host) means the executor is a dry-run even when a policy decides an action.
+    response = {
+      inherit (cfg.response) enable enforce ledgerDir;
+      policyFile = responsePolicyPath;
     };
   };
 
@@ -476,6 +490,74 @@ in
         };
       };
     };
+
+    response = {
+      enable = lib.mkEnableOption ''
+        the response-action layer: banken decides an action (freeze/kill/quarantine/collect) per the
+        policy for each alert and records it to an append-only ledger. Enabling this alone changes
+        NOTHING destructive -- the executor stays a dry-run (it records what it WOULD do and touches
+        no process or file) until `response.enforce` is also set. See docs/design/response-actions.md
+      '';
+
+      enforce = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          ARM REAL ENFORCEMENT. When true, banken's executor performs real actions -- it sends a real
+          SIGKILL, freezes a real cgroup, renames a real file -- for any action the policy decides in
+          enforce mode. This is OFF BY DEFAULT and MUST stay off on any host you are not willing to
+          have banken kill processes on: it is a live response weapon, gated behind this one switch
+          plus the policy's own `mode: enforce` and its safety rails (minLevel, enforceSources, the
+          built-in denylist, the kill-switch file, rate limits). It exists so a throwaway KVM VM test
+          can prove enforcement end to end; the hokkaido host and every real deployment leave it false
+          and run observe/dry-run. Turning it on also relaxes the scan unit's sandbox exactly as much
+          as the executor needs (CAP_KILL and process visibility), which is itself a reason to keep it
+          off unless you mean it.
+        '';
+      };
+
+      policyFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = ''
+          Path to the response policy YAML (the `response:` block shape in docs/design/response-actions.md:
+          mode, minLevel, enforceSources, denylist, rateLimit, and the ordered `actions:` mapping of
+          rule/tag to action). Used when set; otherwise `response.policy` (inline) is rendered to
+          /etc/banken/response-policy.yml. One of the two is required when `response.enable` is set.
+        '';
+      };
+
+      policy = lib.mkOption {
+        type = lib.types.lines;
+        default = "";
+        example = ''
+          mode: observe
+          minLevel: high
+          enforceSources: [auditd, laurel]
+          actions:
+            - name: freeze-reverse-shell
+              rules: [reverse_shell]
+              action: freeze
+              scope: tree
+        '';
+        description = ''
+          The response policy YAML inline, rendered to /etc/banken/response-policy.yml. Used only when
+          `response.policyFile` is unset. Default mode in the policy is observe, so even with
+          `response.enforce` armed nothing acts until the policy itself opts a rule into an action in
+          enforce mode.
+        '';
+      };
+
+      ledgerDir = lib.mkOption {
+        type = lib.types.str;
+        default = "/var/lib/banken/response";
+        description = ''
+          Where the append-only decision/action ledger is written (one decisions-<day>.jsonl and, when
+          an action is taken, one actions-<day>.jsonl per day). Kept forever by default: these lines
+          are the chain of custody for "why did banken touch this process".
+        '';
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable (
@@ -489,10 +571,17 @@ in
     } {
       assertion = cfg.refresh.enable -> cfg.refresh.repo != "";
       message = "services.banken.refresh.enable needs refresh.repo (the fleet rules repo URL to pull).";
+    } {
+      assertion = cfg.response.enable -> (cfg.response.policyFile != null || cfg.response.policy != "");
+      message = "services.banken.response.enable needs response.policyFile or response.policy (the response policy YAML).";
     }];
 
     environment.systemPackages = [ cfg.package ];
     environment.etc."banken/banken.yml".source = yaml.generate "banken.yml" settings;
+    # Render the inline response policy when one is given and no file was named.
+    environment.etc."banken/response-policy.yml" = lib.mkIf
+      (cfg.response.enable && cfg.response.policyFile == null && cfg.response.policy != "")
+      { text = cfg.response.policy; };
 
     security.auditd.enable = lib.mkIf cfg.audit.enable true;
     security.audit = lib.mkIf cfg.audit.enable {
@@ -552,10 +641,24 @@ in
         # Root, because the audit log is root's; every other power is taken
         # away. CAP_DAC_READ_SEARCH reads a log another user owns (Laurel's
         # is _laurel:_laurel 0640).
-        CapabilityBoundingSet = [ "CAP_DAC_READ_SEARCH" ];
+        # CAP_DAC_READ_SEARCH reads a log another user owns. When (and ONLY when)
+        # real response enforcement is armed, the in-process executor also needs
+        # CAP_KILL (to SIGKILL another uid's process via pidfd) and CAP_SYS_PTRACE
+        # (to read /proc/<pid>/exe of another uid for the pid-reuse identity
+        # check). enforce is off by default, so the real host keeps the lone
+        # CAP_DAC_READ_SEARCH it has always had.
+        CapabilityBoundingSet = [ "CAP_DAC_READ_SEARCH" ]
+          ++ lib.optionals cfg.response.enforce [ "CAP_KILL" "CAP_SYS_PTRACE" ];
         NoNewPrivileges = true;
         ProtectSystem = "strict";
-        ReadWritePaths = lib.optional cfg.alerts.jsonl.enable cfg.alerts.jsonl.dir;
+        # The response ledger defaults to <StateDirectory>/response, which is
+        # already writable; a ledgerDir set OUTSIDE /var/lib/banken is added to
+        # the writable set (StateDirectory covers the default, so this is empty
+        # in the common case).
+        ReadWritePaths = (lib.optional cfg.alerts.jsonl.enable cfg.alerts.jsonl.dir)
+          ++ lib.optional
+            (cfg.response.enable && !(lib.hasPrefix "/var/lib/banken" cfg.response.ledgerDir))
+            cfg.response.ledgerDir;
         ProtectHome = true;
         PrivateTmp = true;
         PrivateDevices = true;
@@ -568,14 +671,22 @@ in
         ProtectControlGroups = true;
         ProtectClock = true;
         ProtectHostname = true;
-        ProtectProc = "invisible";
+        # invisible hides other users' processes from banken, which would blind the
+        # executor's /proc identity read; with REAL enforcement armed it must see
+        # the target it is about to act on. Off by default -> banken stays invisible.
+        ProtectProc = if cfg.response.enforce then "default" else "invisible";
         RestrictNamespaces = true;
         RestrictRealtime = true;
         RestrictSUIDSGID = true;
         LockPersonality = true;
         MemoryDenyWriteExecute = true;
         SystemCallArchitectures = "native";
-        SystemCallFilter = [ "@system-service" ];
+        # pidfd_open / pidfd_send_signal are the race-free way the executor pins and
+        # signals a target; added only when enforcement is armed (they are part of
+        # @system-service on current systemd, but named here so the filter is correct
+        # regardless of the host's group definition).
+        SystemCallFilter = [ "@system-service" ]
+          ++ lib.optionals cfg.response.enforce [ "pidfd_open" "pidfd_send_signal" "pidfd_getfd" ];
         SystemCallErrorNumber = "EPERM";
         UMask = "0077";
       };

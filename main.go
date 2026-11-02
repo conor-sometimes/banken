@@ -30,6 +30,9 @@ import (
 	"github.com/conor-sometimes/banken/internal/intel"
 	"github.com/conor-sometimes/banken/internal/ioc"
 	"github.com/conor-sometimes/banken/internal/parser"
+	"github.com/conor-sometimes/banken/internal/response"
+	"github.com/conor-sometimes/banken/internal/response/exec"
+	"github.com/conor-sometimes/banken/internal/response/respond"
 	"github.com/conor-sometimes/banken/internal/sigma"
 )
 
@@ -225,6 +228,14 @@ func run(args []string, stdout, stderr io.Writer) error {
 			logAt(stderr, levelErr, "banken: sink close: %v", e)
 		}
 	}()
+
+	// Install the response layer when configured. By default (no response block)
+	// this is a no-op and banken is alert-only, exactly as before. Even enabled,
+	// nothing acts unless the policy mode is enforce AND response.enforce armed
+	// the executor; a misconfiguration is a startup error, never a silent skip.
+	if err := setupResponder(disp, cfg, stderr); err != nil {
+		return err
+	}
 
 	eng := engine.New(cs.rules, cs.iocs, disp)
 
@@ -751,6 +762,101 @@ func buildConfig(f flags, sources multiFlag) (config.Config, error) {
 		cfg.Sources = append(cfg.Sources, config.Source{Type: typ, Path: path})
 	}
 	return cfg, nil
+}
+
+// setupResponder installs the response layer on the dispatcher when
+// cfg.Response.Enable is set. It loads and validates the operator policy,
+// opens the append-only ledger, and builds the executor.
+//
+// SAFETY: the executor is armed for REAL enforcement only when
+// cfg.Response.Enforce is true, which the NixOS module keeps false on every
+// real host; the one configuration that sets it true is the throwaway VM
+// integration test. With Enforce false the executor is a dry-run (it records
+// what it would do and touches nothing), and in observe mode the policy never
+// even asks it to act. A bad policy or an executor that cannot be built on
+// this platform is a startup error, never a silent alert-only fallback.
+func setupResponder(disp *alert.Dispatcher, cfg config.Config, stderr io.Writer) error {
+	if !cfg.Response.Enable {
+		return nil
+	}
+
+	policy, err := loadResponsePolicy(cfg.Response)
+	if err != nil {
+		return err
+	}
+
+	ledgerDir := cfg.Response.LedgerDir
+	if ledgerDir == "" {
+		ledgerDir = filepath.Join(filepath.Dir(cfg.StatePath), "response")
+	}
+	ledger, err := response.NewLedger(ledgerDir)
+	if err != nil {
+		return err
+	}
+
+	ex, err := exec.New(exec.Config{
+		Enforce:              cfg.Response.Enforce,
+		CgroupRoot:           cfg.Response.CgroupRoot,
+		QuarantineDir:        cfg.Response.QuarantineDir,
+		QuarantineAllowPaths: policy.Quarantine.AllowPaths,
+		Logf: func(format string, a ...any) {
+			logAt(stderr, levelWarning, format, a...)
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("banken: response executor: %w", err)
+	}
+
+	self := response.SelfIdentity{Exe: selfExe()}
+	r := respond.New(policy, self, ex, ledger, version, func(format string, a ...any) {
+		logAt(stderr, levelWarning, "banken: "+format, a...)
+	})
+	disp.SetResponder(r)
+
+	gate := "observe/dry-run (nothing acts)"
+	if policy.Mode == response.ModeEnforce && ex.Enforcing() {
+		gate = "ENFORCE: real actions ARMED"
+	} else if policy.Mode == response.ModeEnforce {
+		gate = "enforce policy but executor NOT armed (dry-run)"
+	}
+	logAt(stderr, levelWarning, "banken: response layer enabled, mode=%s, %s; ledger %s", policy.Mode, gate, ledgerDir)
+	return nil
+}
+
+// loadResponsePolicy loads the policy from the file path, or parses the inline
+// YAML, whichever the config supplies (file wins). Absent both is an error:
+// response.enable with no policy is a misconfiguration, not a quiet no-op.
+func loadResponsePolicy(rc config.ResponseConfig) (response.Policy, error) {
+	switch {
+	case rc.PolicyFile != "":
+		p, err := response.LoadPolicy(rc.PolicyFile)
+		if err != nil {
+			return response.Policy{}, fmt.Errorf("banken: response policy: %w", err)
+		}
+		return p, nil
+	case rc.Policy != "":
+		p, err := response.ParsePolicy([]byte(rc.Policy))
+		if err != nil {
+			return response.Policy{}, fmt.Errorf("banken: response policy (inline): %w", err)
+		}
+		return p, nil
+	default:
+		return response.Policy{}, errors.New("banken: response.enable is set but no response.policyFile or response.policy was given")
+	}
+}
+
+// selfExe is the realpath of this binary, for the response denylist (banken
+// must never act on itself). A failure yields "", which simply means that one
+// denylist check is a no-op; it is never fatal.
+func selfExe() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+		return resolved
+	}
+	return exe
 }
 
 // buildSinks constructs the enabled sinks. OCSF options (product version,
