@@ -786,6 +786,10 @@ in
       description = "Fire banken-respond when a response work order lands in the spool";
       documentation = [ "https://github.com/conor-sometimes/banken" ];
       wantedBy = [ "multi-user.target" ];
+      # The spool legitimately oscillates empty/non-empty many times a minute
+      # (one re-trigger per drained batch), so the path unit itself must not rate
+      # limit; the brake that matters is on the service (a failure loop).
+      unitConfig.StartLimitIntervalSec = 0;
       pathConfig = {
         DirectoryNotEmpty = "/var/lib/banken/spool";
         MakeDirectory = true;
@@ -800,12 +804,18 @@ in
       # audit log's /proc targets, not the log, so it needs auditd present but
       # does not wait on events. Never wantedBy: the path unit starts it.
       after = [ "auditd.service" ];
-      # A drain that fails five times in a minute (unreadable policy, an order it
-      # cannot unlink) stops being retried until an operator looks; the number is
-      # the systemd default shape, in the unit so the journal names the limit.
+      # Brake on a tight FAILURE loop (an unreadable policy or an order the drain
+      # cannot unlink makes it exit non-zero, the path unit re-fires at once, and
+      # it spins). The limit must NOT bite legitimate operation: a path-triggered
+      # oneshot counts every SUCCESSFUL drain too, and the daemon writing a batch
+      # while the helper drains it (and boot-time bursts) fire it many times a
+      # minute by design. So it is sized well above any legitimate burst -- a real
+      # failure loop restarts in milliseconds and trips 100 in under a second,
+      # while a busy host never approaches it. (The original 5 self-disabled
+      # response at boot and on any --watch host.)
       unitConfig = {
         StartLimitIntervalSec = 60;
-        StartLimitBurst = 5;
+        StartLimitBurst = 100;
       };
       serviceConfig = {
         Type = "oneshot";
