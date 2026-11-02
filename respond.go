@@ -393,7 +393,7 @@ func runRespondThaw(args []string, stdout, stderr io.Writer) error {
 
 	// Already thawed: a clean no-op with a ledger note (§3.3 step 1).
 	if entry.Thawed {
-		logln(stdout, fmt.Sprintf("already thawed at %s", orZeroTime(entry.ThawedAt)))
+		logln(stdout, "already thawed at "+orZeroTime(entry.ThawedAt))
 		recordUndo(ledger, cfg, "thawed", response.ActionFreeze, decisionID, target, uid, "already")
 		return nil
 	}
@@ -406,7 +406,7 @@ func runRespondThaw(args []string, stdout, stderr io.Writer) error {
 	if err := ex.Thaw(context.Background(), h); err != nil {
 		return exitError{code: 1, err: fmt.Errorf("banken respond thaw %s: %w", entry.ID, err)}
 	}
-	logln(stdout, fmt.Sprintf("thawed %s", entry.ID))
+	logln(stdout, "thawed "+entry.ID)
 	recordUndo(ledger, cfg, "thawed", response.ActionFreeze, decisionID, target, uid, "")
 	return nil
 }
