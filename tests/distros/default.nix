@@ -78,6 +78,11 @@ let
       cp ${./mimicheck.sh} $out/mimicheck.sh
       mkdir -p $out/mimi-bundle
       cp ${mimiBundle}/mimi ${mimiBundle}/ld.so ${mimiBundle}/libc.so.6 ${mimiBundle}/libgcc_s.so.1 $out/mimi-bundle/
+      # Test S (banken + Sysmon-for-Linux, S1-S5): the in-guest driver installs the REAL
+      # sysmonforlinux from packages.microsoft.com on the distros it serves. No bundle needed -- it
+      # installs in-guest -- but it rides with the sensor matrix (distro-matrix-mimi), so distrocheck
+      # sees sysmoncheck.sh and runs S1-S5 where applicable; banken's banken-raw matrix is unchanged.
+      cp ${./sysmoncheck.sh} $out/sysmoncheck.sh
     ''}
   '';
 in

@@ -28,14 +28,14 @@ baseurl=http://dl.fedoraproject.org/pub/fedora/linux/releases/$releasever/Everyt
 	}
 }
 
-func TestParseMimi(t *testing.T) {
+func TestParseStages(t *testing.T) {
 	out := `M1 PASS bundle deployed
 not an objective line
 M2 PASS has /sys/kernel/btf/vmlinux
 M3 FAIL mimi did not load/stream: permission denied
 M5 PASS reverse_shell detected, data_sources=[mimi]
 `
-	got := parseMimi(out)
+	got := parseStages(out)
 	if len(got) != 4 {
 		t.Fatalf("parsed %d results, want 4: %v", len(got), got)
 	}

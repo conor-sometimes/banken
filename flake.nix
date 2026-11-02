@@ -142,12 +142,16 @@
       # switch suite is the banken + mimi integration (the ONE SWITCH: services.banken.mimi.enable
       # brings up the sensor and points banken at its stream) -- switch isolates mimi (audit off),
       # switch-floor runs the live hokkaido shape (floor + mimi), switch-restart proves banken
-      # re-attaches to mimi's stream across a mimi restart.
+      # re-attaches to mimi's stream across a mimi restart. sigmahq-emul runs the benign SigmaHQ
+      # emulations against the whole pinned upstream SigmaHQ Linux set (tests/sigmahq-emul.nix), so
+      # `nix flake check` / `just integration` / `just test` actually execute those proofs, not just
+      # ship them -- it needs only the module (no mimi), like vm.
       checks.x86_64-linux = {
         vm = import ./tests/vm.nix { inherit pkgs; banken = bankenPkg; };
         switch = import ./tests/switch.nix { inherit pkgs mimiModule; banken = bankenPkg; };
         switch-floor = import ./tests/switch-floor.nix { inherit pkgs mimiModule; banken = bankenPkg; };
         switch-restart = import ./tests/switch-restart.nix { inherit pkgs mimiModule; banken = bankenPkg; };
+        sigmahq-emul = import ./tests/sigmahq-emul.nix { inherit pkgs; banken = bankenPkg; };
       };
     };
 }
