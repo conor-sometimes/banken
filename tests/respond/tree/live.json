@@ -1,0 +1,9 @@
+{
+  "a1a1a1a1a1a1a1a1a1a1a1a1": {"known": true, "bootId": "boot-1111", "cgroupExists": true, "cgroupFrozen": true, "cgroupPids": [4242, 4243]},
+  "b2b2b2b2b2b2b2b2b2b2b2b2": {"known": true, "bootId": "boot-1111", "cgroupExists": true, "cgroupFrozen": true, "cgroupPids": [4242]},
+  "c3c3c3c3c3c3c3c3c3c3c3c3": {"known": true, "bootId": "boot-1111", "targetExists": true, "dev": 2049, "ino": 100, "sha256": "abcd1234ef5678900000000000000000000000000000000000000000abcd1234"},
+  "d4d4d4d4d4d4d4d4d4d4d4d4": {"known": true, "bootId": "boot-1111", "targetExists": true, "dev": 2049, "ino": 200, "sha256": "2222222222222222222222222222222222222222222222222222222222222222"},
+  "e5e5e5e5e5e5e5e5e5e5e5e5": {"known": true, "bootId": "boot-1111", "targetExists": true, "dev": 30, "ino": 300, "mode": 493, "immutable": false},
+  "f6f6f6f6f6f6f6f6f6f6f6f6": {"known": true, "bootId": "boot-1111", "cgroupExists": true, "cgroupFrozen": true, "cgroupPids": [5000]},
+  "a7a7a7a7a7a7a7a7a7a7a7a7": {"known": true, "bootId": "boot-1111", "targetExists": true, "dev": 2049, "ino": 999, "sha256": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef0"}
+}

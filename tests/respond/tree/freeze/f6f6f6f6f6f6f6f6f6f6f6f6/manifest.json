@@ -1,0 +1,19 @@
+{
+  "id": "f6f6f6f6f6f6f6f6f6f6f6f6",
+  "version": 1,
+  "order": "d0f6f6f6f6f6f6f6f6f6f6f6",
+  "state": "frozen",
+  "method": "cgroup",
+  "target": {
+    "pid": 5000,
+    "exe": "/tmp/.y/sh"
+  },
+  "scope": "tree",
+  "pids": [5000],
+  "orig": {
+    "5000": "/user.slice/user-1001.slice/session-7.scope"
+  },
+  "cgroup": "/sys/fs/cgroup/banken.quarantine/f6f6f6f6f6f6f6f6f6f6f6f6",
+  "time": "2026-11-01T20:00:00Z",
+  "bootId": "boot-OLD0"
+}

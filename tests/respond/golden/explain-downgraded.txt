@@ -1,0 +1,9 @@
+decision d0bbbbbbbbbbbbbbbbbbbbbb   2026-11-02 06:12:11   policy sha256:9f2c   mode enforce   armed yes
+  alert    credential_file_read (high, auditd) at 2026-11-02 06:11:11  pid 8000 ppid 7900 user mallory
+           image /tmp/.z/sh   cmd ""   tags -
+  entry    kill-credtheft -> intended kill (tree)
+  rails    none fired   masquerade: no
+  verdict  kill tree of pid 8000
+action   ac000000   downgraded by banken-respond   2026-11-02 06:12:11   policy sha256:9f2c (same)
+  helper re-decided: freeze (DOWNGRADED from requested kill)
+  reason: policy maps credential_file_read to freeze, not kill

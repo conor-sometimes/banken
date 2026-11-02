@@ -1,0 +1,3 @@
+ID        KIND        STATE                  TARGET                         USER   RULE           WHEN
+f6f6f6f6  freeze      lost (reboot)          pid 5000 /tmp/.y/sh            bob    reverse_shell  2026-11-02 06:12:09
+a7a7a7a7  quarantine  lost (inode replaced)  /tmp/.x/payload3 8 KiB rename  alice  exec_from_tmp  2026-11-02 06:12:10

@@ -1,0 +1,4 @@
+ID        KIND    STATE            TARGET               USER   RULE           WHEN
+a1a1a1a1  freeze  frozen (2 pids)  pid 4242 /tmp/.x/sh  alice  reverse_shell  2026-11-02 06:12:03
+b2b2b2b2  freeze  thawed 06:40:00  pid 4242 /tmp/.x/sh  alice  reverse_shell  2026-11-02 06:12:08
+f6f6f6f6  freeze  lost (reboot)    pid 5000 /tmp/.y/sh  bob    reverse_shell  2026-11-02 06:12:09

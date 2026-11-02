@@ -1,0 +1,22 @@
+{
+  "id": "e5e5e5e5e5e5e5e5e5e5e5e5",
+  "version": 1,
+  "order": "d0e5e5e5e5e5e5e5e5e5e5e5",
+  "state": "held",
+  "origPath": "/dev/shm/x.so",
+  "method": "neuter",
+  "stat": {
+    "dev": 30,
+    "ino": 300,
+    "mode": 33133,
+    "uid": 1000,
+    "gid": 1000,
+    "size": 12288,
+    "mtime": "2026-11-02T06:02:00Z",
+    "nlink": 1
+  },
+  "sha256": "unhashed",
+  "immutable": true,
+  "time": "2026-11-02T06:12:06Z",
+  "bootId": "boot-1111"
+}

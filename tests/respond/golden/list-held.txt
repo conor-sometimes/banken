@@ -1,0 +1,3 @@
+ID        KIND        STATE                                      TARGET                          USER   RULE           WHEN
+c3c3c3c3  quarantine  held sha256 ok                             /tmp/.x/payload 48 KiB rename   alice  exec_from_tmp  2026-11-02 06:12:04
+d4d4d4d4  quarantine  held CHANGED (was 11111111, now 22222222)  /tmp/.x/payload2 12 KiB rename  alice  exec_from_tmp  2026-11-02 06:12:05
