@@ -183,3 +183,30 @@ func mustParse(t *testing.T, yml string) Policy {
 	}
 	return p
 }
+
+// TestNeverTouchDevWithShmCarveOut pins the Q14 intent: /dev is never-touch so
+// a device node is refused by the list, not by a downstream S_IFREG check,
+// while the /dev/shm tmpfs is carved out with an exact boundary (so /dev/shmx
+// is NOT treated as under the carve-out).
+func TestNeverTouchDevWithShmCarveOut(t *testing.T) {
+	cases := map[string]bool{
+		"/dev":          true,  // the device dir itself
+		"/dev/null":     true,  // a device node
+		"/dev/sda":      true,  // a block device
+		"/dev/shm":      false, // tmpfs carve-out
+		"/dev/shm/x":    false, // under the carve-out
+		"/dev/shmx":     true,  // NOT the carve-out (boundary): still never-touch
+		"/dev/shma":     true,  // NOT the carve-out (boundary): still never-touch
+		"/tmp/x":        false, // a scratch path, untouched by the list
+		"/nix/store/ab": true,  // a pre-existing never-touch prefix still holds
+	}
+	for path, wantBad := range cases {
+		pfx, bad := UnderNeverTouch(path)
+		if bad != wantBad {
+			t.Errorf("UnderNeverTouch(%q) bad = %v (prefix %q), want %v", path, bad, pfx, wantBad)
+		}
+		if bad && pfx == "" {
+			t.Errorf("UnderNeverTouch(%q) reported never-touch with empty prefix", path)
+		}
+	}
+}
