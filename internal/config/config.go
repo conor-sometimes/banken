@@ -17,6 +17,16 @@ import (
 type Config struct {
 	// Rules are the rule-tree directories to load (Sigma + ioc/).
 	Rules []string `yaml:"rules"`
+	// RefreshDirs are rule-tree directories that are refreshable at runtime:
+	// loaded exactly like Rules (recursive, *.yml / *.yaml, ioc/ carrying IOC
+	// lists) but at the highest precedence (they win a name clash over the
+	// embedded baseline and over Rules), and, on NixOS, NOT copied into the Nix
+	// store -- a real on-disk path banken reads live. This is the fleet's
+	// rules-repo checkout: a separate puller unit lands a git checkout here and
+	// SIGHUPs the daemon, which rebuilds its rule set from these dirs without a
+	// binary redeploy (see docs/design/rule-refresh.md). Empty is the common
+	// case and keeps today's behaviour (baseline + Rules, no runtime refresh).
+	RefreshDirs []string `yaml:"refreshDirs"`
 	// OptionalRules names the opt-in (optional: true) rules to activate, by
 	// rule name (file basename), or "*" for all of them. Optional rules are
 	// policy detections that ship in the binary but held back by default
