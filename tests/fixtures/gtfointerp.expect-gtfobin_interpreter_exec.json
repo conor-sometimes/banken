@@ -23,5 +23,13 @@
   "user": "1000",
   "pid": 12312,
   "ppid": 12300
+ },
+ {
+  "source": "auditd",
+  "image": "/nix/store/abc123-python3-3.12.7/bin/python3.12",
+  "commandLine": "python3 -c import pty;pty.spawn(\"/bin/sh\")",
+  "user": "1000",
+  "pid": 12313,
+  "ppid": 12300
  }
 ]

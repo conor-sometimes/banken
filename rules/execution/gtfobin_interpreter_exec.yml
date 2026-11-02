@@ -37,6 +37,11 @@ detection:
       - /ruby
       - /lua
       - /php
+  # the versioned binary the unversioned name resolves to (python3 -> .../bin/python3.12 on NixOS,
+  # python2.7, ruby3.3, php8.3) - found by the live attack range, where the pty.spawn atomic
+  # went unmatched because the exe was python3.12
+  interp_versioned:
+    Image|re: '/(python|perl|ruby|lua|php)[0-9]+(\.[0-9]+)*$'
   # an inline program, not a script file
   inline:
     CommandLine|re: '(^|\s)-(e|c)\b'
@@ -52,7 +57,7 @@ detection:
       - 'TCPSocket'
       - 'fsockopen('
       - '/dev/tcp/'
-  condition: interp and inline and exec_idiom and not not_revshell
+  condition: (interp or interp_versioned) and inline and exec_idiom and not not_revshell
 falsepositives:
   - A legitimate data-processing one-liner that shells out (an awk BEGIN{system()} or a python -c
     os.system in a build). Scope by account where possible; the command line shows the payload.
