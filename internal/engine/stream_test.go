@@ -56,7 +56,7 @@ detection:
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- eng.StreamFollow(ctx, parser.Mimi{}, path, statePath, onLat) }()
+	go func() { done <- eng.StreamFollow(ctx, parser.Mimi{}, path, statePath, onLat, nil) }()
 
 	writeLine := func(cmd string) {
 		line := `{"schema":"mimi/2","time":"` + time.Now().UTC().Format(time.RFC3339Nano) +
@@ -126,7 +126,7 @@ detection:
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- eng.StreamFollow(ctx, parser.Mimi{}, path, statePath, nil) }()
+	go func() { done <- eng.StreamFollow(ctx, parser.Mimi{}, path, statePath, nil, nil) }()
 
 	time.Sleep(200 * time.Millisecond) // let it arm and fail to watch anything
 	if err := os.MkdirAll(sub, 0o700); err != nil {

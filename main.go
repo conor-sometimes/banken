@@ -380,7 +380,7 @@ func runDaemon(ctx context.Context, eng *engine.Engine, cfg config.Config, inter
 						src.Type, alerts, latency.Round(time.Microsecond))
 				}
 			}
-			if err := eng.StreamFollow(ctx, p, src.Path, streamStatePath(cfg.StatePath, src), onLat); err != nil && !errors.Is(err, context.Canceled) {
+			if err := eng.StreamFollow(ctx, p, src.Path, streamStatePath(cfg.StatePath, src), onLat, streamErrLogger(stderr, src)); err != nil && !errors.Is(err, context.Canceled) {
 				logAt(stderr, levelErr, "banken: follow %s: %v", src.Path, err)
 			}
 		}()
@@ -439,6 +439,22 @@ func isStreamSource(typ string) bool { return typ == "mimi" || typ == "sysmon" }
 // races the periodic scanner's cursor (they run in separate goroutines).
 func streamStatePath(base string, src config.Source) string { return base + "." + src.Type }
 
+// streamErrLogger builds the onError hook for a followed stream source. It logs every error the
+// follow loop surfaces at levelErr, the same level scanSources logs the one-shot path's errors, so
+// stream mode and scan mode read identically in the journal (a webhook being down or an unreadable
+// sink is no longer invisible in --watch). A nil err is the recovery edge of a recurring condition
+// (an unreadable sink or an unwritable state file that has cleared); it is logged at info so an
+// operator sees such a fault both begin and end rather than only its onset.
+func streamErrLogger(stderr io.Writer, src config.Source) func(engine.StreamErrorKind, error) {
+	return func(kind engine.StreamErrorKind, err error) {
+		if err == nil {
+			logAt(stderr, levelInfo, "banken: follow %s %s: %s recovered", src.Type, src.Path, kind)
+			return
+		}
+		logAt(stderr, levelErr, "banken: follow %s %s: %s: %v", src.Type, src.Path, kind, err)
+	}
+}
+
 // follow consumes a single source as a continuous push stream (banken --follow), for a live sensor
 // feed such as mimi: each event is matched and dispatched the moment it arrives, and the
 // capture-to-match latency is logged as a measured number rather than bounded by a scan interval. It
@@ -466,7 +482,7 @@ func follow(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 				src.Type, alerts, latency.Round(time.Microsecond))
 		}
 	}
-	if err := eng.StreamFollow(ctx, p, src.Path, cfg.StatePath, onLatency); err != nil && !errors.Is(err, context.Canceled) {
+	if err := eng.StreamFollow(ctx, p, src.Path, cfg.StatePath, onLatency, streamErrLogger(stderr, src)); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil
