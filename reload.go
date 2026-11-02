@@ -33,6 +33,7 @@ type candidateSet struct {
 	iocs          *ioc.Set          // IOC set from the dirs plus the embedded baseline
 	problems      []sigma.RuleError // per-file compile errors (non-fatal: those rules are simply absent)
 	sel           selection         // optional-rule selection outcome (held back, observing, unknown names)
+	overrides     []ruleOverride    // on-disk rules shadowing baseline rules (audited; some blocked by protectBaseline)
 	intelAdded    int               // indicators ingested from external threat-intel feeds
 	intelProblems []error           // per-feed failures (non-fatal; never-die)
 }
@@ -47,7 +48,7 @@ type candidateSet struct {
 func buildCandidate(cfg config.Config) (candidateSet, error) {
 	dirs := ruleDirs(cfg)
 
-	rules, problems := loadRules(dirs)
+	rules, problems, overrides := loadRules(dirs, cfg.Refresh.ProtectBaseline)
 	rules, sel := selectActive(rules, optionalSet(cfg.OptionalRules), optionalSet(cfg.ObserveRules))
 
 	iocs, err := loadIOCs(dirs)
@@ -61,6 +62,7 @@ func buildCandidate(cfg config.Config) (candidateSet, error) {
 		iocs:          iocs,
 		problems:      problems,
 		sel:           sel,
+		overrides:     overrides,
 		intelAdded:    added,
 		intelProblems: iprobs,
 	}, nil
@@ -81,9 +83,14 @@ func buildCandidate(cfg config.Config) (candidateSet, error) {
 // It never returns an error because there is nothing a caller could do with one
 // that reloadRules has not already done (keep the good set, log the problem).
 func reloadRules(eng *engine.Engine, cfg config.Config, stderr io.Writer) {
-	cs, err := buildCandidate(cfg)
+	guard := guardFromConfig(cfg)
+
+	// Build the candidate under the compile deadline. A build that overruns is a
+	// whole-set failure: a pathological tree can never stall the daemon mid-swap.
+	cs, err := buildCandidateWithDeadline(cfg, guard.timeout)
 	if err != nil {
 		logAt(stderr, levelErr, "banken: reload failed, keeping current rule set: %v", err)
+		recordRefresh(cfg, refreshKeptOld, err.Error(), candidateSet{}, stderr)
 		return
 	}
 	// Per-file errors are reported but never block the swap -- the good rules
@@ -96,8 +103,21 @@ func reloadRules(eng *engine.Engine, cfg config.Config, stderr io.Writer) {
 	// wrong; keeping the old set is strictly safer than going ruleless.
 	if len(cs.rules) == 0 {
 		logAt(stderr, levelErr, "banken: reload produced zero rules, keeping the current set (host is NOT left ruleless)")
+		recordRefresh(cfg, refreshKeptOld, "candidate produced zero rules", cs, stderr)
 		return
 	}
+	// Resource guard: a candidate over the rule-count or pattern-byte cap is a
+	// whole-set failure -- old set kept -- so a hostile or accidental "ten
+	// million rules" push cannot exhaust memory or blind the host.
+	if gerr := guard.check(cs); gerr != nil {
+		logAt(stderr, levelErr, "banken: reload rejected by resource guard, keeping current rule set: %v", gerr)
+		recordRefresh(cfg, refreshKeptOld, gerr.Error(), cs, stderr)
+		return
+	}
+	// Audit every on-disk rule that shadows a baseline rule (a shadowing push
+	// can weaken a detection). A blocked override (protectBaseline) is louder
+	// still: it was refused and the baseline kept.
+	logOverrides(cs.overrides, stderr)
 	for _, name := range cs.sel.unknown {
 		logAt(stderr, levelWarning, "banken: %q is named in optionalRules/observeRules but is not an optional rule; it will not run (check the spelling)", name)
 	}
@@ -106,6 +126,23 @@ func reloadRules(eng *engine.Engine, cfg config.Config, stderr io.Writer) {
 	}
 
 	eng.SetRules(cs.rules, cs.iocs)
-	logAt(stderr, levelInfo, "banken: rules reloaded: %d rules, %d indicators, %d file error(s), swapped",
-		len(cs.rules), cs.iocs.Len(), len(cs.problems))
+	logAt(stderr, levelInfo, "banken: rules reloaded: %d rules, %d indicators, %d file error(s), %d baseline override(s), swapped",
+		len(cs.rules), cs.iocs.Len(), len(cs.problems), len(cs.overrides))
+	recordRefresh(cfg, refreshSwapped, "", cs, stderr)
+}
+
+// logOverrides reports every baseline-override audit entry: a warning for an
+// allowed override (a disk rule now shadows a baseline rule) and an error for a
+// blocked one (protectBaseline refused it and kept the baseline). Shared by the
+// reload path and startup so the audit reads the same in both.
+func logOverrides(overrides []ruleOverride, stderr io.Writer) {
+	for _, ov := range overrides {
+		if ov.blocked {
+			logAt(stderr, levelErr, "banken: protectBaseline refused on-disk rule %q (%s) overriding baseline %s; baseline kept",
+				ov.name, ov.winnerPath, ov.overriddenPath)
+			continue
+		}
+		logAt(stderr, levelWarning, "banken: rule %q (%s) overrides baseline %s (a disk rule shadowing a baseline detection)",
+			ov.name, ov.winnerPath, ov.overriddenPath)
+	}
 }

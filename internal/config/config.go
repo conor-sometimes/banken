@@ -46,6 +46,12 @@ type Config struct {
 	StatePath string `yaml:"statePath"`
 	// Sources are the log inputs to scan.
 	Sources []Source `yaml:"sources"`
+	// Refresh governs a runtime rule refresh (SIGHUP / `banken reload`): the
+	// resource guard that bounds a refresh, the baseline-protection toggle, and
+	// where the refresh status file is written. Empty is the common case -- the
+	// generous defaults (see RefreshConfig) apply and the status file lands next
+	// to the cursor in the state directory.
+	Refresh RefreshConfig `yaml:"refresh"`
 	// Intel are threat-intel feeds (STIX 2.1 / MISP files, TAXII 2.1
 	// collections) whose indicators are normalised into the same IOC set the
 	// rules/ioc/*.txt lists feed, so the match engine consumes them unchanged.
@@ -57,6 +63,47 @@ type Config struct {
 	// Alerts configures the sinks.
 	Alerts Alerts `yaml:"alerts"`
 }
+
+// RefreshConfig bounds and governs a runtime rule refresh. A rule is close to
+// code, so a refresh is bounded (the resource guard) and auditable (baseline
+// overrides, the status file) rather than trusted blindly -- see
+// docs/design/rule-refresh.md sections 6, 8 and 9. Every field has a generous
+// default applied in code, so the zero value is a working, safe configuration.
+type RefreshConfig struct {
+	// MaxRules caps how many rules a refresh may load. A tree over the cap is a
+	// whole-set failure: the old set is kept, so a pathological "ten million
+	// generated rules" push can neither exhaust memory nor blind the host. 0
+	// means the default (DefaultMaxRules).
+	MaxRules int `yaml:"maxRules"`
+	// MaxPatternBytes caps the total bytes of literal match patterns across a
+	// refresh (the same whole-set-failure semantics as MaxRules). It bounds the
+	// Aho-Corasick build a refresh triggers. 0 means the default
+	// (DefaultMaxPatternBytes).
+	MaxPatternBytes int `yaml:"maxPatternBytes"`
+	// CompileTimeout is a deadline on the whole refresh build. A build that runs
+	// past it is a whole-set failure (old set kept), so a pathological tree can
+	// never stall the daemon mid-swap. A Go duration string (e.g. "30s"); empty
+	// or unparseable means the default (DefaultRefreshTimeout).
+	CompileTimeout string `yaml:"compileTimeout"`
+	// ProtectBaseline, when true, forbids an on-disk rule from overriding an
+	// embedded-baseline rule by filename: the override is refused (the baseline
+	// is kept) and logged, so a pushed rule cannot silently shadow and weaken a
+	// baseline detection. Off by default (overrides are allowed but always
+	// audited). See docs/design/rule-refresh.md section 8.
+	ProtectBaseline bool `yaml:"protectBaseline"`
+	// StatusPath is where the refresh status file is written (atomically) on
+	// every refresh and at startup, and what `banken status` reads. Empty means
+	// refresh-status.json beside the cursor (the state directory).
+	StatusPath string `yaml:"statusPath"`
+}
+
+// Resource-guard and refresh defaults. Generous on purpose: they exist to stop
+// a pathological or hostile tree, not to constrain a real fleet rules repo
+// (which is a few hundred to a few thousand rules, well under these).
+const (
+	DefaultMaxRules        = 50000
+	DefaultMaxPatternBytes = 8 << 20 // 8 MiB of literal patterns
+)
 
 // IntelFeed is one threat-intel feed. Type selects the ingest path:
 //   - "stix" / "misp": Path is a local bundle/export file, parsed each run.

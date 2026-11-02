@@ -83,6 +83,34 @@ func (r *Rule) AppliesTo(source string) bool {
 	return false
 }
 
+// PatternBytes is the total length, in bytes, of every literal match pattern
+// in the rule: each value across every field of every selection alternative
+// (equality literals, contains/startswith/endswith substrings, the raw regexp
+// and CIDR source strings alike). It is the per-rule cost the refresh resource
+// guard sums and bounds (docs/design/rule-refresh.md section 6): it tracks the
+// work NewMatcher does folding literals into the shared automaton, so capping
+// the total stops a pathological rule tree from blowing up the build. It is a
+// cheap pass over already-parsed values, independent of the match path.
+func (r *Rule) PatternBytes() int {
+	n := 0
+	for _, sel := range r.selections {
+		for _, alt := range sel.alts {
+			for _, fm := range alt.fields {
+				// A presence test (|exists / `field: null`) compares no literal --
+				// its stored value is just the true/false sense -- so it is not a
+				// match pattern and does not count toward the build cost.
+				if fm.op == opExists {
+					continue
+				}
+				for _, v := range fm.values {
+					n += len(v)
+				}
+			}
+		}
+	}
+	return n
+}
+
 // selection is a named block under detection:. It matches if any of its
 // alternatives matches (a plain mapping is one alternative; a YAML list of
 // mappings is several, OR'd -- standard Sigma).
