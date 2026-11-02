@@ -88,7 +88,10 @@ func (r *Reader) Explain(prober Prober, query string, opts ExplainOptions) (*Exp
 			}
 		}
 		if decisionID != "" {
-			dec, found, err = r.findDecision(decisionID, since, now)
+			// The handle named a decision; load that decided line if it is still
+			// in range (a missing decided line leaves dec zero but the chain's
+			// action lines still print).
+			dec, _, err = r.findDecision(decisionID, since, now)
 			if err != nil {
 				return nil, err
 			}
