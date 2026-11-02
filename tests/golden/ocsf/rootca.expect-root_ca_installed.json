@@ -1,0 +1,117 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"root_ca_installed\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "29da5ef8168f11668cb4f1a9324bc7a3",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "29da5ef8168f11668cb4f1a9324bc7a3",
+    "title": "Root CA certificate installed",
+    "desc": "A program dropped a certificate into the system trust store (ca-trust anchors, ca-certificates) or ran the tool that rebuilds it (update-ca-trust, update-ca-certificates, certctl, trust). A new root CA in the system store makes the host trust any certificate the attacker signs, which is how TLS interception and traffic subversion are set up (MITRE T1553.004). Installing a trusted root is a rare, high-privilege act outside of provisioning, so on a running host it is a clean alarm.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "root_ca_installed",
+      "uid": "5e8d2a60-4f19-4c73-b6a1-7c0e3d9b85f4"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0005",
+          "name": "Defense Evasion"
+        },
+        "technique": {
+          "uid": "T1553"
+        },
+        "sub_technique": {
+          "uid": "T1553.004"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 10040,
+        "name": "cp",
+        "cmd_line": "cp rootCA.crt /etc/pki/ca-trust/source/anchors/",
+        "file": {
+          "name": "cp",
+          "path": "/usr/bin/cp",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "0"
+        },
+        "parent_process": {
+          "pid": 10000
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "cp rootCA.crt /etc/pki/ca-trust/source/anchors/"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "cp"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/cp"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/usr/bin/cp\",\"commandLine\":\"cp rootCA.crt /etc/pki/ca-trust/source/anchors/\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"0\",\"currentDirectory\":\"\",\"pid\":10040,\"ppid\":10000}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "root_ca_installed",
+    "source": "laurel"
+  }
+}

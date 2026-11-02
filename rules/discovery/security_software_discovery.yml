@@ -1,0 +1,35 @@
+title: Security software discovery
+id: 8a4d1e73-5c92-4b60-a7f3-9e0b2c6d4f18
+status: experimental
+description: >
+  A process searched the process list or filesystem for security tooling by name - grepping ps
+  output or using pgrep/pidof for EDR, AV, audit and monitoring agents (CrowdStrike/falcond,
+  osquery, Wazuh, SentinelOne, Sysmon, auditbeat/filebeat, ClamAV ...). Enumerating which defender
+  is watching is a standard pre-attack step (MITRE T1518.001): the attacker learns what to evade or
+  disable before acting. Grepping for these specific product names is not something routine
+  automation does, so it is a clean signal.
+references:
+  - https://attack.mitre.org/techniques/T1518/001/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.discovery
+  - attack.t1518.001
+detection:
+  tool:
+    Image|endswith:
+      - /grep
+      - /egrep
+      - /fgrep
+      - /pgrep
+      - /pidof
+  edr_names:
+    CommandLine|re: '\b(falcond|falcon-sensor|crowdstrike|nessusd?|cbagentd|cbdaemon|carbonblack|td-agent|packetbeat|filebeat|auditbeat|osqueryd|osquery|wazuh-agent|wazuh|sentinelone|sentinel-agent|sysmon|clamd|clamav|freshclam|aide|tripwire|ossec|samhain|bareos-fd|icinga2|nxlog|splunkd|velociraptor|cbsensor|elastic-agent)\b'
+  condition: tool and edr_names
+falsepositives:
+  - A monitoring or inventory job that checks whether an agent is running; scope to the accounts
+    that have no business enumerating defenders, as with the other discovery rules.
+level: medium

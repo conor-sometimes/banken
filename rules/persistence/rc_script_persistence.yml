@@ -1,0 +1,44 @@
+title: Boot or init script modified for persistence
+id: 3f6b0c94-8a27-4e15-9d4c-2b7e1a5f8c60
+status: experimental
+description: >
+  A program wrote to a boot/init script - /etc/rc.local, /etc/rc.common, /etc/rc.d, or an
+  /etc/init.d service script. Commands placed in an rc or init script run at boot with the
+  privileges of the init process, so appending a payload there is a durable persistence and
+  privilege-vector foothold (MITRE T1037.004) that a package manager does not normally touch at
+  runtime. The persistence rule covers crontab, systemd units and shell rc files; this covers the
+  legacy rc/init boot scripts.
+references:
+  - https://attack.mitre.org/techniques/T1037/004/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.persistence
+  - attack.privilege-escalation
+  - attack.t1037.004
+detection:
+  editor:
+    Image|endswith:
+      - /tee
+      - /cp
+      - /mv
+      - /sed
+      - /dd
+      - /install
+      - /ln
+  rc_path:
+    CommandLine|contains:
+      - /etc/rc.local
+      - /etc/rc.common
+      - /etc/rc.d/
+      - /etc/init.d/
+      - /etc/rc.local.d/
+      - /etc/rc.conf.local
+  condition: editor and rc_path
+falsepositives:
+  - A package install adding an init.d service; it runs as the package user. An interactive or
+    agent account appending to rc.local is the signal, and the command line shows what it wrote.
+level: high

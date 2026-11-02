@@ -1,0 +1,117 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 5,
+  "severity": "Critical",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"proc_memory_dump\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "3927d848937b4b60b0aca88fd41eaebc",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "3927d848937b4b60b0aca88fd41eaebc",
+    "title": "Process memory read from /proc",
+    "desc": "A program read another process's memory through /proc - dd/cat/cp over /proc/<pid>/mem or /proc/<pid>/maps, or gcore/gdb dumping a live process. Scraping a running process's address space is how credentials, keys and secrets are harvested straight from memory (MITRE T1003.007), bypassing files on disk entirely. A process reading /proc/<pid>/mem is almost never legitimate application behaviour, so it is a high-confidence signal.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "proc_memory_dump",
+      "uid": "9f4c0b85-6a37-4d12-8e60-1b3d7a2c5e94"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0006",
+          "name": "Credential Access"
+        },
+        "technique": {
+          "uid": "T1003"
+        },
+        "sub_technique": {
+          "uid": "T1003.007"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 10120,
+        "name": "dd",
+        "cmd_line": "dd if=/proc/1234/mem of=/tmp/T1003.007.bin ibs=1 skip=140000000 count=4096",
+        "file": {
+          "name": "dd",
+          "path": "/usr/bin/dd",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 10000
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "dd if=/proc/1234/mem of=/tmp/T1003.007.bin ibs=1 skip=140000000 count=4096"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "dd"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/dd"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/usr/bin/dd\",\"commandLine\":\"dd if=/proc/1234/mem of=/tmp/T1003.007.bin ibs=1 skip=140000000 count=4096\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"\",\"pid\":10120,\"ppid\":10000}",
+  "unmapped": {
+    "kind": "sigma",
+    "rule": "proc_memory_dump",
+    "source": "laurel"
+  }
+}

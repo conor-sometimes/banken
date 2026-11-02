@@ -1,0 +1,50 @@
+title: PAM configuration modified
+id: 1c7f4b28-9d35-4a6e-8b02-3e9a1f6c4d57
+status: experimental
+description: >
+  A program edited a PAM configuration file (/etc/pam.d/*, /etc/pam.conf) or referenced a PAM
+  module (pam_*.so) while editing one. Pluggable Authentication Modules decide who may log in and
+  with what; dropping a `pam_succeed_if` rule that waves everyone through, or inserting a malicious
+  module, is a stealthy way to create a backdoor and harvest credentials (MITRE T1556.003) that
+  survives password changes. Editing PAM config is a rare, deliberate act outside of a package
+  upgrade or a config-management run, so by hand on a live host it is a clean signal.
+references:
+  - https://attack.mitre.org/techniques/T1556/003/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.credential-access
+  - attack.defense-evasion
+  - attack.t1556.003
+detection:
+  editor:
+    Image|endswith:
+      - /sed
+      - /tee
+      - /cp
+      - /mv
+      - /dd
+      - /install
+      - /ln
+      - /vi
+      - /vim
+      - /nano
+      - /ex
+  pam_path:
+    CommandLine|contains:
+      - /etc/pam.d/
+      - /etc/pam.conf
+      - /lib/security/
+      - /lib64/security/
+      - /usr/lib/security/
+      - /usr/lib64/security/
+  pam_module:
+    CommandLine|re: '\bpam_[a-z0-9_]+\.so\b'
+  condition: editor and (pam_path or pam_module)
+falsepositives:
+  - A package upgrade or config-management run rewriting PAM files; it runs as the package user and
+    the command line shows the tool. An interactive or agent account editing PAM is the signal.
+level: high

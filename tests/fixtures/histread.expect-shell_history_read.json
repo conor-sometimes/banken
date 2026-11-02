@@ -1,0 +1,11 @@
+[
+ {
+  "image": "/usr/bin/cat",
+  "commandLine": "cat /home/u/.bash_history",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 10070,
+  "ppid": 10000,
+  "currentDirectory": "/home/u"
+ }
+]

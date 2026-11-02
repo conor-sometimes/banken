@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/run/current-system/sw/bin/systemctl",
+  "commandLine": "systemctl stop cron",
+  "source": "laurel",
+  "user": "0",
+  "pid": 10010,
+  "ppid": 10000
+ }
+]
