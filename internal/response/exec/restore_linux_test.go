@@ -94,14 +94,17 @@ func TestRestoreRefusesReplacedInode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Quarantine: %v", err)
 		}
-		// Replace the stored inode with a different file (new ino) at the same path.
+		// Replace the stored inode with a DIFFERENT inode. Create the impostor
+		// while the stored file still exists (so the kernel cannot reuse its freed
+		// inode number) then rename it over, guaranteeing a distinct (dev,ino).
 		stored := filepath.Join(qdir, h.ID, "file")
-		_ = clearImmutable(stored)
-		if err := os.Remove(stored); err != nil {
-			t.Fatalf("remove stored: %v", err)
-		}
-		if err := os.WriteFile(stored, []byte("not the original"), 0o600); err != nil {
+		impostor := stored + ".new"
+		if err := os.WriteFile(impostor, []byte("not the original"), 0o600); err != nil {
 			t.Fatalf("write impostor: %v", err)
+		}
+		_ = clearImmutable(stored)
+		if err := os.Rename(impostor, stored); err != nil {
+			t.Fatalf("swap stored inode: %v", err)
 		}
 		if err := e.Restore(ctx, h, ""); !errors.Is(err, ErrStaleTarget) {
 			t.Fatalf("Restore with replaced stored inode = %v, want ErrStaleTarget", err)
@@ -120,13 +123,15 @@ func TestRestoreRefusesReplacedInode(t *testing.T) {
 		if h.Method != "neuter" {
 			t.Fatalf("method = %q, want neuter", h.Method)
 		}
-		// Replace the neutered inode at its original path with a different file.
-		_ = clearImmutable(victim)
-		if err := os.Remove(victim); err != nil {
-			t.Fatalf("remove neutered: %v", err)
-		}
-		if err := os.WriteFile(victim, []byte("impostor"), 0o600); err != nil {
+		// Replace the neutered inode at its original path with a DIFFERENT inode
+		// (create-then-rename so the inode number cannot be reused).
+		impostor := victim + ".new"
+		if err := os.WriteFile(impostor, []byte("impostor"), 0o600); err != nil {
 			t.Fatalf("write impostor: %v", err)
+		}
+		_ = clearImmutable(victim)
+		if err := os.Rename(impostor, victim); err != nil {
+			t.Fatalf("swap neutered inode: %v", err)
 		}
 		if err := e.Restore(ctx, h, ""); !errors.Is(err, ErrStaleTarget) {
 			t.Fatalf("Restore with replaced neutered inode = %v, want ErrStaleTarget", err)

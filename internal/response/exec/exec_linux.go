@@ -890,23 +890,27 @@ func (e *linuxExecutor) restoreNeuter(man quarantineManifest, dest string) error
 	if st.Dev != man.Stat.Dev || st.Ino != man.Stat.Ino {
 		return fmt.Errorf("%w: inode replaced at %q since neuter", ErrStaleTarget, man.OrigPath)
 	}
-	// Reopen the identical inode O_RDONLY through /proc/self/fd (an O_PATH fd can
-	// neither fchmod nor ioctl); same inode by construction, no re-resolution.
-	rf, err := os.Open(fmt.Sprintf("/proc/self/fd/%d", fd)) //nolint:gosec // our own fd, reopened by number
-	if err != nil {
-		return fmt.Errorf("restore: reopen neutered inode: %w", err)
-	}
-	defer func() { _ = rf.Close() }()
+	// Act on the PINNED inode through /proc/self/fd, never by re-resolving
+	// origPath (Q1): the magic symlink resolves to the inode the O_PATH fd holds,
+	// so a swap of origPath after the open cannot redirect the act. chmod needs
+	// ownership, not read permission, so the raw-bit syscall.Chmod works on the
+	// 0000 neutered inode where an O_RDONLY reopen would be denied to a non-root
+	// owner; the raw bits also preserve setuid/setgid/sticky (os.Chmod drops
+	// them).
+	proc := fmt.Sprintf("/proc/self/fd/%d", fd)
 	if man.Immutable {
-		_ = chattrFd(int(rf.Fd()), false)
+		// The immutable bit is only ever set with CAP_LINUX_IMMUTABLE (root),
+		// where an O_RDONLY reopen for the clearing ioctl succeeds.
+		if rf, oerr := os.Open(proc); oerr == nil { //nolint:gosec // our own fd, reopened by number
+			_ = chattrFd(int(rf.Fd()), false)
+			_ = rf.Close()
+		}
 	}
-	// Raw-bit fchmod on the fd (not os.File.Chmod): preserve setuid/setgid/sticky
-	// (os.FileMode would drop them) and stay on the confirmed inode (Q1).
-	if err := syscall.Fchmod(int(rf.Fd()), man.Stat.Mode&0o7777); err != nil {
-		return fmt.Errorf("restore: fchmod neutered inode: %w", err)
+	if err := syscall.Chmod(proc, man.Stat.Mode&0o7777); err != nil {
+		return fmt.Errorf("restore: chmod neutered inode: %w", err)
 	}
 	var after syscall.Stat_t
-	if err := syscall.Fstat(int(rf.Fd()), &after); err != nil {
+	if err := syscall.Fstat(fd, &after); err != nil {
 		return fmt.Errorf("restore: re-fstat neutered inode: %w", err)
 	}
 	if after.Mode&0o7777 != man.Stat.Mode&0o7777 {
