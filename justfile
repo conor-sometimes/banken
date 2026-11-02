@@ -203,6 +203,64 @@ build:
 	mkdir -p output
 	CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -trimpath -o output/banken .
 
+# --- per-commit checklist automation (docs/dev/checklist.md is the spec) ---
+#
+# precommit: THE one command a contributor runs before pushing; the whole of Tier 1. Composed
+# from the recipes above and below, in cheap-to-expensive order of failure:
+#   default        gofumpt, vet, staticcheck, golangci-lint, errcheck, gosec, govulncheck, unit
+#                  (race + the per-target Fuzz* smoke, via `unit: fuzz`) and coverage
+#   rules-check    every own rule loads (sigmacov -require-all)
+#   ocsf-validate  the OCSF goldens against the pinned schema (needs network + uv)
+#   cross-compile  banken still builds for Windows
+#   size-check     the release binary is still within the size budget
+# The fuzz smoke is not a separate step: `default` already runs every Fuzz* target for a few
+# seconds. The no-AI-attribution/no-dash hooks run at commit time (`just install-hooks`).
+precommit: default rules-check ocsf-validate cross-compile size-check
+
+# Every own rule under ./rules loads (100%), not merely most of them.
+rules-check:
+	go run ./tools/sigmacov -require-all ./rules
+
+# Cross-compile guard: banken's product (`.`) and the library packages (`./internal/...`) must
+# build for Windows with no cgo. Built per path, not `./...`, because tests/distros/distrocheck is
+# a Linux-only harness by design. `-o /dev/null` discards the binary (go ignores it for the
+# multi-package build).
+cross-compile:
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null .
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./internal/...
+	@echo "PASS: banken and ./internal/... cross-compile for windows/amd64 (CGO_ENABLED=0)"
+
+# Binary-size guard: the ~7 MiB static binary is a headline claim (README), so a dependency that
+# balloons it should fail the gate rather than be noticed later. The budget is a little above
+# today's linux/amd64 size (see the PASS line); raise it only deliberately, in its own commit,
+# with the reason. Measured on the same stripped, trimpath build the release uses (`build`).
+max_binary_bytes := "9437184" # 9 MiB
+
+size-check: build
+	#!/usr/bin/env bash
+	set -euo pipefail
+	size="$(wc -c < output/banken | tr -d ' ')"
+	max={{max_binary_bytes}}
+	if [ "$size" -gt "$max" ]; then
+		echo "FAIL: output/banken is $size bytes, over the $max byte budget (just max_binary_bytes)" >&2
+		exit 1
+	fi
+	echo "PASS: output/banken is $size bytes ($((size / 1024)) KiB), within the $max byte budget"
+
+# Per-commit benchmark history: run the benchmarks, then APPEND one JSON line for this commit
+# (median ns/op, B/op, allocs/op per benchmark + the release binary size) to bench/history.ndjson,
+# the longitudinal log. bench/baseline.txt stays the benchstat reference for a delta. Rows carry
+# goos/goarch/cpu: compare only rows from the same machine. CI's `bench` job does the same on every
+# push and uploads the file; run this to commit a line measured on a machine you trust (hokkaido).
+bench-history count="6": (bench count) build
+	#!/usr/bin/env bash
+	set -euo pipefail
+	commit="$(git rev-parse HEAD)"
+	git diff --quiet HEAD -- || commit="$commit-dirty"
+	go run ./bench/cmd/benchhist -commit "$commit" -date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		-binary-bytes "$(wc -c < output/banken | tr -d ' ')" < bench/new.txt >> bench/history.ndjson
+	echo "appended $commit to bench/history.ndjson"
+
 # install-hooks points git at the repo's tracked hooks (core.hooksPath), so a
 # fresh clone enforces the commit-msg policy (no AI attribution) with no
 # dependence on any global git config. Run once after cloning.

@@ -35,6 +35,18 @@ jobs:
       - name: just default
         run: just default
 
+      # Per-commit checklist guards (docs/dev/checklist.md, Tier 1). All cheap,
+      # all one `just` recipe each so a contributor runs the same thing locally
+      # (`just precommit` runs these plus `just default` and ocsf-validate).
+      - name: Own rules all load
+        run: just rules-check
+
+      - name: Cross-compile guard (windows/amd64, no cgo)
+        run: just cross-compile
+
+      - name: Binary-size guard
+        run: just size-check
+
       # The NixOS module's VM test (tests/vm.nix, `nix flake check`) needs
       # KVM and runs on the build host, not here.
 
@@ -91,10 +103,30 @@ jobs:
             echo 'no bench/baseline.txt committed yet' | tee -a "$GITHUB_STEP_SUMMARY"
           fi
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+      # The longitudinal log: append this commit's median numbers (one JSON line,
+      # see bench/cmd/benchhist) to bench/history.ndjson and keep the result as an
+      # artifact. Not committed from CI (the repo is not written to by Actions);
+      # `just bench-history` appends a line measured on a trusted machine.
+      - name: Append to benchmark history
+        env:
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -o pipefail
+          CGO_ENABLED=0 go build -ldflags '-s -w' -trimpath -o output/banken .
+          go run ./bench/cmd/benchhist -commit "$COMMIT" -date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -binary-bytes "$(wc -c < output/banken | tr -d ' ')" < bench/new.txt | tee -a bench/history.ndjson
+          {
+            echo '### This commit in the benchmark history (bench/history.ndjson)'
+            echo '```json'
+            tail -n 1 bench/history.ndjson
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: benchmarks
-          path: bench/new.txt
+          path: |
+            bench/new.txt
+            bench/history.ndjson
 
   # A CycloneDX SBOM of the binary on every push (downloadable artifact); a
   # release attaches it. Works regardless of repo visibility.

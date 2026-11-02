@@ -452,7 +452,7 @@ func matcherBytes(rules []*sigma.Rule) int64 {
 	m := sigma.NewMatcher(rules)
 	runtime.GC()
 	runtime.ReadMemStats(&after)
-	sinkInt = m.Len() // keep m alive past the second reading
+	sinkInt = m.Len()                                     // keep m alive past the second reading
 	d := int64(after.HeapAlloc) - int64(before.HeapAlloc) // #nosec G115 -- heap byte counts are far below 2^63
 	if d < 0 {
 		d = 0
