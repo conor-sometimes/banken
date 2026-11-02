@@ -151,6 +151,7 @@
         response-enforce = import ./tests/response-enforce.nix { inherit pkgs; banken = bankenPkg; };
         response-whackamole = import ./tests/response-whackamole.nix { inherit pkgs; banken = bankenPkg; };
         response-freeze = import ./tests/response-freeze.nix { inherit pkgs; banken = bankenPkg; };
+        response-quarantine = import ./tests/response-quarantine.nix { inherit pkgs; banken = bankenPkg; };
         switch = import ./tests/switch.nix { inherit pkgs mimiModule; banken = bankenPkg; };
         switch-floor = import ./tests/switch-floor.nix { inherit pkgs mimiModule; banken = bankenPkg; };
         switch-restart = import ./tests/switch-restart.nix { inherit pkgs mimiModule; banken = bankenPkg; };
