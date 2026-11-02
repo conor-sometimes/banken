@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -528,17 +527,49 @@ type fileStat struct {
 	Nlink uint64 `json:"nlink"`
 }
 
+// Quarantine store state values and the restore tombstone name. stateHeld is
+// the finalised state (statePending, store.go, is the written-before-the-act
+// one). unhashedSentinel is recorded in SHA256 when the file was over
+// MaxFileBytes: it is a sentinel, not a hash, so a reader tests equality and
+// never parses it as hex (Q6).
+const (
+	stateHeld        = "held"
+	restoredName     = "restored.json"
+	unhashedSentinel = "unhashed"
+)
+
+// quarantineManifest is the quarantine store entry (docs quarantine.md section
+// 3.5). It is written state=pending BEFORE the rename/neuter (Q2) -- carrying
+// the ORIGINAL stat Restore reapplies -- and finalised to state=held after the
+// act. Order is the idempotency key the drain's already-applied check reads, so
+// a replayed order is a no-op. The store header (id, order, state) shares the
+// json tags storeScanForOrder reads across every kind.
 type quarantineManifest struct {
 	ID        string    `json:"id"`
+	Version   int       `json:"version"`
+	Order     string    `json:"order,omitempty"`
+	State     string    `json:"state"` // pending | held
 	OrigPath  string    `json:"origPath"`
-	Method    string    `json:"method"` // rename | neuter
-	Stat      fileStat  `json:"stat"`
-	SHA256    string    `json:"sha256"`
+	Method    string    `json:"method"` // rename | neuter | pending
+	Stat      fileStat  `json:"stat"`   // the PRE-neuter stat (Restore reapplies this mode)
+	SHA256    string    `json:"sha256"` // hex, or unhashedSentinel over MaxFileBytes
 	Immutable bool      `json:"immutable"`
 	Time      time.Time `json:"time"`
+	BootID    string    `json:"bootId,omitempty"`
 }
 
-func (e *linuxExecutor) Quarantine(_ context.Context, f response.FileRef) (Handle, error) {
+// quarantineRestored is the restore tombstone: its presence makes a second
+// restore a no-op, and the recovery pass writes it with outcome "rolled-back"
+// for a pending entry whose act never landed (so already-applied never fires on
+// it and the order reprocesses normally).
+type quarantineRestored struct {
+	Time        time.Time `json:"time"`
+	OperatorUID int       `json:"operatorUid"`
+	Outcome     string    `json:"outcome,omitempty"` // restored | rolled-back
+	Dest        string    `json:"dest,omitempty"`
+}
+
+func (e *linuxExecutor) Quarantine(ctx context.Context, f response.FileRef) (Handle, error) {
 	path := filepath.Clean(f.Path)
 	if pfx, bad := response.UnderNeverTouch(path); bad {
 		return Handle{}, fmt.Errorf("%w: %q under never-touch %q", ErrDenied, path, pfx)
@@ -548,7 +579,9 @@ func (e *linuxExecutor) Quarantine(_ context.Context, f response.FileRef) (Handl
 	}
 
 	// Open the path without following symlinks and confirm it is a regular
-	// file; act on the fd's inode, never a re-resolved path.
+	// file; every later act is on THIS fd's inode, never a re-resolved path, so
+	// a swap of the directory entry cannot redirect us onto an innocent file
+	// (Q1).
 	fd, err := syscall.Open(path, oPath|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return Handle{}, fmt.Errorf("open %q: %w", path, err)
@@ -561,7 +594,9 @@ func (e *linuxExecutor) Quarantine(_ context.Context, f response.FileRef) (Handl
 	if st.Mode&syscall.S_IFMT != syscall.S_IFREG {
 		return Handle{}, fmt.Errorf("%w: %q is not a regular file", ErrStaleTarget, path)
 	}
-	sum, _ := sha256OfFd(fd)
+	// Hash is bounded by MaxFileBytes (Q6): over the cap the file is still taken
+	// but recorded "unhashed" -- a 1 TiB sparse file must not block the drain.
+	sum := e.hashBounded(fd, st.Size)
 	fstat := statToFileStat(st)
 
 	id := newHandleID()
@@ -571,13 +606,28 @@ func (e *linuxExecutor) Quarantine(_ context.Context, f response.FileRef) (Handl
 	}
 
 	entryDir := filepath.Join(e.cfg.QuarantineDir, id)
-	if err := os.MkdirAll(entryDir, 0o700); err != nil {
-		return Handle{}, fmt.Errorf("quarantine mkdir: %w", err)
-	}
 	dest := filepath.Join(entryDir, "file")
-	man := quarantineManifest{ID: id, OrigPath: path, Stat: fstat, SHA256: sum, Time: time.Now().UTC()}
+	man := quarantineManifest{
+		ID: id, Version: manifestVersion, Order: orderIDFromContext(ctx),
+		State: statePending, Method: "pending", OrigPath: path,
+		Stat: fstat, SHA256: sum, Time: time.Now().UTC(), BootID: currentBootID(),
+	}
 
-	err = renameat2(atFDCWD, path, atFDCWD, dest, renameNoReplace)
+	// Manifest FIRST (Q2): the pending manifest is written and committed before
+	// anything is moved or neutered, so a store that cannot be written refuses
+	// the quarantine having touched the file, and a crash mid-act leaves a
+	// recoverable pending entry rather than an orphaned, unrestorable file.
+	if werr := storeWriteManifest(entryDir, man); werr != nil {
+		return Handle{}, fmt.Errorf("quarantine: manifest-first write failed, nothing moved: %w", werr)
+	}
+
+	// Test seam: swap the directory entry between the fstat and the act, to
+	// prove the act binds to the fstat'd inode, not a re-resolved path (Q1).
+	if quarantineSwapHook != nil {
+		quarantineSwapHook()
+	}
+
+	err = renameat2Fn(atFDCWD, path, atFDCWD, dest, renameNoReplace)
 	switch {
 	case err == nil:
 		// Post-rename inode recheck: if the entry at the old path was swapped
@@ -585,26 +635,60 @@ func (e *linuxExecutor) Quarantine(_ context.Context, f response.FileRef) (Handl
 		// straight back and refuse.
 		var dst syscall.Stat_t
 		if serr := syscall.Lstat(dest, &dst); serr == nil && (dst.Dev != st.Dev || dst.Ino != st.Ino) {
-			_ = renameat2(atFDCWD, dest, atFDCWD, path, 0)
+			_ = renameat2Fn(atFDCWD, dest, atFDCWD, path, 0)
 			_ = os.RemoveAll(entryDir)
 			return Handle{}, fmt.Errorf("%w: inode changed under the rename", ErrStaleTarget)
 		}
 		man.Method = "rename"
+		// Neuter the STORED inode on the fd we fstat'd (Q7): the O_PATH fd still
+		// names the moved inode after the rename. 0000 + immutable makes the
+		// stored artifact inert to a careless root shell; Restore reapplies the
+		// recorded mode.
+		man.Immutable = neuterFd(fd)
 	case errors.Is(err, syscall.EXDEV):
-		// Cross-filesystem: neuter in place rather than copy.
+		// Cross-filesystem: neuter in place rather than copy. Act on the fstat'd
+		// fd, never a re-resolved path (Q1): a swap race must not neuter an
+		// innocent file now sitting at the path.
 		man.Method = "neuter"
-		_ = os.Chmod(path, 0)
-		man.Immutable = setImmutable(path)
+		man.Immutable = neuterFd(fd)
 	default:
 		_ = os.RemoveAll(entryDir)
 		return Handle{}, fmt.Errorf("renameat2 %q: %w", path, err)
 	}
 
-	if err := writeManifest(entryDir, man); err != nil {
-		e.logf("response/exec: WARNING manifest write failed for %s: %v", id, err)
-	}
+	e.finalizeQuarantine(entryDir, &man)
 	e.logf("response/exec: %s quarantined %q via %s (handle %s)", e.gate(), path, man.Method, id)
-	return Handle{ID: id, Kind: response.ActionQuarantine, Method: man.Method, Undo: entryDir, Note: "sha256:" + sum}, nil
+	return Handle{ID: id, Kind: response.ActionQuarantine, Method: man.Method, Undo: id, Note: "sha256:" + sum}, nil
+}
+
+// finalizeQuarantine marks a quarantine manifest committed (state held, 0400),
+// mirroring finalizeFreeze. A finalise failure is logged, not fatal: the act
+// already landed and the recovery pass finalises a still-pending manifest from
+// the store alone.
+func (e *linuxExecutor) finalizeQuarantine(entryDir string, man *quarantineManifest) {
+	man.State = stateHeld
+	if err := storeWriteManifest(entryDir, *man); err != nil {
+		e.logf("response/exec: WARNING quarantine finalise write failed for %s: %v", man.ID, err)
+		return
+	}
+	if err := storeFinalize(entryDir); err != nil {
+		e.logf("response/exec: WARNING quarantine finalise seal failed for %s: %v", man.ID, err)
+	}
+}
+
+// hashBounded returns the sha256 of the inode behind an O_PATH fd, or the
+// unhashed sentinel when the file is larger than MaxFileBytes or unreadable
+// (Q6). It never reads a file over the cap: the fstat size decides, so a sparse
+// or hung file returns instantly and is still quarantined.
+func (e *linuxExecutor) hashBounded(opathFd int, size int64) string {
+	if e.cfg.MaxFileBytes > 0 && size > e.cfg.MaxFileBytes {
+		return unhashedSentinel
+	}
+	sum, err := sha256OfFd(opathFd)
+	if err != nil {
+		return unhashedSentinel
+	}
+	return sum
 }
 
 func (e *linuxExecutor) Restore(_ context.Context, h Handle) error {
@@ -612,10 +696,20 @@ func (e *linuxExecutor) Restore(_ context.Context, h Handle) error {
 		e.logf("response/exec: %s would restore %s", e.gate(), h.ID)
 		return nil
 	}
-	entryDir := h.Undo
-	man, err := readManifest(entryDir)
-	if err != nil {
-		return fmt.Errorf("restore: read manifest: %w", err)
+	id := h.Undo
+	if id == "" {
+		id = h.ID
+	}
+	if id == "" {
+		return errors.New("restore: handle carries no quarantine store id")
+	}
+	entryDir := filepath.Join(e.cfg.QuarantineDir, id)
+	var man quarantineManifest
+	if err := storeReadManifest(entryDir, &man); err != nil {
+		if errors.Is(err, errNoManifest) {
+			return fmt.Errorf("restore: no quarantine store entry for %s (a dry-run handle, or not a quarantine)", id)
+		}
+		return fmt.Errorf("restore: %w", err)
 	}
 	switch man.Method {
 	case "rename":
@@ -624,8 +718,19 @@ func (e *linuxExecutor) Restore(_ context.Context, h Handle) error {
 		if err := syscall.Lstat(dest, &dst); err != nil {
 			return fmt.Errorf("restore: stat quarantined file: %w", err)
 		}
-		if dst.Ino != man.Stat.Ino {
-			return errors.New("restore: quarantined inode no longer matches manifest")
+		if dst.Dev != man.Stat.Dev || dst.Ino != man.Stat.Ino {
+			return errors.New("restore: quarantined (dev,ino) no longer matches manifest")
+		}
+		// The store file was neutered to 0000 (+ immutable where it took) at
+		// quarantine time (Q7); reverse that before handing the inode back. The
+		// store dir is 0700 root and not attacker-reachable, so a path-based
+		// chmod here is race-free (the fd-discipline Q1 guards is for the live
+		// origPath, which Restore writes to via the atomic rename below).
+		if man.Immutable {
+			_ = clearImmutable(dest)
+		}
+		if err := os.Chmod(dest, os.FileMode(man.Stat.Mode&0o7777)); err != nil {
+			return fmt.Errorf("restore: chmod stored file: %w", err)
 		}
 		if err := renameat2(atFDCWD, dest, atFDCWD, man.OrigPath, renameNoReplace); err != nil {
 			return fmt.Errorf("restore: rename back: %w", err)
@@ -721,9 +826,9 @@ func (e *linuxExecutor) Collect(ctx context.Context, p response.ProcessRef) (Han
 // entry for orderID, returning the handle to record. It is the drain's
 // already-applied check (docs section 2.4): a replayed order -- a crash between
 // the act and the unlink, or an operator copying an order back in -- is a no-op
-// for the store-backed actions. Freeze and evidence are scanned here; the
-// quarantine store joins in build item 5. Kill keeps no store, so a replayed
-// kill finds the pid gone or a reuser, both handled by identify().
+// for the store-backed actions. Freeze, evidence and quarantine are scanned
+// here. Kill keeps no store, so a replayed kill finds the pid gone or a reuser,
+// both handled by identify().
 func (e *linuxExecutor) Applied(_ context.Context, orderID string) (Handle, bool, error) {
 	if id, ok := storeScanForOrder(e.cfg.FreezeDir, orderID); ok {
 		var man freezeManifest
@@ -735,15 +840,21 @@ func (e *linuxExecutor) Applied(_ context.Context, orderID string) (Handle, bool
 		_ = storeReadManifest(filepath.Join(e.cfg.EvidenceDir, id), &man)
 		return Handle{ID: id, Kind: response.ActionCollect, PID: man.PID, Method: "snapshot", Undo: id, Exe: man.Exe, StartTime: man.StartTime}, true, nil
 	}
+	if id, ok := storeScanForOrder(e.cfg.QuarantineDir, orderID); ok {
+		var man quarantineManifest
+		_ = storeReadManifest(filepath.Join(e.cfg.QuarantineDir, id), &man)
+		return Handle{ID: id, Kind: response.ActionQuarantine, Method: man.Method, Undo: id, Note: "sha256:" + man.SHA256}, true, nil
+	}
 	return Handle{}, false, nil
 }
 
-// Recover is the drain's startup repair pass over the freeze store and the
-// cgroup root (docs section 2.4 step 4). It finalises a pending freeze manifest
-// whose pids did reach the cgroup, rolls back one whose act never landed, and
-// removes an empty cgroup dir that no live manifest owns (the second half of
-// F8: a kill cgroup left populated at the bound, later emptied). It never
-// touches a finalised, untombstoned entry.
+// Recover is the drain's startup repair pass over the freeze and quarantine
+// stores and the cgroup root (docs section 2.4 step 4). It finalises a pending
+// freeze manifest whose pids did reach the cgroup, a pending quarantine
+// manifest whose rename/neuter did land, rolls back either whose act never
+// landed, and removes an empty cgroup dir that no live manifest owns (the
+// second half of F8: a kill cgroup left populated at the bound, later emptied).
+// It never touches a finalised, untombstoned entry.
 func (e *linuxExecutor) Recover(_ context.Context) ([]RecoveryResult, error) {
 	var out []RecoveryResult
 	live := map[string]bool{} // handle id -> has a live (finalised, untombstoned) manifest
@@ -773,6 +884,29 @@ func (e *linuxExecutor) Recover(_ context.Context) ([]RecoveryResult, error) {
 		if res.Outcome == "finalised" {
 			live[man.ID] = true
 		}
+	}
+
+	// Quarantine store: a pending manifest is finished from the store alone (the
+	// stored file or the in-place neuter is checked against the manifest's
+	// (dev, ino)) or rolled back when the act never landed. A tombstoned pending
+	// entry is a previous pass's rollback and is skipped.
+	qents, _ := os.ReadDir(e.cfg.QuarantineDir)
+	for _, ent := range qents {
+		if !ent.IsDir() {
+			continue
+		}
+		entryDir := filepath.Join(e.cfg.QuarantineDir, ent.Name())
+		var man quarantineManifest
+		if err := storeReadManifest(entryDir, &man); err != nil {
+			continue
+		}
+		if man.State != statePending {
+			continue
+		}
+		if storeHasTombstone(entryDir, restoredName) {
+			continue // a rolled-back pending entry from an earlier pass
+		}
+		out = append(out, e.recoverPendingQuarantine(entryDir, &man))
 	}
 
 	// Empty cgroup dirs under the root with no live manifest: remove them (a
@@ -828,6 +962,64 @@ func (e *linuxExecutor) recoverPendingFreeze(entryDir string, man *freezeManifes
 	_ = storeTombstone(entryDir, thawedName, freezeThawed{Time: time.Now().UTC(), OperatorUID: operatorUID(), Outcome: "rolled-back"})
 	res.Outcome = "rolled-back"
 	return res
+}
+
+// recoverPendingQuarantine finalises or rolls back a single pending quarantine
+// entry, from the store alone (docs quarantine.md section 3.4). It finalises
+// when the act demonstrably landed: the stored <id>/file is the manifest's
+// inode (the rename landed), or the original path still holds the manifest's
+// inode now neutered to mode 0 (the in-place neuter landed). Otherwise -- the
+// original file is intact at its path, or the inode is nowhere to be found --
+// nothing destructive happened, so it is rolled back with a tombstone, which
+// keeps already-applied from firing and lets the order reprocess normally.
+func (e *linuxExecutor) recoverPendingQuarantine(entryDir string, man *quarantineManifest) RecoveryResult {
+	res := RecoveryResult{ID: man.ID, Order: man.Order, Kind: response.ActionQuarantine}
+
+	// Case 1: the rename landed -- the stored file is the manifest's inode.
+	if dev, ino, ok := statDevIno(filepath.Join(entryDir, "file")); ok && dev == man.Stat.Dev && ino == man.Stat.Ino {
+		man.Method = "rename"
+		if fd, err := syscall.Open(filepath.Join(entryDir, "file"), oPath|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0); err == nil {
+			man.Immutable = neuterFd(fd) // ensure neutered (idempotent)
+			_ = syscall.Close(fd)
+		}
+		e.finalizeQuarantine(entryDir, man)
+		res.Outcome = "finalised"
+		return res
+	}
+
+	// Case 2: the inode is still at its original path. If it is already mode 0,
+	// the in-place neuter landed (finalise); otherwise it is intact and nothing
+	// happened (roll back below).
+	if fd, err := syscall.Open(man.OrigPath, oPath|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0); err == nil {
+		var st syscall.Stat_t
+		serr := syscall.Fstat(fd, &st)
+		if serr == nil && st.Dev == man.Stat.Dev && st.Ino == man.Stat.Ino && st.Mode&0o7777 == 0 {
+			man.Method = "neuter"
+			man.Immutable = neuterFd(fd) // confirm/ensure
+			_ = syscall.Close(fd)
+			e.finalizeQuarantine(entryDir, man)
+			res.Outcome = "finalised"
+			return res
+		}
+		_ = syscall.Close(fd)
+	}
+
+	// Roll back: the act never landed (or the inode is unrecoverable). Tombstone
+	// so already-applied never fires and the order reprocesses normally.
+	_ = storeTombstone(entryDir, restoredName, quarantineRestored{Time: time.Now().UTC(), OperatorUID: operatorUID(), Outcome: "rolled-back"})
+	res.Outcome = "rolled-back"
+	return res
+}
+
+// statDevIno lstats a path and returns its (dev, ino). A missing or unstattable
+// path returns ok=false, so a recovery pass can tell "the rename landed" from
+// "it did not" without branching on an error string.
+func statDevIno(path string) (dev, ino uint64, ok bool) {
+	var st syscall.Stat_t
+	if err := syscall.Lstat(path, &st); err != nil {
+		return 0, 0, false
+	}
+	return st.Dev, st.Ino, true
 }
 
 // ---- cgroup helpers --------------------------------------------------------
@@ -1098,7 +1290,42 @@ func renameat2(olddirfd int, oldpath string, newdirfd int, newpath string, flags
 	return nil
 }
 
-func setImmutable(path string) bool    { return chattr(path, true) == nil }
+// renameat2Fn is renameat2 behind a var so a test can force the EXDEV
+// (cross-filesystem) branch of Quarantine deterministically, without needing a
+// real second mount -- the neuter path then runs on any filesystem.
+var renameat2Fn = renameat2
+
+// quarantineSwapHook, when non-nil, runs after the fstat and after the pending
+// manifest, just before the rename/neuter act. A test uses it to swap the
+// directory entry mid-operation and prove the act binds to the fstat'd inode,
+// never a re-resolved path (Q1).
+var quarantineSwapHook func()
+
+// neuterFd makes the inode behind an O_PATH fd inert: mode 0 and, where the
+// filesystem and privilege allow, the immutable flag. It acts on the fd -- the
+// inode we fstat'd -- never on a path an attacker could swap under us (Q1). An
+// O_PATH fd can neither fchmod nor ioctl, so the same inode is reopened
+// O_RDONLY through /proc/self/fd (that reopen names the identical inode by
+// construction). It returns whether the immutable flag took, and a post-neuter
+// fstat confirms the mode landed. tmpfs before 6.0 ignores the immutable flag,
+// so false is recorded honestly rather than assumed.
+func neuterFd(opathFd int) bool {
+	rf, err := os.Open(fmt.Sprintf("/proc/self/fd/%d", opathFd)) //nolint:gosec // our own fd, reopened by number
+	if err != nil {
+		return false
+	}
+	defer func() { _ = rf.Close() }()
+	_ = rf.Chmod(0)
+	immutable := chattrFd(int(rf.Fd()), true) == nil
+	// Post-neuter fstat: confirm mode 0 actually landed (an exotic filesystem
+	// may refuse it); the caller's manifest already holds the pre-neuter stat.
+	var st syscall.Stat_t
+	if syscall.Fstat(int(rf.Fd()), &st) == nil && st.Mode&0o7777 != 0 {
+		immutable = false
+	}
+	return immutable
+}
+
 func clearImmutable(path string) error { return chattr(path, false) }
 
 func chattr(path string, set bool) error {
@@ -1107,6 +1334,13 @@ func chattr(path string, set bool) error {
 		return err
 	}
 	defer func() { _ = syscall.Close(fd) }()
+	return chattrFd(fd, set)
+}
+
+// chattrFd sets or clears FS_IMMUTABLE_FL on an open (readable) fd. The caller
+// holds the fd, so the flag change lands on exactly that inode -- the fd
+// discipline Q1 asks for applied to the immutable bit too.
+func chattrFd(fd int, set bool) error {
 	var flags int32
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), fsIocGetFlags, uintptr(unsafe.Pointer(&flags))); errno != 0 { //#nosec G103 -- audited FS_IOC_GETFLAGS ioctl
 		return errno
@@ -1291,24 +1525,6 @@ func sha256OfPath(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func writeManifest(dir string, m quarantineManifest) error {
-	buf, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "manifest.json"), buf, 0o600)
-}
-
-func readManifest(dir string) (quarantineManifest, error) {
-	var m quarantineManifest
-	data, err := os.ReadFile(filepath.Join(dir, "manifest.json")) //nolint:gosec // our own quarantine dir
-	if err != nil {
-		return m, err
-	}
-	err = json.Unmarshal(data, &m)
-	return m, err
 }
 
 func newHandleID() string {
