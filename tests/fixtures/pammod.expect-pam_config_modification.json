@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/usr/bin/sed",
+  "commandLine": "sed -i 1s,^,auth sufficient pam_succeed_if.so uid >= 0\\n,g /etc/pam.d/su-l",
+  "source": "laurel",
+  "user": "0",
+  "pid": 10030,
+  "ppid": 10000
+ }
+]

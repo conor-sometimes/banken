@@ -1,0 +1,118 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 3,
+  "severity": "Medium",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"shell_history_read\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "28896aac480d64aadcb93bcdd14f7fa9",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "28896aac480d64aadcb93bcdd14f7fa9",
+    "title": "Shell history file read for credentials",
+    "desc": "A program read a shell or client history file - cat/grep/strings over ~/.bash_history, ~/.zsh_history, ~/.mysql_history, ~/.psql_history and friends. Command history is a rich source of credentials: passwords typed on a command line, connection strings, `-p` arguments and ssh targets all end up there, so sweeping history for them is a known credential-access step (MITRE T1552.003). history_tamper covers wiping history to cover tracks; this covers reading it to steal. A program reading the file is matched; the shell's own builtin `history` is not an exec and cannot be seen.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "shell_history_read",
+      "uid": "2b9e5f41-7a08-4d36-85c1-6f3a0d9c72e4"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0006",
+          "name": "Credential Access"
+        },
+        "technique": {
+          "uid": "T1552"
+        },
+        "sub_technique": {
+          "uid": "T1552.003"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 10070,
+        "name": "cat",
+        "cmd_line": "cat /home/u/.bash_history",
+        "file": {
+          "name": "cat",
+          "path": "/usr/bin/cat",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 10000
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "cat /home/u/.bash_history"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "cat"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/cat"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/usr/bin/cat\",\"commandLine\":\"cat /home/u/.bash_history\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"/home/u\",\"pid\":10070,\"ppid\":10000}",
+  "unmapped": {
+    "current_directory": "/home/u",
+    "kind": "sigma",
+    "rule": "shell_history_read",
+    "source": "laurel"
+  }
+}

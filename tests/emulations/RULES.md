@@ -51,6 +51,18 @@ anything that would touch the live host) is documented in `./README.md` and in e
 | `rules/privilege-escalation/ld_preload_hijack.yml` | `ldpreload.sh` | T1574.006 | `env LD_PRELOAD=/nonexistent.so true` + `cp` the real `/etc/ld.so.preload` to scratch (read-only). |
 | `rules/privilege-escalation/sudoers_modification.yml` | `sudoersedit.sh` | T1548.003 | `cp` the real `/etc/sudoers` to scratch (read-only); NOPASSWD edit lands only on a scratch drop-in (`visudo -c`). |
 | `rules/impact/data_destruction.yml` | `diskwipe.sh` | T1485 | `rm -rf --no-preserve-root` a scratch dir; `dd`/`mkfs.ext4` to a nonexistent `/dev/sdz`, unprivileged-only, `count=0`. |
+| `rules/impact/service_stop.yml` | `servicestop.sh` | T1489 | `systemctl stop` a nonexistent `cups-emul-dummy` unit (defense services are carved out; this fires on a non-defense stop). |
+| `rules/defense-evasion/system_log_cleared.yml` | `syslogclear.sh` | T1070.002 | `truncate -s0`/`rm` DUMMY files in a scratch `.../var/log/` tree; an app log under `/var/log` is not matched, only named system logs. |
+| `rules/credential-access/pam_config_modification.yml` | `pammod.sh` | T1556.003 | `cp` a real `/etc/pam.d` file to scratch (read-only); `sed` a `pam_succeed_if.so` rule into a scratch file. |
+| `rules/defense-evasion/root_ca_installed.yml` | `rootca.sh` | T1553.004 | `cp` a DUMMY cert into a scratch `.../etc/pki/ca-trust/source/anchors/` tree (never the real store; rebuild tool not run). |
+| `rules/persistence/rc_script_persistence.yml` | `rcpersist.sh` | T1037.004 | `tee -a` a no-op line into a scratch `.../etc/rc.local` (never the real boot script). |
+| `rules/discovery/security_software_discovery.yml` | `edrdiscover.sh` | T1518.001 | `pgrep`/`grep -E` for EDR/AV agent names (`falcond`/`osqueryd`/`wazuh-agent`...); matches nothing on a clean box. |
+| `rules/credential-access/shell_history_read.yml` | `histread.sh` | T1552.003 | `cat` a DUMMY `.bash_history` in scratch (reading it; wiping is `history_tamper`). |
+| `rules/defense-evasion/masquerade_extension.yml` | `masqext.sh` | T1036.008 / T1036.007 | `sh` a scratch `image.png` script, and exec a scratch `report.pdf.sh` (each just echoes). |
+| `rules/command-and-control/tor_usage.yml` | `torstart.sh` | T1090.003 | `systemctl start` a nonexistent `tor-emul` unit (starts nothing; the `tor`+start argv is the signal). |
+| `rules/credential-access/browser_credential_access.yml` | `browsercred.sh` | T1555.003 / T1217 | `cat` a DUMMY `logins.json` under a scratch `.mozilla/firefox` profile. |
+| `rules/exfiltration/public_paste_exfil.yml` | `pasteexfil.sh` | T1567.004 / T1048.002 | `curl -F` to `file.io`/a Discord webhook HOSTNAME, pinned to TEST-NET with `--resolve` (nothing leaves). |
+| `rules/credential-access/proc_memory_dump.yml` | `procmemdump.sh` | T1003.007 | `dd` one byte of the script's OWN `/proc/<pid>/maps` to scratch (nothing of consequence dumped). |
 | `rules/execution/gtfobin_shell_spawn.yml` | `gtfoshell.sh` | T1059.004 / T1202 / T1218 | `find <scratch> -exec /bin/sh -c true`, `awk 'BEGIN{system("true")}'`, `busybox sh -c true` - the GTFOBins shell-spawn recipe, running `true`. |
 | `rules/privilege-escalation/gtfobin_sudo_breakout.yml` | `gtfosudo.sh` | T1548.003 / T1202 | `sudo -n find /nonexistent -exec /bin/sh -c true` (sudo -n never escalates); also fires `privilege_escalation_attempt` (sudo ran). |
 | `rules/execution/gtfobin_pager_escape.yml` | `gtfopager.sh` | T1059 / T1202 | invokes a harmless scratch stand-in named `vim` with the real `-c ':!true'` escape argv (and a real vim if present). |

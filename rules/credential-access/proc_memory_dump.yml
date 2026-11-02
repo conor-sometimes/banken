@@ -1,0 +1,43 @@
+title: Process memory read from /proc
+id: 9f4c0b85-6a37-4d12-8e60-1b3d7a2c5e94
+status: experimental
+description: >
+  A program read another process's memory through /proc - dd/cat/cp over /proc/<pid>/mem or
+  /proc/<pid>/maps, or gcore/gdb dumping a live process. Scraping a running process's address space
+  is how credentials, keys and secrets are harvested straight from memory (MITRE T1003.007), bypassing
+  files on disk entirely. A process reading /proc/<pid>/mem is almost never legitimate application
+  behaviour, so it is a high-confidence signal.
+references:
+  - https://attack.mitre.org/techniques/T1003/007/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.credential-access
+  - attack.t1003.007
+detection:
+  reader:
+    Image|endswith:
+      - /dd
+      - /cat
+      - /cp
+      - /tail
+      - /head
+      - /xxd
+      - /dcfldd
+  proc_mem:
+    CommandLine|re: 'if=/proc/|/proc/[0-9]+/(mem|maps)|/proc/self/(mem|maps)'
+  dumper:
+    Image|endswith:
+      - /gcore
+      - /gdb
+    CommandLine|contains: /proc/
+  core_dump_tool:
+    Image|endswith: /gcore
+  condition: (reader and proc_mem) or dumper or core_dump_tool
+falsepositives:
+  - A debugger or crash-dump tool reading /proc under a developer's control; rare on a production
+    host, and the command line shows the target pid.
+level: critical

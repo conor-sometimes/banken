@@ -46,6 +46,17 @@ integration:
 distros:
 	nix run .#distro-matrix-mimi
 
+# The 5-minute showcase (docs/design/showcase.md): boot a throwaway VM, run the benign revshell, and
+# watch the OCSF reverse_shell finding land with the measured exec->alert latency. `demo` is the
+# auditd floor (universal, needs only this repo + nixpkgs + KVM); `demo-mimi` is the eBPF switch (the
+# sub-second catch off the mimi stream, also needs the mimi input). See demo/pitch.md for the
+# one-page scorecard. Needs KVM.
+demo:
+	nix run .#demo
+
+demo-mimi:
+	nix run .#demo-mimi
+
 # The sensor<->brain contract: banken must still parse the shared mimi fixture to the expected
 # event. mimi tests the same file from its side (`just contract` there); the two repos' copies of
 # the fixture must stay byte-identical, so a schema change has to move both.

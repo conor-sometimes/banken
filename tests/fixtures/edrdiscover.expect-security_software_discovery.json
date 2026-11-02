@@ -1,0 +1,10 @@
+[
+ {
+  "image": "/usr/bin/egrep",
+  "commandLine": "egrep falcond|nessusd|cbagentd|td-agent|packetbeat|filebeat|auditbeat|osqueryd",
+  "source": "laurel",
+  "user": "1000",
+  "pid": 10060,
+  "ppid": 10000
+ }
+]

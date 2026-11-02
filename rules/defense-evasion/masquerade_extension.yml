@@ -1,0 +1,41 @@
+title: Executable masquerading by file extension
+id: 6d1a8c57-3b40-4e29-9f85-2a7c0e4d6b93
+status: experimental
+description: >
+  A script was executed under a document or media file name - a shell run over a file ending in
+  .png/.pdf/.jpg/.doc... (an executable hiding as an image), or a binary whose name carries a
+  double extension like report.pdf.sh. Giving a payload a harmless-looking extension is how an
+  attacker gets a user (or a careless automation) to run it and how it blends into a listing
+  (MITRE T1036.007 / T1036.008). A normal `sh script.sh` or `python app.py` is not matched; a shell
+  running image.png, or a .pdf.sh being executed, is.
+references:
+  - https://attack.mitre.org/techniques/T1036/008/
+author: banken
+date: 2026-11-01
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1036.008
+  - attack.t1036.007
+detection:
+  # a shell interpreter invoked on a file with a document/media extension
+  shell_runs_media:
+    Image|endswith:
+      - /sh
+      - /bash
+      - /dash
+      - /ksh
+      - /zsh
+    CommandLine|re: '\s/?\S*\.(png|jpe?g|gif|bmp|svg|pdf|docx?|xlsx?|pptx?|rtf|odt|csv|mp3|mp4|avi|mov|mkv|zip|rar|gz|tar)(\s|$)'
+  # a binary executed directly whose path masquerades with a document/media
+  # extension before a real executable extension (report.pdf.sh, invoice.doc.elf)
+  double_ext:
+    Image|re: '\.(png|jpe?g|gif|bmp|pdf|docx?|xlsx?|pptx?|rtf|csv|mp3|mp4|avi|zip|rar|gz)\.(sh|bash|py|pl|rb|elf|bin|run|out)$'
+  condition: shell_runs_media or double_ext
+falsepositives:
+  - A tool that legitimately interprets a data file whose name happens to end in a listed extension
+    is rare; the command line shows the file. A double extension before .sh/.elf is unusual outside
+    this technique.
+level: medium
