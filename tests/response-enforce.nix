@@ -256,8 +256,9 @@ pkgs.testers.runNixOSTest {
         f"BOUNDARY: innocent pid {bnd_innocent} was KILLED by a forged order"
     assert bnd_innocent not in {str((bnd[oid_stale].get('handle') or {}).get('pid'))} or \
         bnd[oid_stale]["phase"] == "failed", "forged kill must not have executed"
+    _stale_err = (bnd[oid_stale].get("error") or "")[:60]
     print(f"[boundary] forged orders: {oid_dg[:8]} downgraded, {oid_stale[:8]} "
-          f"failed ({(bnd[oid_stale].get('error') or '')[:60]}); innocent {bnd_innocent} alive")
+          f"failed ({_stale_err}); innocent {bnd_innocent} alive")
     machine.succeed(f"kill -9 {bnd_innocent} 2>/dev/null || true")
     print("[boundary] PASS: capability split exact; forged orders downgraded/stale; 0 innocents touched")
 
