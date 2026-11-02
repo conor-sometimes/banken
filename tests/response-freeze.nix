@@ -193,7 +193,7 @@ pkgs.testers.runNixOSTest {
         assert n_pid not in (tp, hp), f"N (timestomp->none) has an action line: {a}"
         assert i_pid not in (tp, hp), f"innocent I has an action line: {a}"
     print(f"[phase A] PASS: tree {H[:8]} frozen ({len(v_pids)} pids), heartbeat stalled, "
-          f"innocent beats on, manifest orig recorded; N untouched")
+          "innocent beats on, manifest orig recorded; N untouched")
 
     # --- K's tree kill (same scan) left no cgroup behind, and the freeze cgroup
     #     H is the only dir under the quarantine root (F8, single kill). ----
@@ -250,8 +250,8 @@ pkgs.testers.runNixOSTest {
     machine.fail(f"banken respond thaw 0000deadbeef {CFG}")  # unknown id -> exit 1
     lst = machine.succeed(f"banken respond list -kind freeze {CFG}")
     assert H[:8] in lst and "thawed" in lst, f"list does not show {H[:8]} thawed:\n{lst}"
-    print(f"[phase C] PASS: thaw returned both pids home, heartbeat resumed, tombstone written, "
-          f"second thaw a no-op, unknown id exits 1, list shows thawed")
+    print("[phase C] PASS: thaw returned both pids home, heartbeat resumed, tombstone written, "
+          "second thaw a no-op, unknown id exits 1, list shows thawed")
 
     # ================= PHASE D: tree kill leaves no cgroup behind (F8 scale) ====
     # H is gone now (thawed), so the quarantine root is empty. Ten more
@@ -283,8 +283,8 @@ pkgs.testers.runNixOSTest {
 
     print("\n================ FREEZE ENFORCEMENT SCORECARD ================")
     print(f"freeze proven: tree frozen (handle {H[:8]}, {len(v_pids)} pids), heartbeat stalled, "
-          f"thaw restored cgroups and progress; 0 innocents touched; "
-          f"0 cgroup dirs leaked over 11 tree kills")
+          "thaw restored cgroups and progress; 0 innocents touched; "
+          "0 cgroup dirs leaked over 11 tree kills")
     print("  F7 (idempotent replay -> already-applied, one cgroup): PASS")
     print("  F8 (zero leaked cgroup dirs over 11 tree kills): PASS")
     print("  thaw resumes the heartbeat: PASS")
