@@ -34,6 +34,7 @@ const (
 	phaseExpired        = "expired"
 	phaseDowngraded     = "downgraded"
 	phaseAlreadyApplied = "already-applied"
+	phaseRecovered      = "recovered"
 )
 
 // Notes qualify a failed/expired phase with a short machine-stable reason, so a
@@ -97,6 +98,17 @@ type applier interface {
 	Applied(ctx context.Context, orderID string) (exec.Handle, bool, error)
 }
 
+// recoverer is implemented by a store-backed executor that can repair its
+// stores at startup: finish or roll back a manifest left pending by a crash
+// mid-act, and remove a leaked empty cgroup dir (the freeze/quarantine stores,
+// build items 4-5). Like applier the drain type-asserts rather than widening
+// exec.Executor, so the recovery code lands with the stores it repairs. A
+// plain (store-less) executor simply does not implement it and the pass is a
+// no-op.
+type recoverer interface {
+	Recover(ctx context.Context) ([]exec.RecoveryResult, error)
+}
+
 // Run is the drain entry point: startup checks (fail closed), a sweep of
 // abandoned tmp orders, then the order loop until the spool is empty. The only
 // fatal error after startup is a failure to unlink a processed order (it cannot
@@ -124,8 +136,33 @@ func Run(ctx context.Context, o Options) error {
 		o.Logf("drain: swept %d abandoned tmp order(s)", swept)
 	}
 
-	// The recovery pass over the stores (pending manifests, empty cgroups) lands
-	// with the stores themselves (build item 4); it is intentionally absent here.
+	// Recovery pass over the stores: finish or roll back a manifest a crash left
+	// pending, and remove a leaked empty cgroup dir (F8's second half). Each
+	// repair is a `recovered` ledger line. Only a store-backed executor answers;
+	// a plain one makes this a no-op. A recovery error is logged, not fatal: the
+	// per-order loop still runs, and a stuck repair surfaces via its own ledger
+	// line rather than wedging the whole drain.
+	if rec, ok := o.Executor.(recoverer); ok {
+		results, rerr := rec.Recover(ctx)
+		if rerr != nil {
+			o.Logf("drain: recovery pass: %v", rerr)
+		}
+		for _, r := range results {
+			o.Logf("drain: recovered %s %s: %s", r.Kind, r.ID, r.Outcome)
+			rc := response.ActionRecord{
+				Phase:      phaseRecovered,
+				Note:       r.Outcome,
+				DecisionID: r.Order,
+				Action:     r.Kind,
+				Handle:     &response.HandleInfo{ID: r.ID, Kind: r.Kind},
+				Policy:     o.Policy.Hash(),
+				Version:    o.Version,
+			}
+			if _, err := o.Ledger.RecordAction(rc); err != nil {
+				o.Logf("drain: recovered-line write failed: %v", err)
+			}
+		}
+	}
 
 	st := &state{o: o}
 	for {
@@ -281,7 +318,9 @@ func (st *state) one(ctx context.Context, name string) error {
 	}
 
 	// Verdicts agree: dispatch to the executor exactly as the daemon used to.
-	h, aerr := st.dispatch(ctx, d)
+	// Carry the order id so a store-backed executor stamps it into the manifest
+	// it writes (the idempotency key a replay is matched by).
+	h, aerr := st.dispatch(exec.WithOrderID(ctx, order.ID), d)
 	phase, errStr := phaseExecuted, ""
 	if aerr != nil {
 		phase, errStr = phaseFailed, aerr.Error()

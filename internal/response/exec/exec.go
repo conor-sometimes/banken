@@ -103,6 +103,18 @@ type Executor interface {
 	Collect(ctx context.Context, p response.ProcessRef) (Handle, error)
 }
 
+// RecoveryResult is one repair a store-backed executor's startup recovery pass
+// made (a pending manifest finalised or rolled back, a leaked cgroup dir
+// removed), for the drain to record as a `recovered` ledger line. It is defined
+// here (not in the Linux file) so the drain's recoverer interface is one shape
+// on every platform.
+type RecoveryResult struct {
+	ID      string
+	Order   string
+	Kind    response.Action
+	Outcome string // finalised | rolled-back | cgroup-removed
+}
+
 // Config configures a platform executor.
 type Config struct {
 	// Enforce, when true, ARMS real enforcement. The zero value is false: a
@@ -118,6 +130,11 @@ type Config struct {
 	// CgroupRoot is the cgroup v2 directory under which frozen/kill trees get
 	// their own child cgroup. Default "/sys/fs/cgroup/banken.quarantine".
 	CgroupRoot string
+	// FreezeDir is the freeze store: one directory per freeze handle, each with
+	// a manifest.json (the pids, their original cgroups, the idempotency order
+	// id) written before migration and a thawed.json tombstone on undo. Thaw
+	// works from this store alone. Default "/var/lib/banken/freeze".
+	FreezeDir string
 	// QuarantineDir is where quarantined files are moved. Default
 	// "/var/lib/banken/quarantine".
 	QuarantineDir string
@@ -141,6 +158,9 @@ func (c Config) withDefaults() Config {
 	if c.CgroupRoot == "" {
 		c.CgroupRoot = "/sys/fs/cgroup/banken.quarantine"
 	}
+	if c.FreezeDir == "" {
+		c.FreezeDir = "/var/lib/banken/freeze"
+	}
 	if c.QuarantineDir == "" {
 		c.QuarantineDir = "/var/lib/banken/quarantine"
 	}
@@ -161,4 +181,28 @@ func (c Config) withDefaults() Config {
 // it returns the real executor on Linux and ErrUnsupported elsewhere.
 func New(cfg Config) (Executor, error) {
 	return newExecutor(cfg.withDefaults())
+}
+
+// orderIDCtxKey is the context key under which the drain carries the work order
+// id into a store-backed call.
+type orderIDCtxKey struct{}
+
+// WithOrderID returns a context carrying the work order id for a single
+// store-backed call. The store-backed executor stamps it into the manifest it
+// writes, so a replayed order is matched by its id and the drain records
+// already-applied instead of acting twice (the idempotency key of
+// docs/design/response-architecture.md section 2.7). It is request-scoped
+// metadata -- one order id per Freeze/Collect call -- which is exactly what a
+// context value is for; the executor interface stays a clean verb-per-method
+// shape rather than growing an id parameter every method must thread. A call
+// made without it (an operator-driven Thaw, a test) simply writes no order id,
+// and such an entry is never matched as already-applied.
+func WithOrderID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, orderIDCtxKey{}, id)
+}
+
+// orderIDFromContext returns the work order id carried by WithOrderID, or "".
+func orderIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(orderIDCtxKey{}).(string)
+	return id
 }
