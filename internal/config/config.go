@@ -7,6 +7,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -101,7 +102,29 @@ type ResponseConfig struct {
 	// QuarantineDir is where quarantined files are moved. Empty means the
 	// executor default.
 	QuarantineDir string `yaml:"quarantineDir"`
+	// Spool bounds the on-disk work-order queue the daemon writes and the drain
+	// reads (the two-process split). Empty means the defaults (see SpoolConfig).
+	Spool SpoolConfig `yaml:"spool"`
+	// QuarantineAllowPaths is the sandbox the module also renders into the
+	// helper unit's ReadWritePaths. The drain refuses at startup a policy whose
+	// quarantine.allowPaths lies outside this list, because the rename would
+	// otherwise fail with EROFS at the first alert (a silent disarm). Empty
+	// means the drain cannot honour any quarantine policy path -- the module
+	// always renders it when enforcement is armed. See docs/design/response-architecture.md §2.4.
+	QuarantineAllowPaths []string `yaml:"quarantineAllowPaths"`
 }
+
+// SpoolConfig bounds the work-order spool.
+type SpoolConfig struct {
+	// MaxAge is how long an order may sit before the drain expires it unacted
+	// (a kill landing later than this is one the operator did not expect). A Go
+	// duration string (e.g. "10m"); empty means the default (DefaultSpoolMaxAge).
+	MaxAge string `yaml:"maxAge"`
+}
+
+// DefaultSpoolMaxAge is the spool.maxAge default: five default 2 min scan
+// intervals. An order older than this is expired rather than acted on.
+const DefaultSpoolMaxAge = 10 * time.Minute
 
 // RefreshConfig bounds and governs a runtime rule refresh. A rule is close to
 // code, so a refresh is bounded (the resource guard) and auditable (baseline

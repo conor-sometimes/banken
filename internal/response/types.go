@@ -51,6 +51,14 @@ const (
 	RailRateLimit       Rail = "rate-limit"
 	RailKillSwitch      Rail = "kill-switch"
 	RailObserve         Rail = "observe-mode"
+	// RailNotArmed fires in enforce mode when the caller is not armed
+	// (response.enforce is off). It is evaluated AFTER the mode check, so an
+	// observe-mode host still rails as observe-mode and only an enforce-mode
+	// host that has not armed enforcement shows not-armed. A not-armed decision
+	// is recorded (the decided line names the target) but NO work order is
+	// written, so after the two-process split nothing can reach a primitive on a
+	// host that has not opted in. See docs/design/response-architecture.md §2.5.
+	RailNotArmed Rail = "not-armed"
 )
 
 // Scope selects whether a process action targets just the process or the
@@ -115,6 +123,12 @@ type Input struct {
 	KillSwitch bool         `json:"killSwitch"` // the caller stat'ed Policy.KillSwitchPath
 	Budget     Budget       `json:"budget"`
 	Seen       []Target     `json:"seen"` // targets already decided this run (dedupe)
+	// Armed is the caller's response.enforce. False means the host has not armed
+	// enforcement: an enforce-mode decision rails as not-armed and no order is
+	// written. It is the third of the three gates (response.enable, policy
+	// mode:enforce, response.enforce), moved into the decision so the daemon
+	// never needs a dry-run code path that touches a real primitive. See §2.5.
+	Armed bool `json:"armed"`
 }
 
 // Decision is the whole verdict. Intended is what the policy asked for before

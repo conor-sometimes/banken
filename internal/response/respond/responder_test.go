@@ -2,7 +2,6 @@ package respond
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -12,50 +11,7 @@ import (
 	"github.com/conor-sometimes/banken/internal/alert"
 	"github.com/conor-sometimes/banken/internal/event"
 	"github.com/conor-sometimes/banken/internal/response"
-	"github.com/conor-sometimes/banken/internal/response/exec"
 )
-
-// fakeExecutor records every call and performs nothing. enforcing reports what
-// the executor would be armed as; the protocol tests assert on the calls, never
-// on a real process.
-type fakeExecutor struct {
-	enforcing bool
-	calls     []string
-	failKill  error
-}
-
-func (f *fakeExecutor) Enforcing() bool { return f.enforcing }
-
-func (f *fakeExecutor) Verify(_ context.Context, p response.ProcessRef) (exec.Live, error) {
-	return exec.Live{PID: p.PID}, nil
-}
-
-func (f *fakeExecutor) Kill(_ context.Context, p response.ProcessRef, scope response.Scope) (exec.Handle, error) {
-	f.calls = append(f.calls, "kill")
-	if f.failKill != nil {
-		return exec.Handle{}, f.failKill
-	}
-	return exec.Handle{ID: "h-kill", Kind: response.ActionKill, PID: p.PID, Method: "pidfd", DryRun: !f.enforcing}, nil
-}
-
-func (f *fakeExecutor) Freeze(_ context.Context, p response.ProcessRef, scope response.Scope) (exec.Handle, error) {
-	f.calls = append(f.calls, "freeze")
-	return exec.Handle{ID: "h-freeze", Kind: response.ActionFreeze, PID: p.PID, DryRun: !f.enforcing}, nil
-}
-
-func (f *fakeExecutor) Quarantine(_ context.Context, fr response.FileRef) (exec.Handle, error) {
-	f.calls = append(f.calls, "quarantine")
-	return exec.Handle{ID: "h-quar", Kind: response.ActionQuarantine, DryRun: !f.enforcing}, nil
-}
-
-func (f *fakeExecutor) Thaw(_ context.Context, h exec.Handle) error { return nil }
-
-func (f *fakeExecutor) Restore(_ context.Context, h exec.Handle) error { return nil }
-
-func (f *fakeExecutor) Collect(_ context.Context, p response.ProcessRef) (exec.Handle, error) {
-	f.calls = append(f.calls, "collect")
-	return exec.Handle{ID: "h-collect", Kind: response.ActionCollect, PID: p.PID, DryRun: !f.enforcing}, nil
-}
 
 func killPolicy(t *testing.T, mode response.Mode) response.Policy {
 	t.Helper()
@@ -95,20 +51,69 @@ func revshellAlert() alert.Alert {
 	}
 }
 
-func readActions(t *testing.T, dir string) []map[string]any {
+// testEnv is a responder over a spool and ledger, both under t.TempDir().
+type testEnv struct {
+	r         *Responder
+	ledgerDir string
+	spool     *response.Spool
+	spoolDir  string
+	tmpDir    string
+}
+
+func newResponder(t *testing.T, p response.Policy, armed bool) testEnv {
 	t.Helper()
-	matches, _ := filepath.Glob(filepath.Join(dir, "actions-*.jsonl"))
+	root := t.TempDir()
+	ledgerDir := filepath.Join(root, "ledger")
+	led, err := response.NewLedger(ledgerDir)
+	if err != nil {
+		t.Fatalf("ledger: %v", err)
+	}
+	spoolDir := filepath.Join(root, "spool")
+	tmpDir := filepath.Join(root, "spool.tmp")
+	spool, err := response.NewSpool(spoolDir, tmpDir)
+	if err != nil {
+		t.Fatalf("spool: %v", err)
+	}
+	r := New(p, response.SelfIdentity{Exe: "/run/current-system/sw/bin/banken"}, spool, led, armed, "test", nil)
+	return testEnv{r: r, ledgerDir: ledgerDir, spool: spool, spoolDir: spoolDir, tmpDir: tmpDir}
+}
+
+func (e testEnv) orders(t *testing.T) []response.Order {
+	t.Helper()
+	names, err := e.spool.List()
+	if err != nil {
+		t.Fatalf("spool List: %v", err)
+	}
+	out := make([]response.Order, 0, len(names))
+	for _, n := range names {
+		o, err := e.spool.Read(n)
+		if err != nil {
+			t.Fatalf("spool Read %s: %v", n, err)
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+func (e testEnv) decisions(t *testing.T) []map[string]any {
+	t.Helper()
+	return readJSONL(t, e.ledgerDir, "decisions-*.jsonl")
+}
+
+func readJSONL(t *testing.T, dir, glob string) []map[string]any {
+	t.Helper()
+	matches, _ := filepath.Glob(filepath.Join(dir, glob))
 	var out []map[string]any
 	for _, m := range matches {
 		f, err := os.Open(m) //nolint:gosec // test-owned tempdir
 		if err != nil {
-			t.Fatalf("open action ledger: %v", err)
+			t.Fatalf("open %s: %v", m, err)
 		}
 		sc := bufio.NewScanner(f)
 		for sc.Scan() {
 			var rec map[string]any
 			if err := json.Unmarshal(sc.Bytes(), &rec); err != nil {
-				t.Fatalf("decode action line: %v", err)
+				t.Fatalf("decode line: %v", err)
 			}
 			out = append(out, rec)
 		}
@@ -117,103 +122,101 @@ func readActions(t *testing.T, dir string) []map[string]any {
 	return out
 }
 
-func newResponder(t *testing.T, p response.Policy, fe *fakeExecutor) (*Responder, string) {
-	t.Helper()
-	dir := t.TempDir()
-	led, err := response.NewLedger(dir)
-	if err != nil {
-		t.Fatalf("ledger: %v", err)
-	}
-	return New(p, response.SelfIdentity{Exe: "/run/current-system/sw/bin/banken"}, fe, led, "test", nil), dir
-}
-
-// Observe mode: Decide returns none, so the executor is never called and no
-// action line is written. This is the default-inert proof at the responder.
-func TestObserveModeNeverCallsExecutor(t *testing.T) {
-	fe := &fakeExecutor{enforcing: false}
-	r, dir := newResponder(t, killPolicy(t, response.ModeObserve), fe)
-	if err := r.Respond(revshellAlert()); err != nil {
+// Observe mode: Decide rails to none, so no order is written. A decided line is
+// still recorded. This is the default-inert posture at the responder.
+func TestObserveModeWritesNoOrder(t *testing.T) {
+	e := newResponder(t, killPolicy(t, response.ModeObserve), false)
+	if err := e.r.Respond(revshellAlert()); err != nil {
 		t.Fatalf("Respond: %v", err)
 	}
-	if len(fe.calls) != 0 {
-		t.Fatalf("observe mode called executor: %v", fe.calls)
+	if o := e.orders(t); len(o) != 0 {
+		t.Fatalf("observe mode wrote %d order(s), want 0", len(o))
 	}
-	if acts := readActions(t, dir); len(acts) != 0 {
-		t.Fatalf("observe mode wrote %d action line(s), want 0", len(acts))
+	if d := e.decisions(t); len(d) != 1 || d[0]["phase"] != "decided" {
+		t.Fatalf("expected exactly one decided line, got %v", d)
 	}
 }
 
-// Enforce mode + armed executor: the executor's Kill is called and an executed
-// action line records the real (non-dry-run) kill.
-func TestEnforceCallsKillAndRecords(t *testing.T) {
-	fe := &fakeExecutor{enforcing: true}
-	r, dir := newResponder(t, killPolicy(t, response.ModeEnforce), fe)
-	if err := r.Respond(revshellAlert()); err != nil {
+// Enforce mode but NOT armed (response.enforce off): the not-armed rail fires,
+// so no order is written even though the policy is enforce. This is the
+// real-host posture across the split.
+func TestEnforceNotArmedWritesNoOrder(t *testing.T) {
+	e := newResponder(t, killPolicy(t, response.ModeEnforce), false)
+	if err := e.r.Respond(revshellAlert()); err != nil {
 		t.Fatalf("Respond: %v", err)
 	}
-	if len(fe.calls) != 1 || fe.calls[0] != "kill" {
-		t.Fatalf("expected one kill call, got %v", fe.calls)
+	if o := e.orders(t); len(o) != 0 {
+		t.Fatalf("not-armed wrote %d order(s), want 0", len(o))
 	}
-	acts := readActions(t, dir)
-	if len(acts) != 1 {
-		t.Fatalf("expected 1 action line, got %d", len(acts))
+	d := e.decisions(t)
+	if len(d) != 1 {
+		t.Fatalf("expected one decided line, got %d", len(d))
 	}
-	a := acts[0]
-	if a["phase"] != "executed" || a["action"] != "kill" {
-		t.Fatalf("action line = %v", a)
-	}
-	if a["enforced"] != true {
-		t.Fatalf("expected enforced=true, got %v", a["enforced"])
-	}
-	h, _ := a["handle"].(map[string]any)
-	if h == nil || h["dryRun"] != false {
-		t.Fatalf("expected real (dryRun=false) handle, got %v", a["handle"])
+	dec, _ := d[0]["decision"].(map[string]any)
+	if dec == nil || dec["rail"] != "not-armed" {
+		t.Fatalf("expected rail not-armed on the decided line, got %v", d[0]["decision"])
 	}
 }
 
-// Enforce mode but a DRY-RUN executor: the decision still reaches the executor
-// (Kill is called), but the handle is marked dryRun and nothing real happened.
-// This is the real-host posture: policy says enforce, executor is not armed.
-func TestEnforceDryRunExecutorMarksDryRun(t *testing.T) {
-	fe := &fakeExecutor{enforcing: false}
-	r, dir := newResponder(t, killPolicy(t, response.ModeEnforce), fe)
-	if err := r.Respond(revshellAlert()); err != nil {
+// Enforce mode AND armed: a decided action writes EXACTLY ONE order, whose id
+// matches the decided line, via tmp+rename (the tmp dir is left empty). The
+// responder itself never acts.
+func TestEnforceArmedWritesExactlyOneOrder(t *testing.T) {
+	e := newResponder(t, killPolicy(t, response.ModeEnforce), true)
+	if err := e.r.Respond(revshellAlert()); err != nil {
 		t.Fatalf("Respond: %v", err)
 	}
-	if len(fe.calls) != 1 {
-		t.Fatalf("expected one kill call, got %v", fe.calls)
+	orders := e.orders(t)
+	if len(orders) != 1 {
+		t.Fatalf("expected exactly one order, got %d", len(orders))
 	}
-	acts := readActions(t, dir)
-	if len(acts) != 1 || acts[0]["enforced"] != false {
-		t.Fatalf("expected one action line with enforced=false, got %v", acts)
+	o := orders[0]
+	if o.Version != response.OrderVersion {
+		t.Errorf("order version = %d, want %d", o.Version, response.OrderVersion)
 	}
-	h, _ := acts[0]["handle"].(map[string]any)
-	if h == nil || h["dryRun"] != true {
-		t.Fatalf("expected dryRun handle, got %v", acts[0]["handle"])
+	if o.Decision.Action != response.ActionKill {
+		t.Errorf("order action = %q, want kill", o.Decision.Action)
 	}
-}
-
-// A failing executor records a failed action line and does NOT suppress the
-// alert (Respond returns nil).
-func TestExecutorFailureRecordedNotFatal(t *testing.T) {
-	fe := &fakeExecutor{enforcing: true, failKill: exec.ErrGone}
-	r, dir := newResponder(t, killPolicy(t, response.ModeEnforce), fe)
-	if err := r.Respond(revshellAlert()); err != nil {
-		t.Fatalf("Respond returned error: %v", err)
+	if o.Decision.Target.Process == nil || o.Decision.Target.Process.PID != 4242 {
+		t.Errorf("order target = %+v, want pid 4242", o.Decision.Target)
 	}
-	acts := readActions(t, dir)
-	if len(acts) != 1 || acts[0]["phase"] != "failed" {
-		t.Fatalf("expected one failed action line, got %v", acts)
+	// The order id is the decided ledger line's id.
+	d := e.decisions(t)
+	if len(d) != 1 {
+		t.Fatalf("expected one decided line, got %d", len(d))
 	}
-	if acts[0]["error"] == "" || acts[0]["error"] == nil {
-		t.Fatalf("expected an error string on the failed line")
+	if o.ID != d[0]["id"] {
+		t.Errorf("order id %q != decided line id %v", o.ID, d[0]["id"])
+	}
+	// tmp+rename: no half order left behind in the tmp dir.
+	if ents, _ := os.ReadDir(e.tmpDir); len(ents) != 0 {
+		t.Errorf("spool tmp dir not empty: %d entries", len(ents))
 	}
 }
 
-// The kill-switch file stops the action even in enforce mode with an armed
-// executor: Decide rails to none, the executor is never called.
-func TestKillSwitchStopsEverything(t *testing.T) {
-	// Point the policy's kill-switch at a file that exists.
+// A ledger-write failure writes NO order: the decided line is the request, so a
+// decision that could not be recorded must not be requested. We force the
+// ledger open to fail by occupying the day-file path with a directory (EISDIR
+// for any uid, so this holds as root in CI too).
+func TestLedgerFailureWritesNoOrder(t *testing.T) {
+	e := newResponder(t, killPolicy(t, response.ModeEnforce), true)
+	a := revshellAlert()
+	day := a.Time.UTC().Format("2006-01-02")
+	clash := filepath.Join(e.ledgerDir, "decisions-"+day+".jsonl")
+	if err := os.Mkdir(clash, 0o700); err != nil {
+		t.Fatalf("occupy ledger path: %v", err)
+	}
+	if err := e.r.Respond(a); err == nil {
+		t.Fatalf("expected Respond to return the ledger write error")
+	}
+	if o := e.orders(t); len(o) != 0 {
+		t.Fatalf("a ledger failure wrote %d order(s), want 0", len(o))
+	}
+}
+
+// The kill-switch file rails the decision to none, so no order is written even
+// in enforce mode with an armed responder.
+func TestKillSwitchWritesNoOrder(t *testing.T) {
 	ks := filepath.Join(t.TempDir(), "disable")
 	if err := os.WriteFile(ks, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -232,29 +235,27 @@ actions:
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	fe := &fakeExecutor{enforcing: true}
-	r, _ := newResponder(t, p, fe)
-	if err := r.Respond(revshellAlert()); err != nil {
+	e := newResponder(t, p, true)
+	if err := e.r.Respond(revshellAlert()); err != nil {
 		t.Fatalf("Respond: %v", err)
 	}
-	if len(fe.calls) != 0 {
-		t.Fatalf("kill-switch failed to stop the executor: %v", fe.calls)
+	if o := e.orders(t); len(o) != 0 {
+		t.Fatalf("kill-switch wrote %d order(s), want 0", len(o))
 	}
 }
 
-// Dedupe: the same target decided twice in one run acts once; the second is
-// railed as a duplicate.
-func TestDuplicateTargetActsOnce(t *testing.T) {
-	fe := &fakeExecutor{enforcing: true}
-	r, _ := newResponder(t, killPolicy(t, response.ModeEnforce), fe)
+// Dedupe: the same target decided twice in one run writes one order; the second
+// is railed as a duplicate.
+func TestDuplicateTargetWritesOneOrder(t *testing.T) {
+	e := newResponder(t, killPolicy(t, response.ModeEnforce), true)
 	a := revshellAlert()
-	if err := r.Respond(a); err != nil {
+	if err := e.r.Respond(a); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Respond(a); err != nil {
+	if err := e.r.Respond(a); err != nil {
 		t.Fatal(err)
 	}
-	if len(fe.calls) != 1 {
-		t.Fatalf("expected the duplicate to be skipped, got calls %v", fe.calls)
+	if o := e.orders(t); len(o) != 1 {
+		t.Fatalf("expected the duplicate to be railed, got %d order(s)", len(o))
 	}
 }
