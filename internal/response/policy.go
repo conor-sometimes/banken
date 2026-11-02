@@ -62,6 +62,12 @@ type Denylist struct {
 type Quarantine struct {
 	Dir        string   `yaml:"dir"`
 	AllowPaths []string `yaml:"allowPaths"`
+	// MaxFileBytes bounds the sha256 (and the later YARA scan), never the
+	// rename: 256 MiB by default -- a hash of a larger file costs seconds the
+	// drain cannot spend; the rename costs nothing, so the file is still taken
+	// (its sha256 recorded "unhashed"). A hung mount or a 1 TiB sparse dropper
+	// must not block the drain.
+	MaxFileBytes int64 `yaml:"maxFileBytes"`
 }
 
 // Entry is one policy rule: a selector (rules and/or tag) and the action to
@@ -166,6 +172,11 @@ func (p *Policy) applyDefaults() {
 		p.RateLimit.PerRun = 3
 		p.RateLimit.PerHour = 10
 	}
+	if p.Quarantine.MaxFileBytes == 0 {
+		// 256 MiB: a hash of a larger file costs seconds the drain cannot spend;
+		// the rename costs nothing, so the file is still taken.
+		p.Quarantine.MaxFileBytes = 268435456
+	}
 	for i := range p.Actions {
 		e := &p.Actions[i]
 		if e.Scope == "" && (e.Action == ActionFreeze) {
@@ -192,6 +203,9 @@ func (p Policy) validate() error {
 	}
 	if p.RateLimit.PerRun < 0 || p.RateLimit.PerHour < 0 {
 		return fmt.Errorf("response: rateLimit must be >= 0 (got perRun=%d perHour=%d)", p.RateLimit.PerRun, p.RateLimit.PerHour)
+	}
+	if p.Quarantine.MaxFileBytes < 0 {
+		return fmt.Errorf("response: quarantine.maxFileBytes must be >= 0 (got %d)", p.Quarantine.MaxFileBytes)
 	}
 	for _, ap := range p.Quarantine.AllowPaths {
 		if !filepath.IsAbs(ap) {

@@ -145,6 +145,12 @@ type Config struct {
 	// quarantined (the decision layer checks this too; the executor checks the
 	// live path). Empty means refuse every quarantine.
 	QuarantineAllowPaths []string
+	// MaxFileBytes bounds the sha256 of a quarantined file (and the later YARA
+	// scan), never the rename/neuter: over the cap the file is still taken but
+	// its hash is recorded "unhashed" and YARA skipped, so a 1 TiB sparse file
+	// or a hung mount cannot block the drain. The caller sets it from
+	// Policy.Quarantine.MaxFileBytes; the default is 256 MiB.
+	MaxFileBytes int64
 	// SkewTolerance bounds the start-time check for sources that carry no
 	// process start time (auditd/Laurel): a live process whose start time is
 	// after EventTime+SkewTolerance is a reuser and is refused. Default 2s.
@@ -169,6 +175,11 @@ func (c Config) withDefaults() Config {
 	}
 	if c.SkewTolerance == 0 {
 		c.SkewTolerance = 2 * time.Second
+	}
+	if c.MaxFileBytes == 0 {
+		// 256 MiB, mirroring Policy.Quarantine.MaxFileBytes's default so a
+		// directly-built executor (a test, an operator undo) caps the same way.
+		c.MaxFileBytes = 268435456
 	}
 	if c.Logf == nil {
 		c.Logf = func(string, ...any) {}

@@ -95,6 +95,7 @@ func runRespondDrain(args []string, stdout, stderr io.Writer) error {
 		CgroupRoot:           cfg.Response.CgroupRoot,
 		QuarantineDir:        cfg.Response.QuarantineDir,
 		QuarantineAllowPaths: policy.Quarantine.AllowPaths,
+		MaxFileBytes:         policy.Quarantine.MaxFileBytes,
 		Logf: func(format string, a ...any) {
 			logAt(stderr, levelWarning, format, a...)
 		},
