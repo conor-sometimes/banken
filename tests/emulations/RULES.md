@@ -63,15 +63,22 @@ anything that would touch the live host) is documented in `./README.md` and in e
 | `rules/credential-access/browser_credential_access.yml` | `browsercred.sh` | T1555.003 / T1217 | `cat` a DUMMY `logins.json` under a scratch `.mozilla/firefox` profile. |
 | `rules/exfiltration/public_paste_exfil.yml` | `pasteexfil.sh` | T1567.004 / T1048.002 | `curl -F` to `file.io`/a Discord webhook HOSTNAME, pinned to TEST-NET with `--resolve` (nothing leaves). |
 | `rules/credential-access/proc_memory_dump.yml` | `procmemdump.sh` | T1003.007 | `dd` one byte of the script's OWN `/proc/<pid>/maps` to scratch (nothing of consequence dumped). |
+| `rules/execution/gtfobin_shell_spawn.yml` | `gtfoshell.sh` | T1059.004 / T1202 / T1218 | `find <scratch> -exec /bin/sh -c true`, `awk 'BEGIN{system("true")}'`, `busybox sh -c true` - the GTFOBins shell-spawn recipe, running `true`. |
+| `rules/privilege-escalation/gtfobin_sudo_breakout.yml` | `gtfosudo.sh` | T1548.003 / T1202 | `sudo -n find /nonexistent -exec /bin/sh -c true` (sudo -n never escalates); also fires `privilege_escalation_attempt` (sudo ran). |
+| `rules/execution/gtfobin_pager_escape.yml` | `gtfopager.sh` | T1059 / T1202 | invokes a harmless scratch stand-in named `vim` with the real `-c ':!true'` escape argv (and a real vim if present). |
+| `rules/execution/gtfobin_interpreter_exec.yml` | `gtfointerp.sh` | T1059.006 / T1202 | `python3 -c 'os.system("true")'`, `perl -e 'exec "/bin/true"'` - inline command-exec idioms (no socket/revshell). |
+| `rules/impact/gtfobin_file_write_sink.yml` | `gtfowrite.sh` | T1565.001 / T1574.006 | `tee`/`dd` into a SCRATCH `.../etc/ld.so.preload` and `.../etc/profile.d/` (the sink path is in the argv; the real sinks are untouched). |
+| `rules/agent/agent_ai_enabled_exfil.yml` | `aiexfil.sh` | T1700 | agent-scoped: `rclone copy` / `curl --upload-file` of dummy data to a TEST-NET drop (nothing leaves). Agent-account only (see caveat). |
+| `rules/agent/agent_impair_autonomous_defenses.yml` | `aidefense.sh` | T1685.007 | agent-scoped: `systemctl stop` / `pkill` of nonexistent `-emul-dummy` names that look like EDR tools. Agent-account only (see caveat). |
 
 ## Caveats (dependencies outside `tests/emulations/`)
 
-- **Agent-account scoping.** The eight `agent_*` scripts (`agentdecode`, `agentssh`, `destructive`,
-  `exfil`, `gitpersist`, `proxybypass`, `selfconfig`, `sshout`) only fire when run **as an agent
-  account** - their rules key on `User` in `{claude,redteam,lab}`. The commands themselves match the
-  selections; the `User` comes from the runner. `tests/vm.nix` currently runs emulations as `alice`
-  via `runuser`, so these need the harness to run them as an agent account (or `alice` added to the
-  `agent_user` list) to fire in the VM.
+- **Agent-account scoping.** The `agent_*` scripts (`agentdecode`, `agentssh`, `destructive`,
+  `exfil`, `gitpersist`, `proxybypass`, `selfconfig`, `sshout`, `aiexfil`, `aidefense`) only fire
+  when run **as an agent account** - their rules key on `User` in `{claude,redteam,lab}`. The
+  commands themselves match the selections; the `User` comes from the runner. `tests/vm.nix` runs
+  emulations as `alice`, so it drops every `agent_*` family from the live expectation and proves
+  them with the engine golden/replay tests (`internal/engine` TestFixtures) instead.
 - **`honeytoken.sh`** matches only on `TargetFilename` (the exact decoy paths), so it fires only where
   the decoy files are planted at those paths **and** a read watch is set on each
   (`-w <path> -p r -k honeytoken`). On a stock box it finds nothing and fires nothing - by design.

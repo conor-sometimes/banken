@@ -1,0 +1,36 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/find",
+  "commandLine": "find . -exec /bin/sh ; -quit",
+  "user": "1000",
+  "pid": 12010,
+  "ppid": 12000,
+  "currentDirectory": "/home/u"
+ },
+ {
+  "source": "auditd",
+  "image": "/usr/bin/awk",
+  "commandLine": "awk BEGIN {system(\"/bin/sh &\")}",
+  "user": "1000",
+  "pid": 12011,
+  "ppid": 12000
+ },
+ {
+  "source": "auditd",
+  "image": "/usr/bin/busybox",
+  "commandLine": "busybox sh",
+  "user": "1000",
+  "pid": 12012,
+  "ppid": 12000
+ },
+ {
+  "source": "laurel",
+  "image": "/usr/bin/dash",
+  "commandLine": "sh",
+  "parentImage": "/usr/bin/nmap",
+  "user": "1000",
+  "pid": 12013,
+  "ppid": 12000
+ }
+]

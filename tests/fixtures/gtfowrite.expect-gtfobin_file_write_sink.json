@@ -1,0 +1,20 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/tee",
+  "commandLine": "tee /etc/ld.so.preload",
+  "user": "1000",
+  "pid": 12610,
+  "ppid": 12600,
+  "currentDirectory": "/home/u"
+ },
+ {
+  "source": "laurel",
+  "image": "/usr/bin/dd",
+  "commandLine": "dd of=/etc/profile.d/evil.sh",
+  "targetFilename": "/etc/profile.d/evil.sh",
+  "user": "1000",
+  "pid": 12611,
+  "ppid": 12600
+ }
+]

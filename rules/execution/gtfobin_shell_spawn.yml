@@ -1,0 +1,89 @@
+title: Trusted binary spawned a shell (GTFOBin)
+id: 4f9df659-0418-4d9a-a90a-ac48fb715b98
+status: experimental
+description: >
+  A trusted, non-shell utility spawned an interactive system shell - the signature "living off the
+  land" move catalogued by GTFOBins (the Linux analog of LOLBAS). find's -exec, tar's
+  --checkpoint-action, awk's BEGIN{system()}, busybox's shell sub-command, or a scanner/debugger
+  forking /bin/sh all run a shell through a binary that is on the box for another reason, so the
+  shell blends into ordinary tool use (MITRE T1202 Indirect Command Execution / T1059.004 Unix
+  Shell; T1218 is the Windows-canonical "system binary proxy execution" this mirrors). Two signals:
+  the recipe in the utility's own argv (an -exec/checkpoint/BEGIN{system escape naming a shell),
+  which is what the raw-auditd floor sees since it carries no ParentImage; and the parent/child
+  shape (a curated set of utilities that never legitimately fork a shell, seen as ParentImage of a
+  shell) where Laurel/mimi/Sysmon populate the parent. reverse_shell owns the socket-back-out form;
+  this owns the local shell break-out.
+references:
+  - https://gtfobins.github.io/
+  - https://attack.mitre.org/techniques/T1202/
+  - https://attack.mitre.org/techniques/T1059/004/
+author: banken
+date: 2026-11-02
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.execution
+  - attack.t1059.004
+  - attack.t1202
+  - attack.t1218
+detection:
+  # --- argv form: the single execve carries the whole abuse recipe. This is the branch that
+  # fires on the raw-auditd floor and in the attack range, where ParentImage is absent. ---
+  argv_gtfobin:
+    Image|endswith:
+      - /find
+      - /tar
+      - /rsync
+      - /xargs
+      - /flock
+      - /zip
+  # an -exec/-execdir or tar --checkpoint-action escape that names a shell as the command to run
+  argv_recipe:
+    CommandLine|re: '(-exec(dir)?\s+(\S+/)?(sh|bash|dash|zsh|ksh|ash|tcsh|csh)\b|--checkpoint-action=exec)'
+  # awk/gawk BEGIN{system(...)} - spawning a command/shell from an awk program (T1059.004 atomic)
+  awk_system:
+    Image|endswith:
+      - /awk
+      - /gawk
+      - /mawk
+      - /nawk
+    CommandLine|re: 'BEGIN\s*\{\s*system\('
+  # busybox invoking its built-in shell applet
+  busybox_shell:
+    Image|endswith: /busybox
+    CommandLine|re: '\bbusybox\s+(ash|sh|bash)\b'
+  # --- parent/child form (Laurel/mimi/Sysmon): a utility that never legitimately forks an
+  # interactive shell is seen as the direct parent of one. The set is deliberately narrow -
+  # make/git/env/ssh/tmux/nice are excluded because they DO legitimately spawn shells. ---
+  parent_nonshell:
+    ParentImage|endswith:
+      - /find
+      - /tar
+      - /zip
+      - /unzip
+      - /awk
+      - /gawk
+      - /nmap
+      - /gdb
+      - /tcpdump
+      - /tshark
+      - /ftp
+      - /capsh
+      - /expect
+      - /openssl
+  spawned_shell:
+    Image|endswith:
+      - /sh
+      - /bash
+      - /dash
+      - /zsh
+      - /ksh
+      - /ash
+      - /tcsh
+      - /csh
+  condition: (argv_gtfobin and argv_recipe) or awk_system or busybox_shell or (parent_nonshell and spawned_shell)
+falsepositives:
+  - A build or script that legitimately runs `find ... -exec sh -c` or an `awk 'BEGIN{system()}'`
+    data-processing one-liner; the recipe shape is still worth a look. The command line shows it.
+level: high

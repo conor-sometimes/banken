@@ -1,0 +1,49 @@
+title: AI agent account exfiltrating data to external storage
+id: 3b2ae8d0-9180-4bc5-a6ef-2a58735007dd
+status: experimental
+description: >
+  An AI agent account ran a bulk data-transfer to external storage - rclone/aws s3/gsutil/az blob/
+  mc/b2 to a remote bucket, or curl/wget uploading a file (--upload-file, -T, --post-file, -F,
+  --data-binary @). This is the host-observable footprint of MITRE T1700 AI-Enabled Exfiltration
+  (new in ATT&CK v20): an attacker who has prompt-injected or hijacked an agent directs it to move
+  an organisation's data out using the agent's own sanctioned tools. banken cannot see the prompt
+  that drove it (the LLM transcript is invisible by design), but it sees the agent executing a
+  transfer - which is the realised effect and what the T1700 analytics (AN2079/AN2080) key on:
+  transfer-capable execution followed by an outbound connection from the agent's process lineage.
+
+  This is an "agentic AI detection" rule, scoped by account so the behaviour is clean signal from
+  the agent even though it is noise on a human login. See rules/agent/README.md.
+  agent_exfil_to_code_host owns the git/gist/release/npm-publish channel; this owns object-storage
+  and generic file-upload.
+references:
+  - https://github.com/conor-sometimes/nixos-agent-containment
+  - https://attack.mitre.org/techniques/T1700/
+author: banken
+date: 2026-11-02
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.exfiltration
+  - attack.t1700
+  - attack.t1567.002
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  cloud_upload:
+    CommandLine|re: '\b(rclone\s+(copy|sync|move|copyto)|aws\s+s3\s+(cp|sync|mv)|gsutil\s+(cp|rsync)|az\s+storage\s+blob\s+upload|b2\s+(upload-file|sync)|mc\s+(cp|mirror))\b'
+  http_client:
+    Image|endswith:
+      - /curl
+      - /wget
+  http_upload_flag:
+    CommandLine|re: '(--upload-file|\s-T\s|--post-file|\s-F\s|--data-binary\s*@|\s-d\s*@)'
+  condition: agent_user and (cloud_upload or (http_client and http_upload_flag))
+falsepositives:
+  - An agent whose task legitimately syncs artefacts to a bucket or uploads a build result. Then
+    this rule is not for that account; take it out of the agent_user list, or scope to the task's
+    approved destinations. The command line shows the destination.
+level: high

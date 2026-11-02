@@ -1,0 +1,35 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/python3",
+  "commandLine": "python3 -c import pty;pty.spawn(\"/bin/sh\")",
+  "user": "1000",
+  "pid": 12310,
+  "ppid": 12300,
+  "currentDirectory": "/home/u"
+ },
+ {
+  "source": "auditd",
+  "image": "/usr/bin/perl",
+  "commandLine": "perl -e exec \"/bin/sh\";",
+  "user": "1000",
+  "pid": 12311,
+  "ppid": 12300
+ },
+ {
+  "source": "auditd",
+  "image": "/usr/bin/python3",
+  "commandLine": "python3 -c import os;os.system(\"id\")",
+  "user": "1000",
+  "pid": 12312,
+  "ppid": 12300
+ },
+ {
+  "source": "auditd",
+  "image": "/nix/store/abc123-python3-3.12.7/bin/python3.12",
+  "commandLine": "python3 -c import pty;pty.spawn(\"/bin/sh\")",
+  "user": "1000",
+  "pid": 12313,
+  "ppid": 12300
+ }
+]

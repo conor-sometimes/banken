@@ -1,0 +1,27 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/sudo",
+  "commandLine": "sudo find / -exec /bin/sh ; -quit",
+  "user": "1000",
+  "pid": 12110,
+  "ppid": 12100,
+  "currentDirectory": "/home/u"
+ },
+ {
+  "source": "auditd",
+  "image": "/usr/bin/sudo",
+  "commandLine": "sudo awk BEGIN {system(\"/bin/sh\")}",
+  "user": "1000",
+  "pid": 12111,
+  "ppid": 12100
+ },
+ {
+  "source": "auditd",
+  "image": "/usr/bin/sudo",
+  "commandLine": "sudo vim -c :!/bin/sh",
+  "user": "1000",
+  "pid": 12112,
+  "ppid": 12100
+ }
+]

@@ -25,7 +25,33 @@ gives each agent its own uid and audits it, which is where the account names com
 - `agent_self_config_modification` — wrote its own harness config: settings, hooks, skills, CLAUDE.md.
 - `agent_decode` — the agent decoded encoded data (base64/base32/xxd/uudecode/openssl -d): unpacking
   an obfuscated payload (T1140). `deobfuscate_and_run` catches a decode piped into a shell host-wide.
-- `honeytoken_access` — any process opened a planted decoy credential (host-wide, critical).
+- `agent_ai_enabled_exfil` - the agent ran a bulk transfer to external storage (rclone/aws s3/gsutil/
+  curl --upload-file ...): **T1700 AI-Enabled Exfiltration** (new in ATT&CK v20). Owns object-storage
+  and generic file-upload; `agent_exfil_to_code_host` owns the git/gist/release channel.
+- `agent_impair_autonomous_defenses` - the agent stopped/killed/rewrote a security or EDR tool
+  (Falcon, osquery, Wazuh, auditd, ClamAV, mdatp ...): **T1685.007 Impair Autonomous Defenses** (new in
+  ATT&CK v20). The account-scoped framing of `tamper_banken` / the `disable_*` rules.
+- `honeytoken_access` - any process opened a planted decoy credential (host-wide, critical).
+
+## ATT&CK v20 AI techniques - what banken can and cannot see
+
+ATT&CK v20 (Oct 2026) added the first AI/agent techniques. banken keys on **host process telemetry**,
+so it detects an AI technique only when that technique has a host-observable footprint:
+
+- **T1700 AI-Enabled Exfiltration** - detected (`agent_ai_enabled_exfil`). The injected prompt is
+  invisible, but the agent *executing* the transfer is a process event, which is exactly what the
+  technique's analytics (AN2079/AN2080) key on.
+- **T1685.007 Impair Autonomous Defenses** - detected (`agent_impair_autonomous_defenses`). banken
+  can't read the "fake system message" in the malware, but it sees the agent taking the defense tool
+  down, which is the realised effect.
+- **T1698 Indirect / T1699 Direct Prompt Injection** - **not** detected as such, and no rule pretends
+  to. The injection lives in LLM-conversation content (a web page, a document, the prompt box), which
+  is invisible to a host EDR by design - the harness transcript is the source, not banken. What banken
+  *can* catch is the injection's downstream **effect** (the agent then exfiltrating, impairing a
+  defense, reaching the network, touching a secret), which the rules above and the rest of this set
+  already cover. Writing a "prompt injection detector" over process telemetry would be a false claim.
+- **T1608.007 AI Result Poisoning** - out of scope (a PRE/resource-development technique about seeding
+  web content attackers control; nothing executes on the host).
 
 More ideas, ranked and grounded in banken's telemetry, are in
 [docs/design/agentic-detection-ideas.md](../../docs/design/agentic-detection-ideas.md).

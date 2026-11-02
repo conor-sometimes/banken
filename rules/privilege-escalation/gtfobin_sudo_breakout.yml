@@ -1,0 +1,38 @@
+title: Sudo GTFOBin breakout to root
+id: f4332563-cccf-4a27-9a8f-87f76afb51e3
+status: experimental
+description: >
+  A program ran sudo against a GTFOBin and carried a shell-escape token in the same command - sudo
+  find ... -exec /bin/sh, sudo awk 'BEGIN{system(...)}', sudo vim -c ':!sh', sudo emacs --eval
+  '(term "/bin/sh")', sudo python -c 'pty.spawn("/bin/sh")'. Allowing an account to sudo one of
+  these utilities hands it a root shell, so the escape token next to a GTFOBin is a far
+  higher-signal privilege escalation than sudo on its own (MITRE T1548.003 Sudo and Sudo Caching).
+  privilege_escalation_attempt fires on any sudo; this fires only on the sudo-to-root breakout
+  shape, so it is the one to page on.
+references:
+  - https://gtfobins.github.io/
+  - https://attack.mitre.org/techniques/T1548/003/
+author: banken
+date: 2026-11-02
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.privilege-escalation
+  - attack.t1548.003
+  - attack.t1202
+detection:
+  sudo:
+    CommandLine|contains: 'sudo '
+  # the sudo'd program (after any sudo flags) is a known GTFOBin
+  gtfobin:
+    CommandLine|re: '\bsudo\s+(-\S+\s+)*(\S+/)?(find|awk|gawk|vi|vim|rvim|view|nvim|less|more|man|ed|env|nice|tar|zip|perl|python[0-9.]*|ruby|lua|emacs|ftp|gdb|tcpdump|openssl|rsync|make|cpan|flock|xargs|nmap|busybox|expect|capsh|git)\b'
+  # ...and the invocation carries a shell-escape / command-exec token (not a plain -c, which would
+  # over-match ordinary sudo python/ruby; a shell path or a true escape idiom is required)
+  escape_token:
+    CommandLine|re: '(-exec(dir)?\b|--eval\b|BEGIN\s*\{|system\(|pty\.spawn\(|os\.system\(|:!|!/|--checkpoint-action=exec|/bin/(ba|da|z|k|a)?sh\b)'
+  condition: sudo and gtfobin and escape_token
+falsepositives:
+  - An administrator legitimately running one of these tools under sudo with a shell or -exec in the
+    command (a maintenance one-liner). Rare, and the command line shows exactly what root ran.
+level: high

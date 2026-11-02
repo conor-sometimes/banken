@@ -1,0 +1,136 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"gtfobin_shell_spawn\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "8469ae034b1b5beec527163ee420c4f9",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "8469ae034b1b5beec527163ee420c4f9",
+    "title": "Trusted binary spawned a shell (GTFOBin)",
+    "desc": "A trusted, non-shell utility spawned an interactive system shell - the signature \"living off the land\" move catalogued by GTFOBins (the Linux analog of LOLBAS). find's -exec, tar's --checkpoint-action, awk's BEGIN{system()}, busybox's shell sub-command, or a scanner/debugger forking /bin/sh all run a shell through a binary that is on the box for another reason, so the shell blends into ordinary tool use (MITRE T1202 Indirect Command Execution / T1059.004 Unix Shell; T1218 is the Windows-canonical \"system binary proxy execution\" this mirrors). Two signals: the recipe in the utility's own argv (an -exec/checkpoint/BEGIN{system escape naming a shell), which is what the raw-auditd floor sees since it carries no ParentImage; and the parent/child shape (a curated set of utilities that never legitimately fork a shell, seen as ParentImage of a shell) where Laurel/mimi/Sysmon populate the parent. reverse_shell owns the socket-back-out form; this owns the local shell break-out.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "gtfobin_shell_spawn",
+      "uid": "4f9df659-0418-4d9a-a90a-ac48fb715b98"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0002",
+          "name": "Execution"
+        },
+        "technique": {
+          "uid": "T1059"
+        },
+        "sub_technique": {
+          "uid": "T1059.004"
+        }
+      },
+      {
+        "tactic": {
+          "uid": "TA0002",
+          "name": "Execution"
+        },
+        "technique": {
+          "uid": "T1202"
+        }
+      },
+      {
+        "tactic": {
+          "uid": "TA0002",
+          "name": "Execution"
+        },
+        "technique": {
+          "uid": "T1218"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 12010,
+        "name": "find",
+        "cmd_line": "find . -exec /bin/sh ; -quit",
+        "file": {
+          "name": "find",
+          "path": "/usr/bin/find",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 12000
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "find . -exec /bin/sh ; -quit"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "find"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/find"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/find\",\"commandLine\":\"find . -exec /bin/sh ; -quit\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"/home/u\",\"pid\":12010,\"ppid\":12000}",
+  "unmapped": {
+    "current_directory": "/home/u",
+    "kind": "sigma",
+    "rule": "gtfobin_shell_spawn",
+    "source": "auditd"
+  }
+}
