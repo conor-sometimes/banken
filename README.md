@@ -18,6 +18,10 @@ service of that (and of never lying about what's detected).
 Deeper docs are in [`docs/`](docs/): [architecture](docs/architecture.md),
 [writing rules](docs/writing-rules.md), [deployment](docs/deployment.md).
 
+**Install or contribute:** [docs/install-and-onboarding.md](docs/install-and-onboarding.md) is the
+follow-along guide: one line on NixOS, the per-distro steps and gotchas everywhere else, and the
+developer happy path. Contributors: [CONTRIBUTING.md](CONTRIBUTING.md).
+
 Not an agent thing: banken watches the *whole host*. A contained AI agent, a cron job, a logged-in
 user - if it does something a rule flags, banken alerts. (The
 [agent containment](https://github.com/conor-sometimes/nixos-agent-containment) is one consumer: it
