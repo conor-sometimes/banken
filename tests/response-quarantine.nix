@@ -197,11 +197,15 @@ pkgs.testers.runNixOSTest {
         machine.succeed('test -z "$(ls -A /var/lib/banken/spool 2>/dev/null)"')
         machine.succeed("systemctl start banken-respond.path")
 
-    def restore(args):
-        """banken respond restore; returns (rc, stdout, stderr)."""
-        rc, out = machine.execute(
-            f"banken respond restore {args} -config /etc/banken/banken.yml 2>/tmp/rst.err"
-        )
+    def restore(handle_id, to=None):
+        """banken respond restore; returns (rc, stdout, stderr). Flags MUST precede
+        the positional handle id: Go's flag package stops parsing at the first
+        non-flag token, so a -config/-to placed after the id is never seen."""
+        cmd = "banken respond restore -config /etc/banken/banken.yml"
+        if to is not None:
+            cmd += f" -to {to}"
+        cmd += f" {handle_id} 2>/tmp/rst.err"
+        rc, out = machine.execute(cmd)
         err = machine.succeed("cat /tmp/rst.err 2>/dev/null || true")
         return rc, out.strip(), err.strip()
 
@@ -382,13 +386,13 @@ pkgs.testers.runNixOSTest {
     assert rc == 1 and "occupied" in err, f"phase D: restore over a squatter must be refused (occupied): rc={rc} err={err}"
     assert machine.succeed(f"cat {P1}").strip() == "squatter", "phase D: the squatter was clobbered"
     assert machine.succeed(f"test -e {QDIR}/{Q3}/file && echo y || echo n").strip() == "y", "phase D: stored file gone after a refused restore"
-    rc, out, err = restore(f"{Q3} -to /tmp/q/payload.restored")
+    rc, out, err = restore(Q3, to="/tmp/q/payload.restored")
     assert rc == 0, f"phase D: restore -to a free path failed: {err}"
     assert machine.succeed("sha256sum /tmp/q/payload.restored").split()[0] == p1d_pre["sha"], \
         "phase D: -to destination does not have the original content"
-    rc, out, err = restore(f"{Q3} -to /etc/x")
+    rc, out, err = restore(Q3, to="/etc/x")
     assert rc == 1, f"phase D: -to /etc must be refused (never-touch): rc={rc}"
-    rc, out, err = restore(f"{Q3} -to {QDIR}/x")
+    rc, out, err = restore(Q3, to=f"{QDIR}/x")
     assert rc == 1, f"phase D: -to inside the store must be refused: rc={rc}"
     machine.succeed(f"rm -f {P1}")  # clear the squatter for later phases
 
