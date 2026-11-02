@@ -219,14 +219,18 @@ pkgs.testers.runNixOSTest {
 
     def forged_order(rule, image):
         pid = int(bnd_innocent)
-        proc = {"pid": pid, "image": image, "user": "alice"}
+        # ppid must be a real pid: Decide rails ppid 0/2 as a kernel thread before
+        # it ever reaches the executor, so without this the mismatched-image order
+        # below would be downgraded by that rail, not refused by the live identity
+        # check we mean to exercise. 100 is an ordinary non-kernel pid.
+        proc = {"pid": pid, "ppid": 100, "image": image, "user": "alice"}
         return {
             "version": 1, "time": now_iso, "policy": "sha256:forged", "banken": "test",
             "alert": {
                 "time": now_iso, "kind": "sigma", "rule": rule, "level": "high",
                 "source": "auditd", "message": "forged boundary order",
                 "event": {"time": now_iso, "source": "auditd", "image": image,
-                          "user": "alice", "pid": pid},
+                          "user": "alice", "pid": pid, "ppid": 100},
             },
             "decision": {
                 "intended": "kill", "action": "kill", "reason": "forged",
