@@ -95,7 +95,12 @@ pkgs.testers.runNixOSTest {
         return machine.succeed(f"cut -d: -f3 /proc/{pid}/cgroup").strip()
 
     def cgroup_dirs():
-        return sorted(machine.succeed(f"ls {CGROOT} 2>/dev/null || true").split())
+        # Only the CHILD cgroup directories (handle ids), never the cgroup.* /
+        # memory.* control files that also live directly under the root.
+        out = machine.succeed(
+            f"find {CGROOT} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null || true"
+        )
+        return sorted(out.split())
 
     machine.wait_for_unit("auditd.service")
     machine.wait_until_succeeds("auditctl -l | grep -q banken-exec")
