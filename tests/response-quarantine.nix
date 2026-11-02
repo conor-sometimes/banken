@@ -382,7 +382,8 @@ pkgs.testers.runNixOSTest {
     assert ar and ar["phase"] == "failed" and "regular file" in (ar.get("error") or ""), \
         f"phase E: a FIFO must fail as not-a-regular-file: {ar}"
     assert machine.succeed("stat -c %F /tmp/q/fifo").strip() == "fifo", "phase E: the FIFO was altered"
-    print(f"[phase E] FIFO -> failed ({(ar.get('error') or '')[:40]}), FIFO intact")
+    efifo = (ar.get("error") or "")[:40]
+    print(f"[phase E] FIFO -> failed ({efifo}), FIFO intact")
 
     # symlink: the O_NOFOLLOW open refuses to act on the symlink's target.
     machine.succeed("mkdir -p /home/alice")
@@ -394,7 +395,8 @@ pkgs.testers.runNixOSTest {
     ar = by_decision(oid)
     assert ar and ar["phase"] == "failed", f"phase E: a symlink must fail: {ar}"
     assert_attrs("/home/alice/secret", secret_pre, "phase E symlink target")
-    print(f"[phase E] symlink -> failed ({(ar.get('error') or '')[:40]}), target unchanged")
+    elink = (ar.get("error") or "")[:40]
+    print(f"[phase E] symlink -> failed ({elink}), target unchanged")
 
     # /etc/passwd: never-touch (and the sandbox would refuse it too).
     etc_pre = rec_attrs("/etc/passwd")
