@@ -69,6 +69,35 @@ let
     sigmahq_getcap = [ "proc_creation_lnx_capa_discovery" ];
     sigmahq_usermod_group = [ "proc_creation_lnx_usermod_susp_group" ];
     sigmahq_file_deletion = [ "proc_creation_lnx_file_deletion" ];
+
+    # Batch 2 -- more process_creation rules. Each is a distinctive binary or
+    # flag combination an unprivileged user can run benignly (most fail safely
+    # with EPERM/no-op but still carry the execve indicator the rule keys on).
+    sigmahq_doas = [ "proc_creation_lnx_doas_execution" ];
+    sigmahq_at = [ "proc_creation_lnx_at_command" ];
+    sigmahq_groupdel = [ "proc_creation_lnx_groupdel" ];
+    sigmahq_userdel = [ "proc_creation_lnx_userdel" ];
+    sigmahq_setcap = [ "proc_creation_lnx_cap_setuid" "proc_creation_lnx_cap_setgid" ];
+    sigmahq_capsh = [ "proc_creation_lnx_capsh_shell_invocation" ];
+    sigmahq_nice_shell = [ "proc_creation_lnx_nice_shell_execution" ];
+    sigmahq_env_shell = [ "proc_creation_lnx_env_shell_invocation" ];
+    sigmahq_mount_hidepid = [ "proc_creation_lnx_mount_hidepid" ];
+    sigmahq_auditctl_clear = [ "proc_creation_lnx_auditctl_clear_rules" ];
+    sigmahq_systemctl_mask = [ "proc_creation_lnx_systemctl_mask_power_settings" ];
+    sigmahq_secsoftware_discovery = [ "proc_creation_lnx_security_software_discovery" ];
+    sigmahq_python_http_server = [ "proc_creation_lnx_python_http_server_execution" ];
+    sigmahq_curl_usage = [ "proc_creation_lnx_curl_usage" ];
+    sigmahq_crontab_removal = [ "proc_creation_lnx_crontab_removal" ];
+    sigmahq_setgid_setuid = [ "proc_creation_lnx_setgid_setuid" ];
+
+    # Batch 2 -- the file_event layer, reached by watching a scratch directory
+    # (services.banken.audit.watchPaths below): a file touch under a watched
+    # path becomes an event with TargetFilename set, which is what these rules
+    # key on. Both target rules match on the filename alone, so the benign
+    # create of the indicator file in the watched dir is enough.
+    sigmahq_fe_ebpfbackdoor = [ "file_event_lnx_triple_cross_rootkit_persistence" ];
+    sigmahq_fe_base64_filename = [ "file_event_lnx_susp_filename_with_embedded_base64_command" ];
+
     sigmahq_benign = [ ];
   };
 in
@@ -83,7 +112,26 @@ pkgs.testers.runNixOSTest {
       alerts.jsonl = { enable = true; format = "ocsf"; };
       # Load the whole SigmaHQ Linux set on top of banken's baseline.
       extraRules = [ sigmaLinux ];
+      # Reach the file_event layer: a file touch is only visible to banken when
+      # its path is watched (auditd "-w <path> -p rwa"). The two scratch files
+      # below sit in a world-writable dir (created by tmpfiles, so it exists
+      # before the audit rules load -- a missing WATCHED FILE is fine, a missing
+      # parent DIR would break every audit rule). Watching the exact files (not
+      # the dir) keeps the watch quiet: nothing but the emulations ever touches
+      # them, so they add no ambient file_event noise. The default shadow/gshadow
+      # watches are kept.
+      audit.watchPaths = [
+        "/etc/shadow"
+        "/etc/gshadow"
+        "/var/lib/bkfwatch/ebpfbackdoor"
+        "/var/lib/bkfwatch/bk-{echo"
+      ];
     };
+
+    # The watched scratch dir. World-writable so the emulations run as alice can
+    # create the indicator files; created early by systemd-tmpfiles, before the
+    # audit rules load.
+    systemd.tmpfiles.rules = [ "d /var/lib/bkfwatch 0777 root root -" ];
     # The test drives every scan itself, so a scan lands between emulations.
     systemd.timers.banken.wantedBy = lib.mkForce [ ];
 
@@ -105,6 +153,13 @@ pkgs.testers.runNixOSTest {
       lsof
       nettools
       findutils
+      # Batch 2 additions, for the new emulations' tools.
+      gnugrep # grep (security_software_discovery)
+      doas # doas (doas_execution)
+      at # at (at_command)
+      audit # auditctl (auditctl_clear_rules)
+      curl # curl (curl_usage)
+      python3 # python3 (python_http_server_execution)
     ];
     environment.etc."banken-emulations".source = ./emulations;
   };
