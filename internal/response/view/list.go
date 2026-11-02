@@ -125,13 +125,13 @@ func methodOr(method, fallback string) string {
 // prints a single "no actions" line, never a bare header.
 func RenderList(w io.Writer, rows []Row) {
 	if len(rows) == 0 {
-		fmt.Fprintln(w, "no actions in the window")
+		fprintln(w, "no actions in the window")
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tKIND\tSTATE\tTARGET\tUSER\tRULE\tWHEN")
+	fprintln(tw, "ID\tKIND\tSTATE\tTARGET\tUSER\tRULE\tWHEN")
 	for _, row := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			shortID(row.ID),
 			row.Kind,
 			row.State,

@@ -175,32 +175,32 @@ func (r *Reader) readSpoolOrder(decisionID string) (spoolOrder, bool) {
 func RenderExplain(w io.Writer, exp *Explanation) {
 	d := exp.Decision
 	dec := d.Decision
-	fmt.Fprintf(w, "decision %s   %s   policy %s   mode %s   armed %s\n",
+	fprintf(w, "decision %s   %s   policy %s   mode %s   armed %s\n",
 		d.ID, stamp(d.Time), dash(d.Policy), dash(string(d.Mode)), armedWord(d))
 
 	al := d.Alert
-	fmt.Fprintf(w, "  alert    %s (%s, %s) at %s  %s\n",
+	fprintf(w, "  alert    %s (%s, %s) at %s  %s\n",
 		dash(al.Rule), dash(al.Level), dash(al.Source), stamp(al.Time), targetIdentity(dec.Target, al))
 	if al.Image != "" || al.CmdLine != "" || len(al.Tags) > 0 {
-		fmt.Fprintf(w, "           image %s   cmd %q   tags %s\n", dash(al.Image), al.CmdLine, dash(strings.Join(al.Tags, ",")))
+		fprintf(w, "           image %s   cmd %q   tags %s\n", dash(al.Image), al.CmdLine, dash(strings.Join(al.Tags, ",")))
 	}
-	fmt.Fprintf(w, "  entry    %s -> intended %s%s\n", dash(dec.Entry), dec.Intended, scopeSuffix(dec.Scope))
-	fmt.Fprintf(w, "  rails    %s   masquerade: %s\n", railWord(dec.Rail, dec.Reason), yesNo(dec.Masquerade))
-	fmt.Fprintf(w, "  verdict  %s\n", verdictLine(dec))
+	fprintf(w, "  entry    %s -> intended %s%s\n", dash(dec.Entry), dec.Intended, scopeSuffix(dec.Scope))
+	fprintf(w, "  rails    %s   masquerade: %s\n", railWord(dec.Rail, dec.Reason), yesNo(dec.Masquerade))
+	fprintf(w, "  verdict  %s\n", verdictLine(dec))
 
 	if len(exp.Actions) == 0 {
 		if exp.SpoolPending {
 			if exp.SpoolAge > 0 {
-				fmt.Fprintf(w, "action   requested, not yet drained (order in spool for %s)\n", exp.SpoolAge.Round(time.Second))
+				fprintf(w, "action   requested, not yet drained (order in spool for %s)\n", exp.SpoolAge.Round(time.Second))
 			} else {
-				fmt.Fprintln(w, "action   requested, not yet drained (order in spool)")
+				fprintln(w, "action   requested, not yet drained (order in spool)")
 			}
 			return
 		}
 		if dec.Action != response.ActionNone {
-			fmt.Fprintln(w, "action   never requested (no order found; the daemon may have crashed between the decision and the order)")
+			fprintln(w, "action   never requested (no order found; the daemon may have crashed between the decision and the order)")
 		} else {
-			fmt.Fprintln(w, "action   none (the policy mapped this alert to no action)")
+			fprintln(w, "action   none (the policy mapped this alert to no action)")
 		}
 		return
 	}
@@ -213,20 +213,20 @@ func RenderExplain(w io.Writer, exp *Explanation) {
 // renderAction writes one action block of the chain.
 func renderAction(w io.Writer, d DecisionLine, av ActionView) {
 	a := av.Line
-	fmt.Fprintf(w, "action   %s   %s by banken-respond   %s   policy %s %s\n",
+	fprintf(w, "action   %s   %s by banken-respond   %s   policy %s %s\n",
 		shortID(a.ID), dash(a.Phase), stamp(a.Time), dash(a.Policy), policyAgreement(d.Policy, a.Policy))
 
 	switch a.Phase {
 	case "downgraded":
-		fmt.Fprintf(w, "  helper re-decided: %s (DOWNGRADED from requested %s)\n", a.Action, dashAction(a.Requested))
+		fprintf(w, "  helper re-decided: %s (DOWNGRADED from requested %s)\n", a.Action, dashAction(a.Requested))
 		if a.Note != "" {
-			fmt.Fprintf(w, "  reason: %s\n", a.Note)
+			fprintf(w, "  reason: %s\n", a.Note)
 		}
 		return
 	case "failed", "expired", "malformed":
-		fmt.Fprintf(w, "  outcome: %s %s\n", a.Phase, a.Note)
+		fprintf(w, "  outcome: %s %s\n", a.Phase, a.Note)
 		if a.Error != "" {
-			fmt.Fprintf(w, "  error: %s\n", a.Error)
+			fprintf(w, "  error: %s\n", a.Error)
 		}
 		return
 	}
@@ -234,20 +234,20 @@ func renderAction(w io.Writer, d DecisionLine, av ActionView) {
 	// executed / already-applied / recovered / thawed / restored: the agreeing
 	// act, the bound identity, the handle and the live state.
 	if a.Requested != "" && a.Requested != a.Action {
-		fmt.Fprintf(w, "  helper re-decided: %s (downgraded from %s)\n", a.Action, a.Requested)
+		fprintf(w, "  helper re-decided: %s (downgraded from %s)\n", a.Action, a.Requested)
 	} else {
-		fmt.Fprintf(w, "  helper re-decided: %s (agrees)\n", a.Action)
+		fprintf(w, "  helper re-decided: %s (agrees)\n", a.Action)
 	}
 	if a.Live != nil {
-		fmt.Fprintf(w, "  identity bound: exe %s  start %s  uid %d  cgroup %s\n",
+		fprintf(w, "  identity bound: exe %s  start %s  uid %d  cgroup %s\n",
 			dash(a.Live.Exe), stamp(a.Live.StartTime), a.Live.UID, dash(a.Live.CgroupPath))
 	}
 	if a.Handle != nil {
-		fmt.Fprintf(w, "  method %s   handle %s%s%s\n",
+		fprintf(w, "  method %s   handle %s%s%s\n",
 			dash(a.Handle.Method), shortID(a.Handle.ID), pidsSuffix(av), storeSuffix(av.StorePath))
 	}
 	if av.State != "" {
-		fmt.Fprintf(w, "  state now: %s\n", av.State)
+		fprintf(w, "  state now: %s\n", av.State)
 	}
 }
 

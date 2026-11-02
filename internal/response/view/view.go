@@ -23,11 +23,20 @@
 package view
 
 import (
+	"fmt"
+	"io"
 	"io/fs"
 	"strings"
 
 	"github.com/conor-sometimes/banken/internal/response"
 )
+
+// fprintf / fprintln write one rendered line, discarding the write error the
+// same way the daemon's logln does: a failed write to an operator's terminal or
+// pipe is not worth failing a read-only list/explain over, and swallowing it in
+// one place keeps every render site clean (and errcheck quiet).
+func fprintf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+func fprintln(w io.Writer, a ...any)               { _, _ = fmt.Fprintln(w, a...) }
 
 // minIDPrefix is the shortest id prefix list/explain accept. The stores and
 // the ledger use the 24-hex handle/decision ids; a unique prefix of at least

@@ -322,7 +322,7 @@ func explainVerify(stdout, stderr io.Writer, cfg config.Config, exp *view.Explan
 		logln(stdout, "verify now: "+verr.Error())
 		return
 	}
-	fmt.Fprintf(stdout, "verify now: pid %d exe %s start %s uid %d\n",
+	_, _ = fmt.Fprintf(stdout, "verify now: pid %d exe %s start %s uid %d\n",
 		live.PID, orDash(live.Exe), orZeroTime(live.StartTime), live.UID)
 }
 

@@ -101,7 +101,7 @@ func (p SysProber) probeInode(path string, f *LiveFacts, hash bool) {
 		return
 	}
 	f.TargetExists = true
-	f.Dev = uint64(st.Dev)
+	f.Dev = st.Dev
 	f.Ino = st.Ino
 	f.Mode = st.Mode & 0o7777
 	f.Immutable = fdImmutable(fd)
