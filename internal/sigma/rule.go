@@ -134,11 +134,19 @@ func (fm fieldMatch) match(e event.Event) bool {
 	if fm.field == "" {
 		return fm.matchKeyword(e)
 	}
-	val, present := e.Field(fm.field)
-	if !present {
+	// A field may carry several values (the folded audit sources: `type`,
+	// `name`, ...). Sigma matches when ANY of them satisfies the field
+	// condition; for a single-valued field this is the one value.
+	vals := e.Values(fm.field)
+	if len(vals) == 0 {
 		return false
 	}
-	return fm.matchValues(val)
+	for _, val := range vals {
+		if fm.matchValues(val) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchKeyword is the field-less (keyword) match over all of the event's text

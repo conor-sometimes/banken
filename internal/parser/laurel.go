@@ -3,6 +3,7 @@ package parser
 import (
 	"encoding/json"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -94,7 +95,79 @@ func laurelEvent(obj map[string]json.RawMessage) event.Event {
 		ev.TargetFilename = laurelTarget(obj)
 	}
 
+	laurelRawFields(&ev, obj, syscall)
 	return ev
+}
+
+// laurelRawFields exposes the raw auditd field names to Sigma matching, the
+// same contract as the raw-auditd parser's foldAuditGroup: SigmaHQ's
+// service:auditd rules key on type, syscall, comm, exe, key, a0..aN, name,
+// nametype, uid, euid, ... which Laurel carries inside its per-record objects.
+// Single-valued fields go in Raw; the record `type` set and the per-PATH
+// name/nametype go in Multi.
+func laurelRawFields(ev *event.Event, obj map[string]json.RawMessage, syscall map[string]json.RawMessage) {
+	raw := map[string]string{}
+	// SYSCALL's scalar fields (uid, euid, exe, comm, syscall, key, ...) verbatim.
+	// Nested objects (Laurel's enriched PPID) and arrays are not scalar audit
+	// fields, so rawString returns "" for them and they are skipped.
+	for k, v := range syscall {
+		if s := rawString(v); s != "" {
+			raw[k] = s
+		}
+	}
+	// EXECVE argv as a0..aN (plus argc), so the aN-indexed rules fire even when
+	// Laurel emitted argv as an array rather than numbered keys.
+	execve := rawObject(obj["EXECVE"])
+	argv := rawStringSlice(execve["ARGV"])
+	if len(argv) == 0 {
+		argv = rawStringSlice(execve["argv"])
+	}
+	for i, a := range argv {
+		raw["a"+strconv.Itoa(i)] = a
+	}
+	if argc := rawString(execve["argc"]); argc != "" {
+		raw["argc"] = argc
+	}
+	if cwd := rawString(rawObject(obj["CWD"])["cwd"]); cwd != "" {
+		raw["cwd"] = cwd
+	}
+
+	multi := map[string][]string{}
+	// Record types present are Laurel's top-level record keys: an uppercase
+	// name (not the ID) whose value is a record object or array. The value
+	// check keeps a stray scalar from being mistaken for a record type.
+	var types []string
+	for k, v := range obj {
+		if k == "ID" || k != strings.ToUpper(k) {
+			continue
+		}
+		if rawObject(v) == nil && rawObjectSlice(v) == nil {
+			continue
+		}
+		types = append(types, k)
+	}
+	sort.Strings(types) // map order is random; keep a stable set
+	if len(types) > 0 {
+		multi["type"] = types
+	}
+	var names, nametypes []string
+	for _, pi := range rawObjectSlice(obj["PATH"]) {
+		if name := rawString(pi["name"]); name != "" {
+			names = append(names, name)
+			nametypes = append(nametypes, rawString(pi["nametype"]))
+		}
+	}
+	if len(names) > 0 {
+		multi["name"] = names
+		multi["nametype"] = nametypes
+	}
+
+	if len(raw) > 0 {
+		ev.Raw = raw
+	}
+	if len(multi) > 0 {
+		ev.Multi = multi
+	}
 }
 
 func laurelCommandLine(obj map[string]json.RawMessage) string {
