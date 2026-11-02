@@ -2,6 +2,7 @@ package sigma
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -102,7 +103,7 @@ func parsePipeline(data []byte) (*pipeline, error) {
 		return nil, fmt.Errorf("parse pipeline: %w", err)
 	}
 	if len(p.Entries) == 0 {
-		return nil, fmt.Errorf("pipeline has no entries")
+		return nil, errors.New("pipeline has no entries")
 	}
 	return &p, nil
 }
