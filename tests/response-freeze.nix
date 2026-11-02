@@ -239,7 +239,9 @@ pkgs.testers.runNixOSTest {
     print(f"[phase B/F7] PASS: replay already-applied (handle {H[:8]}), exactly one cgroup, one freeze entry")
 
     # ================= PHASE C: thaw reverses it exactly =======================
-    out = machine.succeed(f"banken respond thaw {H} {CFG}")
+    # -config must precede the positional id: Go's flag parser stops at the
+    # first non-flag argument, so a trailing -config would be left unparsed.
+    out = machine.succeed(f"banken respond thaw {CFG} {H}")
     assert f"thawed {H}" in out, f"thaw output unexpected: {out!r}"
     for p in v_pids:
         assert proc_cgroup(p) == orig_cg[p], \
@@ -258,9 +260,9 @@ pkgs.testers.runNixOSTest {
 
     assert not hb_stalled("V"), "V heartbeat did not resume after thaw"
 
-    out2 = machine.succeed(f"banken respond thaw {H} {CFG}")
+    out2 = machine.succeed(f"banken respond thaw {CFG} {H}")
     assert "already thawed" in out2, f"second thaw not a no-op: {out2!r}"
-    machine.fail(f"banken respond thaw 0000deadbeef {CFG}")  # unknown id -> exit 1
+    machine.fail(f"banken respond thaw {CFG} 0000deadbeef")  # unknown id -> exit 1
     lst = machine.succeed(f"banken respond list -kind freeze {CFG}")
     assert H[:8] in lst and "thawed" in lst, f"list does not show {H[:8]} thawed:\n{lst}"
     print("[phase C] PASS: thaw returned both pids home, heartbeat resumed, tombstone written, "
