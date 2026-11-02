@@ -1,0 +1,56 @@
+title: AI agent account defeating an anti-automation (CAPTCHA/bot) control
+id: b82c144c-3ba9-4813-96d5-bc9bff866566
+status: experimental
+description: >
+  An AI agent account called a CAPTCHA-solving service (2captcha, anti-captcha, CapSolver,
+  CapMonster, DeathByCaptcha, NopeCHA, EZ-Captcha, SolveCaptcha, BestCaptchaSolver) or pulled in an
+  anti-bot-detection "stealth" browser-automation toolkit (undetected-chromedriver, playwright-stealth,
+  selenium-stealth, puppeteer-extra-plugin-stealth, rebrowser, nodriver). This is the host-observable
+  footprint of MITRE T1696 Anti-Automation Evasion (new in ATT&CK v20): an attacker who has
+  prompt-injected or hijacked an agent drives it to defeat the automation checks (CAPTCHAs, bot
+  detection) that separate humans from bots - to farm accounts, scrape behind a challenge, or beat
+  rate limits at scale.
+
+  banken cannot see the CAPTCHA image or the solved token (those live in browser/LLM content), but it
+  sees the agent *invoking the solver service or installing the stealth toolkit* on the host, which is
+  the realised, host-side footprint. It deliberately does NOT key on the homegrown approach in
+  T1696.001's own example (an ImageMagick script that transforms the challenge image), because
+  ImageMagick is overwhelmingly benign - the service/toolkit footprint is the clean signal.
+
+  This is an "agentic AI detection" rule, scoped by account so the behaviour is clean signal from the
+  agent even though it is noise on a human login (a human may legitimately use such a service). See
+  rules/agent/README.md. (ATT&CK v20 files T1696 under the Stealth tactic, uid TA0005; banken keeps
+  the attack.defense-evasion tag - same TA0005 uid the OCSF mapper knows - until a tree-wide v20
+  tactic-string remap, exactly as agent_impair_autonomous_defenses does for T1685.)
+references:
+  - https://github.com/conor-sometimes/nixos-agent-containment
+  - https://attack.mitre.org/techniques/T1696/
+  - https://attack.mitre.org/techniques/T1696/001/
+author: banken
+date: 2026-11-02
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1696
+  - attack.t1696.001
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  # A known CAPTCHA-solving service by its API host or client package name.
+  solver_service:
+    CommandLine|re: '(?i)\b(2captcha|anti-?captcha|capsolver|capmonster|deathbycaptcha|death[-_]?by[-_]?captcha|nopecha|ez[-_]?captcha|solvecaptcha|bestcaptchasolver|captcha[-_.]?guru|twocaptcha)\b'
+  # An anti-bot-detection "stealth" automation toolkit whose whole reason to exist
+  # is to evade the automation checks this technique is about.
+  stealth_toolkit:
+    CommandLine|re: '(?i)\b(undetected[-_]?chromedriver|playwright[-_]?stealth|selenium[-_]?stealth|puppeteer-extra-plugin-stealth|puppeteer-extra-stealth|rebrowser-(puppeteer|playwright)|nodriver)\b'
+  condition: agent_user and (solver_service or stealth_toolkit)
+falsepositives:
+  - An agent whose sanctioned task genuinely has to clear a CAPTCHA (a QA bot exercising its own
+    site). Then this rule is not for that account; take it out of the agent_user list. The command
+    line shows the service and the target.
+level: high

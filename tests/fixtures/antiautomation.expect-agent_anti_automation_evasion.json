@@ -1,0 +1,19 @@
+[
+ {
+  "source": "laurel",
+  "image": "/run/current-system/sw/bin/curl",
+  "commandLine": "curl -s --max-time 2 http://2captcha.invalid/in.php?key=DUMMY",
+  "user": "claude",
+  "pid": 13120,
+  "ppid": 13100,
+  "currentDirectory": "/home/claude"
+ },
+ {
+  "source": "laurel",
+  "image": "/run/current-system/sw/bin/curl",
+  "commandLine": "curl -s --max-time 2 http://pkg.invalid/undetected-chromedriver.tar.gz",
+  "user": "claude",
+  "pid": 13121,
+  "ppid": 13100
+ }
+]
