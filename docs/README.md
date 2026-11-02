@@ -14,10 +14,13 @@ Start with the [project README](../README.md) for the overview. These pages go d
 - **[Log sources](log-sources.md)** - how banken stays extensible across OSes: the one-interface
   seam, the generic-JSONL adapter, and the per-OS (Linux/macOS/Windows) source roadmap. Read this to
   add a source.
-
-Security model (why a root daemon that ingests rules is not a trojan) lives in the
-[README's Security model section](../README.md#security-model); the threat model is short enough to
-keep in one place.
+- **[Security model](security-model.md)** - why a root daemon that ingests rules is not a trojan:
+  rules and logs as inert data, no kernel component, the layered guarantee. Read this for the
+  threat model.
+- **[Performance](performance.md)** - the Aho-Corasick prefilter, the measured prefilter-scaling
+  and staged-latency numbers, and the binary/memory footprint. Read this for the benchmarks.
+- **[Testing](testing.md)** - the test surface: table tests, never-die contracts, the fuzz
+  campaign, the emulation VM test, and CI. Read this for how claims are gated.
 
 Everything here describes the current code. If a page and the code disagree, the code wins - please
 open an issue.
