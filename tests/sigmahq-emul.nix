@@ -98,6 +98,36 @@ let
     sigmahq_fe_ebpfbackdoor = [ "file_event_lnx_triple_cross_rootkit_persistence" ];
     sigmahq_fe_base64_filename = [ "file_event_lnx_susp_filename_with_embedded_base64_command" ];
 
+    # Batch 3 -- more process_creation rules. Each is a binary or flag shape an
+    # unprivileged user can run benignly (most fail safe / act on scratch files
+    # or unroutable TEST-NET addresses) while still carrying the execve indicator
+    # the rule keys on. Where one benign one-liner inherently trips a second rule
+    # that genuinely matches the same behaviour (a "twin"), both are listed so
+    # the twin is not counted as a wild process_creation hit:
+    #   * the two curl families also trip curl_usage (any curl at all);
+    #   * the two find families also trip file_and_directory_discovery (any find);
+    #   * base64_exec runs through `bash -c` with a pipe and `base64 -d`, so it
+    #     also trips susp_pipe_shell and base64_decode.
+    sigmahq_local_account = [ "proc_creation_lnx_local_account" ];
+    sigmahq_local_groups = [ "proc_creation_lnx_local_groups" ];
+    sigmahq_grep_os_arch = [ "proc_creation_lnx_grep_os_arch_discovery" ];
+    sigmahq_history_recon = [ "proc_creation_lnx_susp_history_recon" ];
+    sigmahq_history_delete = [ "proc_creation_lnx_susp_history_delete" ];
+    sigmahq_clear_logs = [ "proc_creation_lnx_clear_logs" ];
+    sigmahq_clear_syslog = [ "proc_creation_lnx_clear_syslog" ];
+    sigmahq_curl_useragent = [ "proc_creation_lnx_susp_curl_useragent" "proc_creation_lnx_curl_usage" ];
+    sigmahq_curl_fileupload = [ "proc_creation_lnx_susp_curl_fileupload" "proc_creation_lnx_curl_usage" ];
+    sigmahq_services_stop = [ "proc_creation_lnx_services_stop_and_disable" ];
+    sigmahq_cron_tmp = [ "proc_creation_lnx_schedule_task_job_cron" ];
+    sigmahq_find_shell = [ "proc_creation_lnx_find_shell_execution" "proc_creation_lnx_file_and_directory_discovery" ];
+    sigmahq_find_perm = [ "proc_creation_lnx_susp_find_execution" "proc_creation_lnx_file_and_directory_discovery" ];
+    sigmahq_python_os_system = [ "proc_creation_lnx_python_shell_os_system" ];
+    sigmahq_python_pty = [ "proc_creation_lnx_python_pty_spawn" ];
+    sigmahq_awk_shell = [ "proc_creation_lnx_awk_shell_spawn" ];
+    sigmahq_pipe_shell = [ "proc_creation_lnx_susp_pipe_shell" ];
+    sigmahq_remove_package = [ "proc_creation_lnx_remove_package" ];
+    sigmahq_base64_exec =[ "proc_creation_lnx_base64_execution" "proc_creation_lnx_base64_decode" "proc_creation_lnx_susp_pipe_shell" ];
+
     sigmahq_benign = [ ];
   };
 in
@@ -160,6 +190,9 @@ pkgs.testers.runNixOSTest {
       audit # auditctl (auditctl_clear_rules)
       curl # curl (curl_usage)
       python3 # python3 (python_http_server_execution)
+      # Batch 3 additions, for the new emulations' tools.
+      gawk # awk (awk_shell_spawn)
+      dpkg # dpkg (remove_package)
     ];
     environment.etc."banken-emulations".source = ./emulations;
   };
