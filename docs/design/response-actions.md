@@ -1,8 +1,41 @@
 # Response actions - design spec
 
-Status: **proposal, not implemented.** Nothing in this document exists in the code yet. It is written
-against the tree as of 2026-10-31 (`17c1d21`), and every "today" claim below was checked against
-that tree, not remembered.
+Status: **partially implemented; real enforcement DISABLED and not armed.** The decision layer
+(phases 0-1) and the executor (phase 2) are built; see the "Implementation status" box below for
+exactly what exists and -- loudly -- for the fact that no process is killed, frozen or quarantined
+anywhere by default. The design text below is the original proposal, written against the tree as of
+2026-10-31 (`17c1d21`); where the code and this prose diverge the code is the truth.
+
+> ## Implementation status (as built)
+>
+> **Real enforcement is OFF by default and is NOT armed anywhere.** The executor
+> (`internal/response/exec`) performs NO real kill, freeze, quarantine, neuter or collect unless its
+> `Config.Enforce` flag is explicitly set true. The zero value is false: a dry-run executor that
+> verifies the target, logs what it *would* do, and returns a handle marked `DryRun`. This worker did
+> NOT set `Enforce` true anywhere -- not in a constructor default, not in the NixOS module, not in any
+> test that runs against a real process or file. **Arming real enforcement is gated for Conor's
+> design-session review.** Do not flip the default without it.
+>
+> Built so far:
+> - **Phase 0** (`internal/event`, `internal/parser`): `Event.PID/PPID/ProcessStart` fields and the
+>   auditd/Laurel/mimi/sysmon parser plumbing that populates them, with goldens; `Rule.Tags ->
+>   Alert.Tags`. (Present from the rule-refresh work; confirmed, not re-added.)
+> - **Phase 1** (`internal/response`): the pure `Decide(Input) Decision` (no clock, no filesystem, no
+>   /proc, no globals), the `Policy` loader/validator (strict YAML, every bad key/action/mode a load
+>   error), and an append-only decision `Ledger`. Decide has zero side effects; the ledger is a
+>   separate recording component. Fully table-driven unit tests, including one that asserts every
+>   `Rail` is reached.
+> - **Phase 2** (`internal/response/exec`): the `Executor` -- pidfd+start-time identity (the
+>   pid-reuse crux), freeze/thaw (cgroup v2 freezer, SIGSTOP fallback), kill (pidfd SIGKILL,
+>   `cgroup.kill` with per-pid fallback), quarantine (`renameat2 RENAME_NOREPLACE`, EXDEV neuter +
+>   immutable bit, sidecar manifest) and restore, and collect -- **every mutating method gated behind
+>   `Config.Enforce`**, defaulting to dry-run. Linux-only syscall code is behind `//go:build linux`
+>   so `GOOS=windows` still builds. Tests exercise dry-run everywhere and, on Linux, the real paths
+>   against only self-spawned `sleep` children and files the test created under `/tmp`.
+>
+> Not built here (deferred): wiring the responder/spool/drain into the scan, the `banken respond`
+> subcommands, the `banken-respond.{service,path}` units with seccomp+Landlock, and anything that
+> would actually arm enforcement (phases 3-4 and the arming step).
 
 banken today is alert-only. This is the design for the subsystem that lets it *act* on an alert:
 freeze or kill a process, quarantine a file, and later isolate a process from the network and
