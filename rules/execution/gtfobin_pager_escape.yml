@@ -1,0 +1,49 @@
+title: Pager or editor shell escape (GTFOBin)
+id: 189c89ca-8fad-4f88-a87c-73942bc5c144
+status: experimental
+description: >
+  A pager or editor was driven non-interactively into running a shell command - vim/nvim/view with
+  a -c or --cmd script carrying a :! shell escape, :shell, or an embedded :lua/:python/:perl, or ed
+  in script mode with a bang line. This is the GTFOBins pager/editor break-out (MITRE T1202 Indirect
+  Command Execution / T1059): a tool meant to view or edit a file is used to execute code. The
+  interactive form (open vim, type :!sh) shows up as a parent/child shell and is caught by
+  gtfobin_shell_spawn; this rule catches the scripted form, which has no shell child to key on - the
+  escape lives entirely in the editor's own argv.
+references:
+  - https://gtfobins.github.io/
+  - https://attack.mitre.org/techniques/T1202/
+author: banken
+date: 2026-11-02
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.execution
+  - attack.t1059
+  - attack.t1202
+detection:
+  editor:
+    Image|endswith:
+      - /vi
+      - /vim
+      - /rvim
+      - /view
+      - /vimdiff
+      - /nvim
+      - /ex
+  # a command-mode flag (-c / --cmd / +) whose script contains a shell escape or an embedded
+  # interpreter - the forms that run a command without an interactive session
+  editor_escape:
+    CommandLine|re: '\s(-c|--cmd|\+)\s*\S*(:!|!/|:shell|:lua\b|:py[23]?\b|:perl\b|:rubydo\b|:term\b|:call\s+system)'
+  ed_tool:
+    Image|endswith:
+      - /ed
+      - /red
+  # ed/red script mode: a line beginning with ! runs a shell command
+  ed_escape:
+    CommandLine|re: '(^|\s)!\S'
+  condition: editor_escape or (ed_tool and ed_escape)
+falsepositives:
+  - A legitimate automation that scripts vim with -c for a genuine editing macro that happens to
+    call :lua/:python for formatting; the escape token shows intent. Rare outside this technique.
+level: high

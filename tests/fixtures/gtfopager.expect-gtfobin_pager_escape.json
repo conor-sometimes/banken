@@ -1,0 +1,27 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/vim",
+  "commandLine": "vim -c :!/bin/sh",
+  "user": "1000",
+  "pid": 12210,
+  "ppid": 12200,
+  "currentDirectory": "/home/u"
+ },
+ {
+  "source": "auditd",
+  "image": "/usr/bin/nvim",
+  "commandLine": "nvim --cmd :shell",
+  "user": "1000",
+  "pid": 12211,
+  "ppid": 12200
+ },
+ {
+  "source": "auditd",
+  "image": "/usr/bin/ed",
+  "commandLine": "ed -s file !/bin/sh",
+  "user": "1000",
+  "pid": 12212,
+  "ppid": 12200
+ }
+]

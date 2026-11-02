@@ -1,0 +1,60 @@
+title: File-write tool writing a code-execution sink (GTFOBin)
+id: ebb729ed-ddc8-45a9-a95e-055884d997d8
+status: experimental
+description: >
+  A file-write utility (dd, tee, cp, install) wrote - or any process's file access touched - a sink
+  that grants code execution or persistence: the dynamic-loader preload list (/etc/ld.so.preload,
+  /etc/ld.so.conf.d/), a login profile script (/etc/profile.d/, /etc/profile, /etc/bash.bashrc,
+  /etc/environment), or an rc/init drop-in. Writing arbitrary content into one of these through a
+  trusted tool is the GTFOBins file-write abuse (MITRE T1565.001 Stored Data Manipulation), and the
+  sink itself is the persistence/escalation payload - a preloaded library runs in every dynamically
+  linked process (T1574.006), a profile script runs for every login shell (T1546.004). sudoers,
+  cron, PAM and authorized_keys have their own dedicated rules; this adds the loader/profile sinks
+  that were a gap.
+references:
+  - https://gtfobins.github.io/
+  - https://attack.mitre.org/techniques/T1565/001/
+  - https://attack.mitre.org/techniques/T1574/006/
+author: banken
+date: 2026-11-02
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.impact
+  - attack.t1565.001
+  - attack.t1574.006
+  - attack.t1546.004
+detection:
+  writer:
+    Image|endswith:
+      - /dd
+      - /tee
+      - /cp
+      - /install
+      - /mv
+  sink_cmd:
+    CommandLine|contains:
+      - /etc/ld.so.preload
+      - /etc/ld.so.conf.d/
+      - /etc/profile.d/
+      - /etc/bash.bashrc
+      - /etc/environment
+      - /etc/rc.d/
+      - /etc/init.d/
+  # binary-agnostic: any process whose file access (auditd PATH / TargetFilename) landed on a sink
+  sink_target:
+    TargetFilename|contains:
+      - /etc/ld.so.preload
+      - /etc/ld.so.conf.d/
+      - /etc/profile.d/
+      - /etc/bash.bashrc
+      - /etc/environment
+      - /etc/rc.d/
+      - /etc/init.d/
+  condition: (writer and sink_cmd) or sink_target
+falsepositives:
+  - A package install or configuration-management run that legitimately drops a profile.d script or
+    an ld.so.conf.d entry (a provisioning host). Expected on a build box, notable on a workstation
+    or an agent box; the writer and the path show what landed.
+level: high

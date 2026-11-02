@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/run/wrappers/bin/sudo",
+  "commandLine": "sudo -n find /nonexistent-gtfosudo -exec /bin/sh -c true ; -quit",
+  "user": "1000",
+  "pid": 12120,
+  "ppid": 12100,
+  "currentDirectory": "/home/u"
+ }
+]
