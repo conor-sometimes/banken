@@ -25,6 +25,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -69,6 +70,11 @@ var (
 	sinkBytes  []byte
 	sinkInt    int
 )
+
+// sinkEvents, sinkAlerts and sinkInt are write-only by design: their stores are what stop the compiler
+// eliding the measured work. This reference marks them used for staticcheck (U1000) without reading
+// them in the measured loops.
+var _, _, _ = sinkEvents, sinkAlerts, sinkInt
 
 func main() {
 	if len(os.Args) < 2 {
@@ -115,10 +121,10 @@ func main() {
 		fs := newFS(cmd)
 		rules := fs.String("rules", "./rules", "shipped rule tree to load")
 		dur := fs.Duration("duration", 3*time.Second, "how long to run the match loop")
-		cap := fs.Int("queue", 1024, "bounded queue depth (models the ring buffer)")
+		queueCap := fs.Int("queue", 1024, "bounded queue depth (models the ring buffer)")
 		platform, out = commonFlags(fs, args)
 		var s benchlib.Section
-		s, err = throughput(*rules, *dur, *cap)
+		s, err = throughput(*rules, *dur, *queueCap)
 		sections = []benchlib.Section{s}
 	case "coldstart":
 		fs := newFS(cmd)
@@ -196,11 +202,11 @@ func emit(run benchlib.Run, out string) error {
 	if out == "" {
 		return run.Write(os.Stdout)
 	}
-	f, err := os.Create(out)
+	f, err := os.Create(out) // #nosec G703 -- operator-supplied -out path to a dev bench tool
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := run.Write(f); err != nil {
 		return err
 	}
@@ -310,7 +316,7 @@ func latency(rulesDir string, iters int) (benchlib.Section, error) {
 		alerts := eng.Match(ev)
 		fired := len(alerts)
 		if c.label == "threat" && fired == 0 {
-			return benchlib.Section{}, fmt.Errorf("latency: threat line fired no rule; the bench needs a real alert for t5")
+			return benchlib.Section{}, errors.New("latency: threat line fired no rule; the bench needs a real alert for t5")
 		}
 		// t5 needs an alert object; use the live one for the threat, a
 		// representative one for the clean case (OCSF cost is shape-driven).
@@ -447,7 +453,7 @@ func matcherBytes(rules []*sigma.Rule) int64 {
 	runtime.GC()
 	runtime.ReadMemStats(&after)
 	sinkInt = m.Len() // keep m alive past the second reading
-	d := int64(after.HeapAlloc) - int64(before.HeapAlloc)
+	d := int64(after.HeapAlloc) - int64(before.HeapAlloc) // #nosec G115 -- heap byte counts are far below 2^63
 	if d < 0 {
 		d = 0
 	}
@@ -528,7 +534,7 @@ func dropDemo(eng *engine.Engine, ev event.Event, queue int, dur time.Duration) 
 
 func coldstart(bin, rulesDir string, reps int) (benchlib.Section, error) {
 	if bin == "" {
-		return benchlib.Section{}, fmt.Errorf("coldstart needs -bin <built banken binary>")
+		return benchlib.Section{}, errors.New("coldstart needs -bin <built banken binary>")
 	}
 	absBin, err := filepath.Abs(bin)
 	if err != nil {
@@ -552,17 +558,17 @@ func coldstart(bin, rulesDir string, reps int) (benchlib.Section, error) {
 		}
 		cfg := fmt.Sprintf("rules: [%s]\nstatePath: %s\nsources:\n  - type: laurel\n    path: %s\nalerts:\n  jsonl:\n    enable: true\n    dir: %s\n",
 			rulesDir, filepath.Join(dir, "state.json"), logPath, findDir)
-		if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil { // #nosec G703 -- config file inside the bench-owned temp dir
 			return benchlib.Section{}, err
 		}
 
 		start := time.Now()
-		c := exec.Command(absBin, "-config", cfgPath)
+		c := exec.Command(absBin, "-config", cfgPath) // #nosec G702,G204 -- operator-supplied banken binary run on purpose; a dev bench tool
 		c.Dir = dir
 		var stderr bytes.Buffer
 		c.Stderr = &stderr
 		if err := c.Run(); err != nil {
-			return benchlib.Section{}, fmt.Errorf("coldstart run: %v (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+			return benchlib.Section{}, fmt.Errorf("coldstart run: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
 		}
 		elapsed := time.Since(start).Nanoseconds()
 		if findingWritten(findDir) {
@@ -600,13 +606,13 @@ func findingWritten(dir string) bool {
 // --- sensor-overhead baseline: us/exec in a tight fork-exec loop (probe off) ---
 
 func forkexec(n int, cmdPath string) (benchlib.Section, error) {
-	if _, err := os.Stat(cmdPath); err != nil {
+	if _, err := os.Stat(cmdPath); err != nil { // #nosec G703 -- operator-supplied command path to a dev bench tool
 		return benchlib.Section{}, fmt.Errorf("forkexec: %s not found: %w", cmdPath, err)
 	}
 	samples := make([]int64, 0, n)
 	for i := 0; i < n; i++ {
 		start := time.Now()
-		if err := exec.Command(cmdPath).Run(); err != nil {
+		if err := exec.Command(cmdPath).Run(); err != nil { // #nosec G702 -- operator-supplied command run on purpose; a dev bench tool
 			return benchlib.Section{}, fmt.Errorf("forkexec iteration: %w", err)
 		}
 		samples = append(samples, time.Since(start).Nanoseconds())
@@ -626,10 +632,10 @@ func forkexec(n int, cmdPath string) (benchlib.Section, error) {
 
 func sample(pid int, dur, interval time.Duration, label string) (benchlib.Section, error) {
 	if pid <= 0 {
-		return benchlib.Section{}, fmt.Errorf("sample needs -pid <running process>")
+		return benchlib.Section{}, errors.New("sample needs -pid <running process>")
 	}
 	if runtime.GOOS != "linux" {
-		return benchlib.Section{}, fmt.Errorf("sample reads /proc; Linux only")
+		return benchlib.Section{}, errors.New("sample reads /proc; Linux only")
 	}
 	rss := make([]int64, 0)
 	var cpu []int64
@@ -669,7 +675,7 @@ func sample(pid int, dur, interval time.Duration, label string) (benchlib.Sectio
 }
 
 func readRSSBytes(pid int) (int64, error) {
-	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid)) // #nosec G703 -- path built from an integer pid
 	if err != nil {
 		return 0, err
 	}
@@ -687,7 +693,7 @@ func readRSSBytes(pid int) (int64, error) {
 }
 
 func readProcTicks(pid int) int64 {
-	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)) // #nosec G703 -- path built from an integer pid
 	if err != nil {
 		return 0
 	}
@@ -712,9 +718,9 @@ func readProcTicks(pid int) int64 {
 
 func footprint(bin string, modules, thirdPartyPkgs, sourceBytes int) (benchlib.Section, error) {
 	if bin == "" {
-		return benchlib.Section{}, fmt.Errorf("footprint needs -bin <stripped banken binary>")
+		return benchlib.Section{}, errors.New("footprint needs -bin <stripped banken binary>")
 	}
-	info, err := os.Stat(bin)
+	info, err := os.Stat(bin) // #nosec G703 -- operator-supplied -bin path to a dev bench tool
 	if err != nil {
 		return benchlib.Section{}, err
 	}

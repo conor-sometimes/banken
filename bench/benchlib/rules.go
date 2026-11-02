@@ -14,7 +14,7 @@ import (
 func LoadBaseline(dir string) ([]*sigma.Rule, error) {
 	rules, probs := sigma.LoadTree(dir)
 	if len(probs) > 0 {
-		return nil, fmt.Errorf("loading %s: %d rule error(s), first: %v", dir, len(probs), probs[0])
+		return nil, fmt.Errorf("loading %s: %d rule error(s), first: %w", dir, len(probs), probs[0])
 	}
 	if len(rules) == 0 {
 		return nil, fmt.Errorf("loading %s: no rules found", dir)
