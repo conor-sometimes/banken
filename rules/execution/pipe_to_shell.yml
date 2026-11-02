@@ -26,11 +26,16 @@ detection:
   # Fable: the old '(ba)?sh\b' can't match dash/zsh/ksh (no boundary mid-word),
   # omitted php/node/lua/awk, and only matched a literal '|' (missed <(...) and
   # $(...), the same remote-exec-in-one-line pattern).
+  # Backport (banken-rules pilot): the shell set '(ba|da|z|k|a|c|tc|fi)?sh'
+  # adds ash (Alpine /bin/sh), csh, tcsh and fish (Conor's login shell) to
+  # bash/dash/zsh/ksh/sh. The trailing \b keeps every alternative a whole token,
+  # so 'c'+'sh'=csh matches but 'cash' / 'bashful' do not (the prefix letters
+  # only combine into a real shell name right at the pipe / <( / $( boundary).
   into_interpreter:
-    CommandLine|re: '(\||<\(|\$\()\s*(sudo\s+)?(ba|da|z|k)?sh\b|(\||<\(|\$\()\s*(python[23]?|perl|ruby|php|node|lua|awk)\b'
+    CommandLine|re: '(\||<\(|\$\()\s*(sudo\s+)?(ba|da|z|k|a|c|tc|fi)?sh\b|(\||<\(|\$\()\s*(python[23]?|perl|ruby|php|node|lua|awk)\b'
   # a shell consuming a process substitution of the download, or eval of it
   evalsubst:
-    CommandLine|re: '\beval\b|\b(ba|da|z|k)?sh\b\s+<\(|\bsource\b\s+<\(|\.\s+<\('
+    CommandLine|re: '\beval\b|\b(ba|da|z|k|a|c|tc|fi)?sh\b\s+<\(|\bsource\b\s+<\(|\.\s+<\('
   condition: source and (into_interpreter or evalsubst)
 falsepositives:
   - Some installers legitimately use curl | sh; treat these as review-worthy anyway.

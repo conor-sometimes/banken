@@ -1,0 +1,47 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/bin/bash",
+    "commandLine": "bash -c rm -rf /tmp/build-cache && mkdir /tmp/build-cache",
+    "user": "1000",
+    "pid": 7700,
+    "ppid": 7699,
+    "currentDirectory": "/home/u"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/sh",
+    "commandLine": "sh -c cd /tmp/work && make install",
+    "user": "1000",
+    "pid": 7701,
+    "ppid": 7699,
+    "currentDirectory": "/home/u"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/python3",
+    "commandLine": "python3 -c import tempfile,os; os.listdir('/tmp')",
+    "user": "0",
+    "pid": 7702,
+    "ppid": 7699,
+    "currentDirectory": "/"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/tar",
+    "commandLine": "tar -czf /tmp/build.tar.gz ./dist",
+    "user": "1000",
+    "pid": 7703,
+    "ppid": 7699,
+    "currentDirectory": "/home/u"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/cp",
+    "commandLine": "cp ./config.toml /tmp/staging/config.toml",
+    "user": "1000",
+    "pid": 7704,
+    "ppid": 7699,
+    "currentDirectory": "/home/u"
+  }
+]

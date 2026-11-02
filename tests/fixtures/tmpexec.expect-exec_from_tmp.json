@@ -1,0 +1,29 @@
+[
+  {
+    "source": "auditd",
+    "image": "/tmp/tmpexec.ab12cd/stage1",
+    "commandLine": "/tmp/tmpexec.ab12cd/stage1",
+    "user": "1000",
+    "pid": 6600,
+    "ppid": 6599,
+    "currentDirectory": "/home/u"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/bash",
+    "commandLine": "bash /tmp/tmpexec.ab12cd/run.sh",
+    "user": "1000",
+    "pid": 6601,
+    "ppid": 6599,
+    "currentDirectory": "/home/u"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/python3",
+    "commandLine": "python3 /dev/shm/tmpexec.ef34gh/calc.py",
+    "user": "1000",
+    "pid": 6602,
+    "ppid": 6599,
+    "currentDirectory": "/home/u"
+  }
+]
