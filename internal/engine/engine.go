@@ -8,6 +8,7 @@ package engine
 import (
 	"fmt"
 	"io"
+	"sync/atomic"
 
 	"github.com/conor-sometimes/banken/internal/alert"
 	"github.com/conor-sometimes/banken/internal/event"
@@ -17,9 +18,17 @@ import (
 )
 
 // Engine matches events and dispatches alerts.
+//
+// The rule set (the compiled Sigma matcher and the IOC set) lives behind two
+// atomic.Pointers so it can be replaced on a running daemon without a lock on
+// the hot path: SetRules publishes a freshly built set with a single atomic
+// store, and every match loads the current pointers per call. An event that is
+// mid-match when a swap happens finishes against whichever set it loaded; the
+// next event sees the new one. This is the one safe publication point for a
+// live rule reload (see docs/design/rule-refresh.md section 6).
 type Engine struct {
-	matcher *sigma.Matcher
-	iocs    *ioc.Set
+	matcher atomic.Pointer[sigma.Matcher]
+	iocs    atomic.Pointer[ioc.Set]
 	disp    *alert.Dispatcher
 }
 
@@ -28,7 +37,25 @@ type Engine struct {
 // returned alerts. The rules are compiled into a prefiltered matcher so the
 // per-event cost does not grow with the rule count.
 func New(rules []*sigma.Rule, iocs *ioc.Set, disp *alert.Dispatcher) *Engine {
-	return &Engine{matcher: sigma.NewMatcher(rules), iocs: iocs, disp: disp}
+	e := &Engine{disp: disp}
+	e.matcher.Store(sigma.NewMatcher(rules))
+	if iocs != nil {
+		e.iocs.Store(iocs)
+	}
+	return e
+}
+
+// SetRules atomically replaces the engine's live rule set with one compiled
+// from rules and iocs, with no restart and no lock on the match path. The new
+// matcher is built here (off the hot path -- the old set keeps serving every
+// in-flight and newly arriving event throughout the build) and published with
+// a single atomic store, so a match never sees a half-built set. iocs may be
+// nil to clear IOC matching. The caller is responsible for the validate step
+// (a candidate with zero rules must be refused before calling this, so the
+// daemon can never go ruleless); SetRules is the swap, not the gate.
+func (e *Engine) SetRules(rules []*sigma.Rule, iocs *ioc.Set) {
+	e.matcher.Store(sigma.NewMatcher(rules))
+	e.iocs.Store(iocs) // nil clears the IOC set
 }
 
 // Match returns every alert an event produces (Sigma rules first, in rule
@@ -36,7 +63,7 @@ func New(rules []*sigma.Rule, iocs *ioc.Set, disp *alert.Dispatcher) *Engine {
 // event and rule set.
 func (e *Engine) Match(ev event.Event) []alert.Alert {
 	var alerts []alert.Alert
-	for _, r := range e.matcher.Match(ev) {
+	for _, r := range e.matcher.Load().Match(ev) {
 		alerts = append(alerts, alert.Alert{
 			Time:     ev.Time,
 			Kind:     alert.KindSigma,
@@ -52,8 +79,8 @@ func (e *Engine) Match(ev event.Event) []alert.Alert {
 			Event:    ev,
 		})
 	}
-	if e.iocs != nil {
-		for _, m := range e.iocs.Match(ev) {
+	if iocs := e.iocs.Load(); iocs != nil {
+		for _, m := range iocs.Match(ev) {
 			alerts = append(alerts, alert.Alert{
 				Time:    ev.Time,
 				Kind:    alert.KindIOC,

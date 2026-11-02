@@ -69,7 +69,7 @@ func TestRunDaemonFollowsStreamAndScansPeriodic(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- runDaemon(ctx, eng, cfg, 40*time.Millisecond, io.Discard) }()
+	go func() { done <- runDaemon(ctx, eng, cfg, 40*time.Millisecond, nil, io.Discard) }()
 
 	// Stream (mimi, followed continuously): a cat /etc/shadow exec.
 	appendLine(t, mimiPath, `{"schema":"mimi/2","time":"`+time.Now().UTC().Format(time.RFC3339Nano)+

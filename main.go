@@ -46,9 +46,25 @@ var defaultConfigPath = "/etc/banken/banken.yml"
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		logAt(os.Stderr, levelErr, "banken: %v", err)
+		var ee exitError
+		if errors.As(err, &ee) {
+			os.Exit(ee.code)
+		}
 		os.Exit(1)
 	}
 }
+
+// exitError lets a subcommand choose the process exit code while still flowing
+// through run's normal error return. `banken check <dir>` uses it to exit 2 on a
+// bad rules tree (a distinct, scriptable code the fleet puller gates on), where
+// a plain error is the generic exit 1.
+type exitError struct {
+	code int
+	err  error
+}
+
+func (e exitError) Error() string { return e.err.Error() }
+func (e exitError) Unwrap() error { return e.err }
 
 type flags struct {
 	configPath   string
@@ -158,39 +174,35 @@ func run(args []string, stdout, stderr io.Writer) error {
 			"process events; remove it and run augenrules --load (docs/deployment.md, Log source)", b)
 	}
 
-	rules, problems := loadRules(cfg.Rules)
-	for _, p := range problems {
+	// Build the full rule + IOC set from the configured dirs (Rules +
+	// RefreshDirs) and threat-intel feeds. buildCandidate is the one builder the
+	// runtime refresh also uses, so the live set and a reload can never drift.
+	cs, err := buildCandidate(cfg)
+	if err != nil {
+		return fmt.Errorf("loading IOCs: %w", err)
+	}
+	for _, p := range cs.problems {
 		// A malformed rule is surfaced, loudly, never silently dropped.
 		logAt(stderr, levelErr, "banken: rule error: %s", p.Error())
 	}
-	if len(rules) == 0 {
+	if len(cs.rules) == 0 {
 		// The embedded baseline should always load, so this means the binary
 		// itself is broken, not a misconfiguration.
 		return errors.New("no rules loaded (embedded baseline missing?)")
 	}
-
-	// Hold back optional (opt-in) rules the operator did not activate, and mark
-	// observe-mode rules. A named rule that matches no optional rule is warned
-	// about -- a typo'd enable is a detection that silently is not running.
-	rules, sel := selectActive(rules, optionalSet(cfg.OptionalRules), optionalSet(cfg.ObserveRules))
-	for _, name := range sel.unknown {
+	// A named rule that matches no optional rule is warned about -- a typo'd
+	// enable is a detection that silently is not running.
+	for _, name := range cs.sel.unknown {
 		logAt(stderr, levelWarning, "banken: %q is named in optionalRules/observeRules but is not an optional rule; it will not run (check the spelling)", name)
 	}
-
-	iocSet, err := loadIOCs(cfg.Rules)
-	if err != nil {
-		return fmt.Errorf("loading IOCs: %w", err)
-	}
-
 	// Threat-intel feeds (STIX/MISP files, TAXII collections) normalise into the
 	// same set as the flat rules/ioc lists. A feed that fails loads nothing and
 	// is warned about; the run goes on with whatever loaded (never-die).
-	added, iprobs := loadIntel(cfg.Intel, iocSet)
-	for _, p := range iprobs {
+	for _, p := range cs.intelProblems {
 		logAt(stderr, levelWarning, "banken: intel feed: %v", p)
 	}
-	if added > 0 {
-		logAt(stderr, levelInfo, "banken: %d indicator(s) ingested from %d threat-intel feed(s)", added, len(cfg.Intel))
+	if cs.intelAdded > 0 {
+		logAt(stderr, levelInfo, "banken: %d indicator(s) ingested from %d threat-intel feed(s)", cs.intelAdded, len(cfg.Intel))
 	}
 
 	sinks, err := buildSinks(cfg, stderr)
@@ -204,16 +216,16 @@ func run(args []string, stdout, stderr io.Writer) error {
 		}
 	}()
 
-	eng := engine.New(rules, iocSet, disp)
+	eng := engine.New(cs.rules, cs.iocs, disp)
 
-	if sel.observing > 0 {
-		logAt(stderr, levelInfo, "banken: %d optional rule(s) in observe mode (recorded, not paged)", sel.observing)
+	if cs.sel.observing > 0 {
+		logAt(stderr, levelInfo, "banken: %d optional rule(s) in observe mode (recorded, not paged)", cs.sel.observing)
 	}
-	if sel.heldBack > 0 {
-		logAt(stderr, levelInfo, "banken: %d optional rule(s) held back (activate with optionalRules/-optional, or watch with observeRules/-observe)", sel.heldBack)
+	if cs.sel.heldBack > 0 {
+		logAt(stderr, levelInfo, "banken: %d optional rule(s) held back (activate with optionalRules/-optional, or watch with observeRules/-observe)", cs.sel.heldBack)
 	}
 	logAt(stderr, levelInfo, "banken %s: %d rules, %d indicators, %d source(s)",
-		version, len(rules), iocSet.Len(), len(cfg.Sources))
+		version, len(cs.rules), cs.iocs.Len(), len(cfg.Sources))
 
 	if f.follow {
 		return follow(eng, cfg, stderr)
@@ -282,16 +294,28 @@ func scanSources(eng *engine.Engine, sources []config.Source, statePath string, 
 // watch runs banken as a continuous daemon: it follows every stream source (a live sensor feed such
 // as mimi) as a push stream and, on interval, scans the remaining sources (the periodic auditd
 // floor). One process, one engine, one alert path -- the dispatcher is concurrency-safe, so the
-// follower and the scanner may dispatch at once. SIGINT/SIGTERM stop it cleanly. With no stream
-// source it is the plain timer loop it has always been.
+// follower and the scanner may dispatch at once. SIGINT/SIGTERM stop it cleanly; SIGHUP reloads the
+// rule set live (see runDaemon). With no stream source it is the plain timer loop it has always been.
 func watch(eng *engine.Engine, cfg config.Config, interval time.Duration, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return runDaemon(ctx, eng, cfg, interval, stderr)
+	// SIGHUP is the reload trigger (systemctl reload banken -> ExecReload = kill
+	// -HUP). It is deliberately a separate Notify channel, not part of the
+	// stop-context above, so a reload never stops the daemon. A buffered channel
+	// of one coalesces a burst of HUPs into one pending reload.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	return runDaemon(ctx, eng, cfg, interval, hup, stderr)
 }
 
-// runDaemon is watch's body with an injectable context, so a test can cancel it.
-func runDaemon(ctx context.Context, eng *engine.Engine, cfg config.Config, interval time.Duration, stderr io.Writer) error {
+// runDaemon is watch's body with an injectable context (so a test can cancel it) and an injectable
+// reload channel (so a test can trigger a refresh without delivering a real signal). On ctx.Done the
+// daemon shuts down cleanly; on a receive from reload it rebuilds the rule set and swaps it in live
+// via reloadRules -- validate-all-then-swap, so a bad rule file never crashes the daemon and never
+// drops the currently-good set (docs/design/rule-refresh.md section 6). A nil reload channel disables
+// the reload path (it blocks forever in the select), which is what the one-shot callers pass.
+func runDaemon(ctx context.Context, eng *engine.Engine, cfg config.Config, interval time.Duration, reload <-chan os.Signal, stderr io.Writer) error {
 	if interval <= 0 {
 		interval = 2 * time.Minute
 	}
@@ -329,29 +353,43 @@ func runDaemon(ctx context.Context, eng *engine.Engine, cfg config.Config, inter
 		}()
 	}
 
+	// tick fires the periodic scan when there are non-stream sources; it stays
+	// nil otherwise (a receive on a nil channel blocks forever, so the select
+	// simply never scans). Either way the same loop handles shutdown and reload,
+	// so SIGHUP works whether or not a periodic source is configured.
+	var tick <-chan time.Time
 	if len(periodic) > 0 {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		tick = ticker.C
 		scan := func() {
 			if err := scanSources(eng, periodic, cfg.StatePath, stderr); err != nil {
 				logAt(stderr, levelErr, "banken: scan: %v", err)
 			}
 		}
-		scan()
+		scan() // one scan immediately, then on every tick
 		for {
 			select {
 			case <-ctx.Done():
 				wg.Wait()
 				return nil
-			case <-ticker.C:
+			case <-reload:
+				reloadRules(eng, cfg, stderr)
+			case <-tick:
 				scan()
 			}
 		}
 	}
 
-	<-ctx.Done()
-	wg.Wait()
-	return nil
+	for {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			return nil
+		case <-reload:
+			reloadRules(eng, cfg, stderr)
+		}
+	}
 }
 
 // isStreamSource reports whether a source is a continuous push stream (a live sensor) rather than a

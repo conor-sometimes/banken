@@ -6,10 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
 	"github.com/conor-sometimes/banken/internal/event"
+	"github.com/conor-sometimes/banken/internal/ioc"
 	"github.com/conor-sometimes/banken/internal/sigma"
 )
 
@@ -40,6 +42,19 @@ func runCheck(args []string, stdout, stderr io.Writer) error {
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	// Directory-preflight mode: `banken check <dir>` validates a whole rules
+	// tree and exits non-zero on any bad rule, so an operator catches a broken
+	// rule on their laptop before pushing it to the fleet (and the fleet puller
+	// catches it before reloading 500 hosts). It is selected when the one
+	// positional argument names an existing directory and no event was
+	// described -- an event's command line is never a bare directory path.
+	if rest := fs.Args(); len(rest) == 1 && f.jsonStr == "" && f.image == "" &&
+		f.user == "" && f.target == "" && f.parent == "" && f.cwd == "" {
+		if fi, serr := os.Stat(rest[0]); serr == nil && fi.IsDir() {
+			return preflightDir(rest[0], stdout, stderr)
+		}
 	}
 
 	ev, err := checkEvent(f.jsonStr, f.image, f.user, f.target, f.parent, f.cwd, fs.Args())
@@ -79,6 +94,40 @@ func runCheck(args []string, stdout, stderr io.Writer) error {
 		}
 		logf(stdout, "  [%-8s] %-32s %s\n", level, r.Name, title)
 	}
+	return nil
+}
+
+// preflightDir compiles every Sigma rule and IOC list under dir with the exact
+// code path the daemon uses (sigma.LoadTree / ioc.LoadTree), prints a per-file
+// error for each rule that did not compile and a one-line total, and returns an
+// exitError with code 2 if any rule failed or the tree compiled zero rules.
+// This is the operator's and the fleet puller's gate: a rules dir that does not
+// pass here is never pushed or reloaded, so a broken rule is caught before it
+// reaches a running daemon. A clean tree prints its count and returns nil
+// (exit 0). The embedded baseline is deliberately NOT loaded here: this
+// validates the operator's own tree, so its exit status reflects only that
+// tree, not rules baked into the binary.
+func preflightDir(dir string, stdout, stderr io.Writer) error {
+	rules, problems := sigma.LoadTree(dir)
+	for _, p := range problems {
+		logAt(stderr, levelErr, "banken: rule error: %s", p.Error())
+	}
+	// A malformed IOC file is a hard error from ioc.LoadTree (it is reported the
+	// same way a bad rule is, so the whole dir is validated, not just .yml).
+	if _, err := ioc.LoadTree(dir); err != nil {
+		logAt(stderr, levelErr, "banken: ioc error: %v", err)
+		problems = append(problems, sigma.RuleError{Path: dir, Err: err})
+	}
+
+	if len(problems) > 0 {
+		logf(stdout, "%s: %d rule(s) compiled, %d error(s)\n", dir, len(rules), len(problems))
+		return exitError{code: 2, err: fmt.Errorf("%d rule file(s) failed to validate in %s", len(problems), dir)}
+	}
+	if len(rules) == 0 {
+		logf(stdout, "%s: 0 rules compiled\n", dir)
+		return exitError{code: 2, err: fmt.Errorf("no rules found in %s (nothing to load)", dir)}
+	}
+	logf(stdout, "%s: %d rule(s) compiled, 0 errors\n", dir, len(rules))
 	return nil
 }
 
