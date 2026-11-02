@@ -1,3 +1,7 @@
 # Transient per-run benchmark output; the committed reference is baseline.txt.
 new.txt
 e2e.json
+
+# `just profile` output: raw pprof, the symbolized test binary and the rendered
+# SVGs/text tops. All regenerated on demand, none belong in the repo.
+profiles/

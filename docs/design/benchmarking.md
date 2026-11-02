@@ -48,6 +48,25 @@ end to end = t1..t5                                       *
 - Match time per event versus rule count (already measured). Add rule load and compile time, and hot
   reload time if supported.
 - Memory per rule for the automaton.
+- Stress the rule set past the shipped tree into the hundreds of thousands (every SigmaHQ rule plus a
+  vendor feed): the curve of compile time, per-event match latency (p50/p99/max), sustained
+  throughput and resident bytes as the count climbs. `banken-bench stress` / `just stress` records
+  it; synthetic rules (benchlib.PadTo) pad the real tree so the automaton is exercised the way a real
+  large set would be. This is where a near-flat per-event cost bends, and the number is measured, not
+  modelled.
+
+## Profiling
+
+Where the CPU and the allocations go, so a regression in the numbers above has a cause, not just a
+symptom. `just profile` profiles the detection hot path (parse -> prefilter + match) and writes:
+
+- a CPU profile, read as a flame graph (`go tool pprof -http`) or a call-graph SVG (`go tool pprof
+  -svg`, graphviz), plus the text top for a terminal;
+- a heap profile in both views -- `-inuse_space` (what the daemon holds resident; a leak grows here)
+  and `-alloc_space` (total churn; what drives GC's share of the CPU).
+
+The raw `.pprof` files are the artifact, published the same way as the JSON. See `bench/README.md`
+("Profiling") for how to read them.
 
 ## Startup and recovery
 
