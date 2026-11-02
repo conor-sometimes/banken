@@ -1,0 +1,164 @@
+{
+  "schema": "banken-bench/1",
+  "tool": "banken-bench stress",
+  "generated": "2026-11-02T05:57:10.097035144Z",
+  "host": {
+    "hostname": "hokkaido",
+    "os": "linux",
+    "arch": "amd64",
+    "numCpu": 8,
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "kernel": "6.18.60",
+    "goVersion": "go1.26.10"
+  },
+  "sections": [
+    {
+      "category": "rule-scaling-stress",
+      "status": "measured",
+      "note": "hundreds-of-thousands-of-rules stress: per rule count, matcher compile (build the Aho-Corasick automaton), per-event match latency p50/p99/max, sustained single-core throughput, and the matcher's resident bytes. Synthetic rules (benchlib.PadTo) pad the real 62-rule tree; counts swept: [100000 250000 500000]. Rule generation (YAML parse+compile) is reported once as a rate.",
+      "metrics": [
+        {
+          "name": "rule-generation-rate",
+          "unit": "rules/sec",
+          "value": 35538.816966095685,
+          "extra": {
+            "elapsedMs": 14069,
+            "rulesGenerated": 500000
+          }
+        },
+        {
+          "name": "compile-at-100000-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 3,
+            "minNs": 1333965334,
+            "p50Ns": 1393130781,
+            "p99Ns": 1401229737,
+            "maxNs": 1401229737,
+            "meanNs": 1376108617,
+            "timerOverheadNs": 1886
+          },
+          "extra": {
+            "bytesPerRule": 4516,
+            "residentBytes": 451649168,
+            "ruleCount": 100000
+          }
+        },
+        {
+          "name": "match-at-100000-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 10000,
+            "minNs": 895577,
+            "p50Ns": 1764196,
+            "p99Ns": 1809663,
+            "maxNs": 2214255,
+            "meanNs": 1422443,
+            "timerOverheadNs": 1885
+          },
+          "extra": {
+            "allocsPerEvent": 103.005,
+            "ruleCount": 100000
+          }
+        },
+        {
+          "name": "throughput-at-100000-rules",
+          "unit": "events/sec",
+          "value": 798.3082134191604,
+          "extra": {
+            "cores": 1,
+            "ruleCount": 100000
+          }
+        },
+        {
+          "name": "compile-at-250000-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 3,
+            "minNs": 3457892874,
+            "p50Ns": 3494525646,
+            "p99Ns": 3553469606,
+            "maxNs": 3553469606,
+            "meanNs": 3501962708,
+            "timerOverheadNs": 1886
+          },
+          "extra": {
+            "bytesPerRule": 4558,
+            "residentBytes": 1139718272,
+            "ruleCount": 250000
+          }
+        },
+        {
+          "name": "match-at-250000-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 10000,
+            "minNs": 2172629,
+            "p50Ns": 4318159,
+            "p99Ns": 4414191,
+            "maxNs": 5448892,
+            "meanNs": 3474815,
+            "timerOverheadNs": 1885
+          },
+          "extra": {
+            "allocsPerEvent": 103.005,
+            "ruleCount": 250000
+          }
+        },
+        {
+          "name": "throughput-at-250000-rules",
+          "unit": "events/sec",
+          "value": 331.1634740835389,
+          "extra": {
+            "cores": 1,
+            "ruleCount": 250000
+          }
+        },
+        {
+          "name": "compile-at-500000-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 3,
+            "minNs": 7021217801,
+            "p50Ns": 7388503005,
+            "p99Ns": 8311555838,
+            "maxNs": 8311555838,
+            "meanNs": 7573758881,
+            "timerOverheadNs": 1886
+          },
+          "extra": {
+            "bytesPerRule": 4573,
+            "residentBytes": 2286665968,
+            "ruleCount": 500000
+          }
+        },
+        {
+          "name": "match-at-500000-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 10000,
+            "minNs": 4435563,
+            "p50Ns": 8833620,
+            "p99Ns": 10091675,
+            "maxNs": 19188806,
+            "meanNs": 7127174,
+            "timerOverheadNs": 1885
+          },
+          "extra": {
+            "allocsPerEvent": 103.011,
+            "ruleCount": 500000
+          }
+        },
+        {
+          "name": "throughput-at-500000-rules",
+          "unit": "events/sec",
+          "value": 164.16270917051787,
+          "extra": {
+            "cores": 1,
+            "ruleCount": 500000
+          }
+        }
+      ]
+    }
+  ]
+}
