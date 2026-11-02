@@ -1,30 +1,40 @@
-package sigma
-
-// acMatcher is a byte-level Aho-Corasick automaton: built once from every
-// string literal across every rule, it finds all literals present in a
-// piece of text in a single O(len(text)) pass, no matter how many literals
-// were compiled in. That is what lets the rule count grow without the
-// per-event cost growing with it -- see matcher.go for how the found set
-// gates which rules are evaluated.
+// Package acmatch is banken's one literal-set matcher: a byte-level
+// Aho-Corasick automaton, built once from a fixed set of string literals, that
+// finds every literal present in a piece of text in a single O(len(text)) pass,
+// no matter how many literals were compiled in. That is what lets a rule or
+// indicator count grow without the per-event cost growing with it.
+//
+// Two callers share it so there is one implementation, not two:
+//
+//   - internal/sigma compiles every rule's string literals into one Matcher
+//     and uses the found set to gate which rules get the authoritative
+//     Rule.Match (see internal/sigma/matcher.go).
+//   - internal/ioc compiles every filename/path indicator into one Matcher and
+//     uses the found set as the indicator hits for an event.
 //
 // It carries no detection logic of its own: it answers only "which of these
-// literals occur in this text", and the authoritative Rule.Match decides
-// whether a rule actually fires. A bug here can at worst cause a rule to be
-// evaluated that would not match (wasted work) -- never a missed match --
-// because the set it returns is always a superset of the true literals
-// (proof in matcher.go).
-type acMatcher struct {
+// literals occur in this text". A bug here can at worst report a literal that
+// is not really present (wasted downstream work) or miss one; the set it
+// returns is exactly the literals that occur as a substring, so for the sigma
+// prefilter it is always a superset of the true match set (over-admit, never
+// miss -- proof in internal/sigma/matcher.go), and for ioc it is the substring
+// hit set directly.
+package acmatch
+
+// Matcher is a compiled Aho-Corasick automaton over a fixed literal set.
+type Matcher struct {
 	next []map[byte]int // goto edges per node; node 0 is the root
 	fail []int          // failure links
 	out  [][]int        // literal ids whose pattern ends at (or via) this node
 }
 
-// newACMatcher builds an automaton over the given patterns. Each pattern's
-// index in the slice is the literal id reported for it; patterns must be
-// non-empty and already folded to the casing used at scan time. Duplicate
+// New builds an automaton over the given patterns. Each pattern's index in the
+// slice is the literal id reported for it; empty patterns are skipped (a caller
+// that needs "empty matches everything" handles that itself), and the remaining
+// patterns must already be folded to the casing used at scan time. Duplicate
 // patterns are allowed (each keeps its own id).
-func newACMatcher(patterns [][]byte) *acMatcher {
-	ac := &acMatcher{
+func New(patterns [][]byte) *Matcher {
+	ac := &Matcher{
 		next: []map[byte]int{{}}, // root
 		fail: []int{0},
 		out:  [][]int{nil},
@@ -39,7 +49,7 @@ func newACMatcher(patterns [][]byte) *acMatcher {
 	return ac
 }
 
-func (ac *acMatcher) add(pat []byte, id int) {
+func (ac *Matcher) add(pat []byte, id int) {
 	s := 0
 	for _, b := range pat {
 		nxt, ok := ac.next[s][b]
@@ -57,7 +67,7 @@ func (ac *acMatcher) add(pat []byte, id int) {
 
 // buildFail sets the failure links and merges outputs with a BFS over the
 // trie (standard Aho-Corasick construction).
-func (ac *acMatcher) buildFail() {
+func (ac *Matcher) buildFail() {
 	queue := make([]int, 0, len(ac.next))
 	for _, v := range ac.next[0] {
 		ac.fail[v] = 0
@@ -89,7 +99,7 @@ func (ac *acMatcher) buildFail() {
 
 // step advances the automaton one byte from state s, following failure
 // links as needed, and returns the new state.
-func (ac *acMatcher) step(s int, b byte) int {
+func (ac *Matcher) step(s int, b byte) int {
 	for s != 0 {
 		if nxt, ok := ac.next[s][b]; ok {
 			return nxt
@@ -102,10 +112,10 @@ func (ac *acMatcher) step(s int, b byte) int {
 	return 0
 }
 
-// scanInto runs the automaton over text and records every literal id found
+// ScanInto runs the automaton over text and records every literal id found
 // into present. The caller supplies present so one set can accumulate hits
 // across several fields of the same event without reallocation.
-func (ac *acMatcher) scanInto(text string, present map[int]struct{}) {
+func (ac *Matcher) ScanInto(text string, present map[int]struct{}) {
 	if ac == nil || len(ac.next) <= 1 {
 		return // no patterns compiled
 	}
