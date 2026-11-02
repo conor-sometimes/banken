@@ -152,13 +152,15 @@ is, plus plain IOC lists for bulk feeds:
       ioc/*.txt                                            # bulk IOC lists (filenames, IPs, domains)
 
 banken evaluates the field modifiers `contains` / `startswith` / `endswith` / `re` / `cidr` /
-`all`, plain-value equality, `*`/`?` wildcards, keyword selections, and `and`/`or`/`not`/parens with
-`N of` / `all of`. A rule it cannot evaluate (`base64`/`base64offset`, the Windows transforms,
-Sigma correlation rules, null matches) is reported at load with the file and reason, never silently
-dropped. Optional rules ship in the binary but off, with an **observe** mode that records without
-paging so you can measure a rule's noise first. IOC lists match filename/path, IP and domain
-indicators today (hash indicators are planned). Full detail:
-[docs/writing-rules.md](docs/writing-rules.md).
+`all` / `base64` / `base64offset` / `exists`, plain-value equality, `field: null` absence tests,
+`*`/`?` wildcards, keyword selections, and `and`/`or`/`not`/parens with `N of` / `all of`. A rule
+it cannot evaluate (the Windows transforms such as `utf16le`/`windash`, `fieldref`, Sigma
+correlation rules) is reported at load with the file and reason, never silently dropped. Optional
+rules ship in the binary but off, with an **observe** mode that records without paging so you can
+measure a rule's noise first. IOC lists match filename/path, IP and domain indicators (a hash or URL
+matches as a substring); the baseline ships no lists of its own, they come from disk or from a
+threat-intel feed (STIX 2.1 / MISP files, TAXII 2.1 collections, `intel:` in the config). Full
+detail: [docs/writing-rules.md](docs/writing-rules.md).
 
 ## Standards, and how they are checked
 
@@ -180,8 +182,8 @@ The [live distro matrix](tests/distros/README.md) (`nix run .#distro-matrix`) bo
 own cloud image under KVM, installs banken as the docs say, runs benign malware look-alikes against
 that distro's own kernel and auditd, and scores 15 objectives per distro - plus the mimi eBPF
 objectives (M1-M5) and Sysmon-for-Linux objectives (S1-S5). All green as of 2026-10-31/11-01.
-Planned, not yet implemented: YARA, STIX/TAXII threat-intel feeds, hash/network IOCs, SBOM + SLSA
-provenance.
+Planned, not yet implemented: YARA, a network source (Zeek/Suricata) for network IOCs, a NixOS
+option for the threat-intel feeds (config-file only today), SBOM + SLSA provenance.
 
 ## Security model
 
@@ -242,9 +244,8 @@ lists, journal/jsonl/webhook/OTLP alerts in native/OCSF/ECS shapes, and the one-
 Roadmap, roughly in order:
 
 - **In progress:** end-to-end Sysmon-for-Linux validation against Microsoft's real binary.
-- **Next:** verdict-level Sigma conformance against pySigma; `base64`/null-match modifiers.
 - **Sources:** the journald and syslog/auth parsers (stubs today); a network source (Zeek/Suricata).
-- **Detection:** hash and network IOCs; STIX/TAXII threat-intel feeds.
+- **Detection:** network IOCs; a NixOS option for the STIX/MISP/TAXII feeds (config-file only today).
 - **Response:** actions (kill a process, revoke a key, isolate) through the existing dispatch point.
 - **Ops:** a prebuilt binary and native packages; a baseline tuned over a week of real activity.
 

@@ -344,7 +344,9 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 		if fm.field == "" {
 			return fieldMatch{}, errors.New("null needs a field name (a bare `null` keyword is meaningless)")
 		}
-		return fieldMatch{field: fm.field, op: opExists, existsWant: false, values: []string{"\x00exists"}}, nil
+		// No values: a presence test compares nothing (match, PatternBytes and
+		// the prefilter all branch on opExists before looking at values).
+		return fieldMatch{field: fm.field, op: opExists, existsWant: false}, nil
 	}
 
 	values, err := yamlValues(valNode)
@@ -368,7 +370,7 @@ func compileField(key string, valNode *yaml.Node) (fieldMatch, error) {
 		if perr != nil {
 			return fieldMatch{}, fmt.Errorf("field %q: %w", fm.field, perr)
 		}
-		return fieldMatch{field: fm.field, op: opExists, existsWant: want, values: []string{"\x00exists"}}, nil
+		return fieldMatch{field: fm.field, op: opExists, existsWant: want}, nil
 	}
 
 	// base64 value transforms (|base64, |base64offset) rewrite the values to

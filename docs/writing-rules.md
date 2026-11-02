@@ -55,9 +55,11 @@ case-insensitive (Sigma's default); a regexp honours its own casing.
 **Wildcards.** In an *unmodified* value, `*` matches any run of characters and `?` matches exactly
 one, matched against the whole field - so `CommandLine: '*whoami*'` is contains, `'sudo *'` is
 startswith, `'*/python3'` is endswith, and `'f?o'` matches `fXo`. Escape a literal with a backslash
-(`\*`, `\?`, `\\`). A `Field: null` is rejected at load (it would never match) rather than silently
-becoming a dead rule. (`logsource` routing and Sigma's null = "field absent" are not yet
-implemented - see the roadmap.)
+(`\*`, `\?`, `\\`). A `Field: null` is Sigma's field-absence test (the same as
+`Field|exists: false`); a null anywhere else (inside a value list) is rejected at load rather than
+silently becoming a dead rule. A rule's `logsource` is routed through the shipped pipeline
+(`internal/sigma/pipeline.yml`, [design/sigma-pipelines.md](design/sigma-pipelines.md)), which
+restricts it to the sensor sources that logsource maps to.
 
 **Selections and conditions.** A selection is a mapping of `field: matcher` (AND across its fields),
 or a list of such mappings (OR across them). The `condition` combines selection names with
