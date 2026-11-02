@@ -23,20 +23,65 @@ user - if it does something a rule flags, banken alerts. (The
 [agent containment](https://github.com/conor-sometimes/nixos-agent-containment) is one consumer: it
 adds its own tighter agent-specific rules on top.)
 
+## What it supports
+
+A map of what is real today. Each line is verified against the code; the sections further down give
+the detail and how each claim is checked. In-progress items are marked as such, not as done.
+
+**Sources** (a parser per source, selected with `-source type:path`):
+
+| Source | What | Status |
+| --- | --- | --- |
+| **auditd** | raw Linux audit log; the multi-line SYSCALL/EXECVE/PATH/CWD/PROCTITLE records stitched into one event | implemented, live on 8 distros |
+| **Laurel** | auditd rendered to JSON ([Laurel](https://github.com/threathunters-io/laurel)), one event per line | implemented |
+| **mimi** | [mimi](https://github.com/conor-sometimes/mimi), banken's own eBPF sensor, as a live OCSF exec stream followed continuously | implemented, exercised across the live distro matrix (Test B) |
+| **Sysmon for Linux** | Microsoft `sysmonforlinux` XML events; the field names are Windows Sysmon's, so Windows Sigma rules apply unchanged | parser + NixOS module wiring; live validation with Microsoft's binary in progress |
+| **generic JSONL** | one pre-normalised event per line, the universal adapter for any external collector | implemented |
+| journald, syslog / auth | systemd journal, RFC 3164/5424 auth logs | stub (interface placeholder, emits nothing yet) |
+
+**Outputs** (pluggable sinks, any combination):
+
+| Sink | Shapes |
+| --- | --- |
+| journal | high/critical to the system journal, plus a one-line login summary |
+| jsonl (one file per day) | banken native, OCSF 1.3.0, or ECS 8.11.0 |
+| webhook | generic, Slack, Discord, ntfy, or OCSF |
+| OTLP/HTTP | OpenTelemetry log records POSTed to a collector |
+
+**Detection:**
+
+- The SigmaHQ Linux rule set, pinned at release `r2026-07-01` (all 210 rules load and evaluate),
+  plus banken's own rules organised by ATT&CK tactic and account-scoped agent rules in `rules/agent/`.
+- IOC lists (`ioc/*.txt`): filename, process and command-line IOCs today (hash and network IOCs
+  follow their sources).
+- Optional rules shipped-but-off, with an observe mode that records without paging.
+- ATT&CK coverage is **measured** by a live Atomic Red Team range, not a self-reported number.
+
+**Platform:** Linux hosts with systemd only (the security model is the systemd sandbox). Installed
+via the NixOS module (`services.banken`) or generic systemd ([docs/deployment.md](docs/deployment.md)),
+and tested live on 8 distros plus NixOS: Rocky Linux 9, AlmaLinux 10, Fedora 44, Amazon Linux 2023,
+Debian 13, Ubuntu 24.04, openSUSE Leap 16, Arch.
+
+**Standards done and checked in CI:** SigmaHQ conformance against pySigma, OCSF 1.3.0 Detection
+Findings (validated by the OCSF project's own validator), ECS 8.11.0, OTLP export, and ATT&CK
+Navigator layer export. Aspirational ones (YARA, STIX/TAXII, SBOM/SLSA) are listed as planned, not
+supported.
+
 ## How it works
 
 Logs in, alerts out - one pass, no state beyond a cursor:
 
 ```mermaid
 flowchart TD
-    SRC["log sources<br/>auditd · Laurel · stdin"] --> P["parser<br/>(per source type)"]
+    SRC["log sources<br/>auditd · Laurel · mimi (eBPF) · Sysmon · generic JSONL"] --> P["parser<br/>(per source type)"]
     P --> EV["normalised Event<br/>Image · CommandLine · User · PID · PPID · ..."]
     RUL["rules + indicators<br/>Sigma .yml · ioc/*.txt (embedded + on disk)"] --> ENG
     EV --> ENG["engine<br/>Aho-Corasick prefilter → Sigma match + IOC lookup"]
     ENG --> AL["Alert"]
     AL --> S1["journal sink<br/>high/critical → the system journal"]
-    AL --> S2["jsonl sink<br/>OCSF 1.3.0 findings · one file per day"]
+    AL --> S2["jsonl sink<br/>native · OCSF 1.3.0 · ECS 8.11.0 · one file per day"]
     AL --> S3["webhook sink<br/>Slack · Discord · ntfy · OCSF (URL from a file)"]
+    AL --> S4["OTLP/HTTP sink<br/>OpenTelemetry log records → a collector"]
 ```
 
 The prefilter can only over-admit, never miss (a fuzz target proves it agrees with checking every
@@ -80,8 +125,10 @@ checks banken's output; "measured" means a public test suite is run against it.
 | --- | --- | --- |
 | [Sigma](https://sigmahq.io) | Rule format: banken compiles Sigma rules natively, its own and SigmaHQ's | Loads all 210 of SigmaHQ's Linux rules at release `r2026-07-01` (`tools/sigmacov`); agrees with pySigma, the reference implementation, on 182 of 182 evaluations (`conformance/`) |
 | [OCSF](https://schema.ocsf.io) 1.3.0 | Alerts as Detection Findings (class 2004), `host` and `osint` profiles | **Validated**: every committed finding passes the OCSF project's own validator (ocsf-toolkit) against the compiled 1.3.0 schema, in CI (`just ocsf-validate`) |
-| [MITRE ATT&CK](https://attack.mitre.org) | Every rule tagged with its tactic and technique; mapped into each finding's `attacks` | Tag mapping unit-tested; the ATT&CK range below scores detection per technique |
-| [Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) | The live ATT&CK range: every Linux atomic of a pinned commit, run for real in a throwaway VM | **Measured**: 23 of 115 techniques detected on a rule about the technique, 2026-10-31 (`tests/attackrange.nix`, [scoring](attackrange/README.md)) |
+| [ECS](https://www.elastic.co/guide/en/ecs/current/index.html) 8.11.0 | Alerts as Elastic Common Schema documents (`-jsonl-format ecs`), a second output mapping for Elastic shops | Encoder unit-tested (`internal/alert/ecs_test.go`) |
+| [MITRE ATT&CK](https://attack.mitre.org) | Every rule tagged with its tactic and technique; mapped into each finding's `attacks`, and exported as an ATT&CK Navigator layer | Tag mapping unit-tested; Navigator layer export (`tools/attack-layer`); the ATT&CK range below scores detection per technique |
+| [OTLP](https://opentelemetry.io/docs/specs/otlp/) / OpenTelemetry | Export findings as OTLP/HTTP log records to a collector | Exporter unit-tested (`internal/alert/otlp_test.go`) |
+| [Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) | The live ATT&CK range: every Linux atomic of a pinned commit, run for real in a throwaway VM | **Measured**: 24 of 115 techniques detected on merit (a rule about the technique fired), 2026-11-01 (`tests/attackrange.nix`, [scoring](attackrange/README.md)) |
 | Linux audit | Reads auditd's raw log and [Laurel](https://github.com/threathunters-io/laurel)'s JSON | Parser goldens and fuzzing; live on nine platforms' own auditd ([Supported platforms](#supported-platforms)) |
 | systemd | Hardened unit and timer; log levels in the sd-daemon(3) form, so the journal files alerts by priority | `systemd-analyze security` on every distro in the matrix: exposure 2.1, "OK" |
 
@@ -92,24 +139,13 @@ broken claim fails the run (on NixOS: `nix develop .#conformance -c just conform
 Planned, not yet implemented: YARA, STIX/TAXII threat-intel feeds, an SBOM and SLSA provenance
 for releases, and the OpenSSF Scorecard.
 
-## How it works
-
-    logs (auditd / journald / Laurel JSON / auth)  ->  banken [ parse -> normalise -> match ]  ->  alerts
-
-One self-contained tool: banken **parses the logs itself**. A parser per source - raw auditd (the
-multi-line execve/path/cwd records joined into one event), Laurel's JSON, journald, syslog/auth -
-normalises to one common event that the rules match. A new log type is a new parser behind the same
-interface; nothing else changes.
-
-A systemd timer runs `banken` every interval; each run reads the events since the last cursor,
-matches, and emits hits. One-shot by design - systemd owns the schedule, no daemon to babysit
-(`banken --watch` for a self-timing daemon is a later add). Laurel stays supported as an input, but
-banken no longer *needs* it: with the auditd parser the end state is `auditd + banken + a timer`.
-
 ## Log sources
 
-A parser per source, all behind one interface, each normalising to the common event the rules
-match. A new source is a new parser and nothing else changes.
+banken **parses the logs itself**: one parser per source, all behind one interface, each normalising
+to the common event the rules match. A new source is a new parser and nothing else changes. A systemd
+timer runs `banken` every interval over the auditd floor (one-shot, no daemon to babysit); a live
+sensor source (mimi, Sysmon) switches it to a continuous `--watch`/`--follow` stream instead. banken
+no longer *needs* Laurel: with the raw auditd parser the floor is `auditd + banken + a timer`.
 
 | Source | What | Status |
 | --- | --- | --- |
@@ -118,15 +154,17 @@ match. A new source is a new parser and nothing else changes.
 | journald | the systemd journal (`_COMM`/`_EXE`/`_CMDLINE`/`_UID`) | stubbed (interface placeholder) |
 | syslog / auth | RFC 3164/5424 - `/var/log/auth.log`, `secure` (sshd / sudo / PAM logins) | stubbed (interface placeholder) |
 | **generic JSONL** | one pre-normalised event per line - the universal adapter any external collector emits to (`-source generic:PATH`) | **implemented** |
-| **mimi** | the [mimi](https://github.com/conor-sometimes/mimi) eBPF sensor's OCSF exec stream, followed continuously as a live push feed (`-source mimi:PATH` with `--follow`) | **implemented** |
-| **Sysmon for Linux** | Microsoft's sysmonforlinux XML events over syslog (ProcessCreate and friends); the EventData field names are Windows Sysmon's, so Windows Sigma rules apply unchanged (`-source sysmon:PATH`) | **implemented** |
+| **mimi** | the [mimi](https://github.com/conor-sometimes/mimi) eBPF sensor's OCSF exec stream, followed continuously as a live push feed (`-source mimi:PATH` with `--follow`) | **implemented**; exercised across the live distro matrix (Test B) |
+| **Sysmon for Linux** | Microsoft's sysmonforlinux XML events (ProcessCreate and friends) read from a syslog file or a journal bridge; the EventData field names are Windows Sysmon's, so Windows Sigma rules apply unchanged (`-source sysmon:PATH`) | **parser + NixOS module wiring** (goldens + fuzz + XXE-safe); live validation with Microsoft's binary in progress |
 | network | Zeek / Suricata, for network IOCs | planned |
 
-Both auditd and Laurel are wired up and tested this pass (table + golden + fuzz, see Testing); the
-journald and syslog parsers exist as stubs behind the same interface (they drain their input and
-emit nothing) so slotting the real logic in later touches nothing else. **IOC coverage follows the
-sources:** file, process and command-line IOCs work against the auditd sources today; hash and
-network IOCs arrive with the eBPF / network sources.
+auditd and Laurel are wired up and tested (table + golden + fuzz, see Testing); the generic and mimi
+parsers likewise. The Sysmon parser is written, fuzzed and wired into the NixOS module, but the
+end-to-end run against Microsoft's real `sysmonforlinux` binary is still being built, so treat Sysmon
+as validated-in-progress rather than proven. The journald and syslog parsers exist only as stubs
+behind the same interface (they drain their input and emit nothing) so slotting the real logic in
+later touches nothing else. **IOC coverage follows the sources:** file, process and command-line IOCs
+work against the auditd sources today; hash and network IOCs arrive with the eBPF / network sources.
 
 ## Rules
 
@@ -177,17 +215,26 @@ the reference engine (pySigma) is the next bar - see the roadmap.
 Pluggable sinks, any combination:
 
 - **journal** - high/critical to the system journal (syslog), a one-line login summary for admins.
-- **jsonl** - one file per day of alerts, kept `retentionDays`, so retention is a file delete.
-- **webhook** - POST the alert JSON to a URL (generic, or Slack/Discord/ntfy shaping). The URL is a
-  secret: it comes from `alerts.webhook.urlFile` (sops/agenix or a systemd credential), never inline
-  in the Nix store. The service runs as root, so the webhook host just needs to be reachable.
+- **jsonl** - one file per day of alerts, kept `retentionDays`, so retention is a file delete. The
+  encoding is chosen per deployment (`alerts.jsonl.format` / `-jsonl-format`): banken's own native
+  JSON (default), OCSF 1.3.0, or ECS 8.11.0.
+- **webhook** - POST the alert to a URL, shaped for the receiver (`generic`, `slack`, `discord`,
+  `ntfy`, or `ocsf`). The URL is a secret: it comes from `alerts.webhook.urlFile` (sops/agenix or a
+  systemd credential), never inline in the Nix store. The service runs as root, so the webhook host
+  just needs to be reachable.
+- **OTLP/HTTP** - export each finding as an OpenTelemetry log record to a collector's logs endpoint
+  (`alerts.otlp.endpoint` / `-otlp-endpoint http://collector:4318/v1/logs`), so any OTel-aware
+  backend (Grafana, Datadog, Splunk, Elastic) ingests it with no glue. OCSF is the schema; OTLP is
+  the pipe. Hand-rolled JSON, no OpenTelemetry SDK dependency.
 
-**OCSF.** Both the jsonl and webhook sinks can emit alerts as [OCSF](https://schema.ocsf.io) 1.3.0
+**OCSF and ECS.** The jsonl and webhook sinks can emit alerts as [OCSF](https://schema.ocsf.io) 1.3.0
 Detection Findings instead of banken's own JSON (`alerts.jsonl.format: ocsf`, `-jsonl-format ocsf`;
 `alerts.webhook.style: ocsf`), so Security Lake, Splunk, Datadog or any OCSF-aware SIEM ingests them
-with no per-product mapping, ATT&CK tactics and techniques included. Every baseline rule has a
-committed finding golden, and CI validates them against the official schema with the OCSF project's
-own validator (`just ocsf-validate`). Design: [docs/design/ocsf-output.md](docs/design/ocsf-output.md).
+with no per-product mapping, ATT&CK tactics and techniques included. The jsonl sink can also emit
+[ECS](https://www.elastic.co/guide/en/ecs/current/index.html) 8.11.0 documents (`-jsonl-format ecs`)
+for Elastic shops. Every baseline rule has a committed OCSF finding golden, and CI validates them
+against the official schema with the OCSF project's own validator (`just ocsf-validate`). Design:
+[docs/design/ocsf-output.md](docs/design/ocsf-output.md).
 
 Matched alerts flow through one dispatch point, so **response actions** (kill a process, revoke a
 key, isolate) slot in later without a redesign. For now: alert only.
@@ -382,9 +429,12 @@ After cloning, run `just install-hooks` once: it points `core.hooksPath` at the 
 
 ## Status
 
-Early. v1 is Laurel-first input, the Sigma subset above, journal/jsonl/webhook alerts, one-shot
-timer. Roadmap: `--watch` daemon mode, direct auditd ingestion (drop Laurel), journald and other
-log sources, response actions, a tuned baseline over a week of real activity.
+Early, but past the floor. Working today: raw auditd and Laurel input, the generic JSONL adapter,
+the mimi eBPF sensor as a live stream, the Sigma subset above with SigmaHQ's Linux set, IOC lists,
+journal/jsonl/webhook/OTLP alerts in native/OCSF/ECS shapes, the one-shot timer and the `--watch`
+/`--follow` daemon. In progress: end-to-end Sysmon-for-Linux validation against Microsoft's real
+binary. Roadmap: the journald and syslog/auth parsers (stubs today), network sources, hash/network
+IOCs, response actions, and a baseline tuned over a week of real activity.
 
 ## Licence
 
