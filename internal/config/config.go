@@ -127,7 +127,8 @@ type IntelFeed struct {
 
 // Source is one log input.
 type Source struct {
-	// Type selects the parser: laurel | auditd | journald | syslog.
+	// Type selects the parser (parser.Registry): auditd | laurel | mimi |
+	// sysmon | generic, plus the journald | syslog stubs.
 	Type string `yaml:"type"`
 	// Path is the file to read.
 	Path string `yaml:"path"`

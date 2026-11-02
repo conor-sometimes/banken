@@ -1,6 +1,7 @@
 package sigma
 
 import (
+	"sort"
 	"strconv"
 
 	"github.com/conor-sometimes/banken/internal/event"
@@ -159,15 +160,21 @@ func (m *Matcher) Match(ev event.Event) []*Rule {
 		return nil
 	}
 
+	// Visit only the candidates, in rule order (so alert order is stable):
+	// sorting the handful of candidate indices keeps the per-event work
+	// proportional to the candidate set, not to the whole rule tree.
+	order := make([]int, 0, len(cand))
+	for ri := range cand {
+		order = append(order, ri)
+	}
+	sort.Ints(order)
+
 	var hits []*Rule
-	for ri, r := range m.rules { // rule order, so alert order is stable
-		if _, ok := cand[ri]; !ok {
-			continue
-		}
+	for _, ri := range order {
 		if !m.pre[ri].upperBound(present) {
 			continue // precise gate catches "N of" / |all that the index over-admits
 		}
-		if r.Match(ev) {
+		if r := m.rules[ri]; r.Match(ev) {
 			hits = append(hits, r)
 		}
 	}

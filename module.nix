@@ -305,8 +305,9 @@ in
         default = "/var/log/mimi/events.jsonl";
         description = ''
           Where mimi writes its OCSF event stream and banken tails it (a `mimi` source). A durable
-          file, so a banken restart never loses events; banken's cursor resumes. banken polls it on
-          the timer today; the continuous low-latency push path is a planned refinement.
+          file, so a banken restart never loses events; banken's cursor resumes. With the sensor on,
+          banken runs as a daemon (--watch) and follows this file continuously (inotify), so an
+          event reaches the rules as it lands rather than on the next timer tick.
         '';
       };
     };
