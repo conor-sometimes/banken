@@ -49,7 +49,8 @@ let
   cfgOff = evalBanken { response = { enable = true; enforce = false; policy = pol; }; };
   cfgOn = evalBanken { response = { enable = true; enforce = true; policy = pol; }; };
 
-  # byte-identical daemon unit regardless of enforce (the whole point of the split).
+  # byte-identical daemon unit regardless of enforce (the whole point of the
+  # split). Reading serviceConfig forces only that unit, not the assertions.
   daemonIdentical =
     (builtins.toJSON cfgOff.systemd.services.banken.serviceConfig)
     == (builtins.toJSON cfgOn.systemd.services.banken.serviceConfig);
@@ -57,20 +58,26 @@ let
   noHelperDefault = !(cfgOff.systemd.services ? banken-respond);
   helperWhenArmed = cfgOn.systemd.services ? banken-respond;
 
-  # a named assertion fires (assertion == false) for a misconfig. Found by a
-  # unique substring of its message so a sibling module's assertion is not read.
-  assertionValue = cfg: needle:
-    let m = lib.filter (a: lib.hasInfix needle a.message) cfg.assertions;
-    in if m == [ ] then null else (builtins.head m).assertion;
-  enforceNeedsEnable = evalBanken { response = { enable = false; enforce = true; }; };
-  badAllowPaths = evalBanken { response = { enable = true; policy = pol; quarantine.allowPaths = [ "/usr/bad" ]; }; };
-  enforceAssertFires = assertionValue enforceNeedsEnable "response.enforce needs response.enable" == false;
-  allowPathsAssertFires = assertionValue badAllowPaths "quarantine.allowPaths has entries" == false;
+  # Does a config eval to a buildable toplevel? NixOS's assertion plumbing throws
+  # (catchable by tryEval) when any assertion is false, reading the message of
+  # ONLY the failing assertions -- so a misconfig that trips one of this module's
+  # assertions makes this false, while a passing sibling assertion's message is
+  # never forced (the reason we check toplevel, not config.assertions directly).
+  toplevelSucceeds = extra:
+    (builtins.tryEval (builtins.seq (evalBanken extra).system.build.toplevel.drvPath true)).success;
+  # positive control: a valid armed config DOES build (so a "fires" below is our
+  # assertion, not some unrelated failure in this minimal eval).
+  goodBuilds = toplevelSucceeds { response = { enable = true; enforce = true; policy = pol; }; };
+  # response.enforce without response.enable, and an allowPaths entry under a
+  # never-touch prefix, each trip a module assertion.
+  enforceAssertFires = !(toplevelSucceeds { response = { enable = false; enforce = true; }; });
+  allowPathsAssertFires = !(toplevelSucceeds { response = { enable = true; policy = pol; quarantine.allowPaths = [ "/usr/bad" ]; }; });
 
   moduleEvalOK =
     assert daemonIdentical;
     assert noHelperDefault;
     assert helperWhenArmed;
+    assert goodBuilds;
     assert enforceAssertFires;
     assert allowPathsAssertFires;
     "daemon-identical, default-has-no-helper, armed-has-helper, assertions-fire";
