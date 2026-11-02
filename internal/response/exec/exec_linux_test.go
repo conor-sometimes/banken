@@ -230,8 +230,9 @@ func TestDenylistRefusesInit(t *testing.T) {
 // freezer, Freeze stops the self-owned sleep and Thaw resumes it.
 func TestFreezeThawSigstop(t *testing.T) {
 	_, pid, bin := spawnSleep(t)
-	// Point cgroup root at a non-existent place so the executor falls back.
-	cfg := Config{Enforce: true, AllowRoot: true, CgroupRoot: filepath.Join(t.TempDir(), "nope", "banken.quarantine")}
+	// Point cgroup root at a non-existent place so the executor falls back, and
+	// give it a writable freeze store (manifest-first applies to sigstop too).
+	cfg := Config{Enforce: true, AllowRoot: true, CgroupRoot: filepath.Join(t.TempDir(), "nope", "banken.quarantine"), FreezeDir: filepath.Join(t.TempDir(), "freeze")}
 	e, _ := New(cfg)
 	ctx := context.Background()
 	p := response.ProcessRef{PID: pid, Image: bin, EventTime: time.Now()}

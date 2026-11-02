@@ -24,6 +24,7 @@ type fakeExec struct {
 	enforcing  bool
 	calls      []string
 	applied    map[string]exec.Handle // order id -> handle, consulted by Applied
+	recover    []exec.RecoveryResult  // returned by Recover (the startup repair pass)
 	freezeErr  error
 	killErr    error
 	collectErr error
@@ -76,6 +77,10 @@ func (f *fakeExec) Restore(_ context.Context, _ exec.Handle) error { return nil 
 func (f *fakeExec) Applied(_ context.Context, orderID string) (exec.Handle, bool, error) {
 	h, ok := f.applied[orderID]
 	return h, ok, nil
+}
+
+func (f *fakeExec) Recover(_ context.Context) ([]exec.RecoveryResult, error) {
+	return f.recover, nil
 }
 
 // ---- policies and alerts ----
@@ -433,6 +438,37 @@ func TestDrainCrashAfterActReplay(t *testing.T) {
 	}
 	if !e.spoolEmpty(t) {
 		t.Fatalf("replayed order not unlinked")
+	}
+}
+
+// Recovery pass: a store-backed executor's startup repairs are each recorded as
+// a `recovered` ledger line before any order is processed. This proves the
+// drain runs the pass (build item 4) and ledgers it; the repair logic itself is
+// unit-tested in the exec package.
+func TestDrainRecoveryPass(t *testing.T) {
+	e := setup(t, freezePolicy(t), true)
+	e.fake.enforcing = true
+	e.fake.recover = []exec.RecoveryResult{
+		{ID: "h1", Order: "ord-a", Kind: response.ActionFreeze, Outcome: "rolled-back"},
+		{ID: "cg2", Outcome: "cgroup-removed"},
+	}
+	if err := e.run(t); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	acts := e.actions(t)
+	if len(acts) != 2 {
+		t.Fatalf("expected two recovered lines, got %v", acts)
+	}
+	for _, a := range acts {
+		if a["phase"] != "recovered" {
+			t.Errorf("phase = %v, want recovered", a["phase"])
+		}
+	}
+	if acts[0]["note"] != "rolled-back" || acts[1]["note"] != "cgroup-removed" {
+		t.Errorf("recovered notes = %v, %v; want rolled-back, cgroup-removed", acts[0]["note"], acts[1]["note"])
+	}
+	if acts[0]["decisionId"] != "ord-a" {
+		t.Errorf("recovered decisionId = %v, want ord-a", acts[0]["decisionId"])
 	}
 }
 

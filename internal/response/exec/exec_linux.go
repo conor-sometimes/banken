@@ -235,42 +235,133 @@ func (e *linuxExecutor) Verify(_ context.Context, p response.ProcessRef) (Live, 
 
 // ---- freeze / thaw ---------------------------------------------------------
 
-// freezeUndo is serialised into Handle.Undo so Thaw can reverse exactly what
-// Freeze did.
-type freezeUndo struct {
-	Method string         `json:"method"`           // cgroup | sigstop
-	PIDs   []int          `json:"pids"`             // the stopped/migrated set
-	Orig   map[int]string `json:"orig,omitempty"`   // pid -> original cgroup path (cgroup method)
-	Cgroup string         `json:"cgroup,omitempty"` // the banken.quarantine child dir
+// Freeze store state values and the thaw tombstone file name. statePending
+// (store.go) is the written-before-the-act state; stateFrozen is the finalised
+// one.
+const (
+	stateFrozen = "frozen"
+	thawedName  = "thawed.json"
+)
+
+// freezeManifest is the freeze store entry (docs section 2.7). It is written
+// state=pending BEFORE any pid is moved or stopped -- recording each pid's
+// ORIGINAL cgroup, which Thaw moves it back to -- and finalised to state=frozen
+// after the act. Order is the idempotency key the drain's already-applied check
+// reads; Thaw works from this manifest alone, so the ledger is a record, not a
+// database the undo depends on.
+type freezeManifest struct {
+	ID      string         `json:"id"`
+	Version int            `json:"version"`
+	Order   string         `json:"order,omitempty"`
+	State   string         `json:"state"`  // pending | frozen
+	Method  string         `json:"method"` // cgroup | sigstop
+	Target  freezeTarget   `json:"target"`
+	Scope   response.Scope `json:"scope,omitempty"`
+	PIDs    []int          `json:"pids"`
+	Orig    map[int]string `json:"orig,omitempty"`   // pid -> original cgroup path (cgroup method)
+	Cgroup  string         `json:"cgroup,omitempty"` // the CgroupRoot child dir (absolute)
+	Time    time.Time      `json:"time"`
+	BootID  string         `json:"bootId,omitempty"` // a cgroup does not survive a reboot
 }
 
-func (e *linuxExecutor) Freeze(_ context.Context, p response.ProcessRef, scope response.Scope) (Handle, error) {
+type freezeTarget struct {
+	PID       int       `json:"pid"`
+	Exe       string    `json:"exe,omitempty"`
+	StartTime time.Time `json:"startTime,omitzero"`
+}
+
+// freezeThawed is the thaw tombstone: its presence makes a second thaw a no-op.
+type freezeThawed struct {
+	Time        time.Time      `json:"time"`
+	OperatorUID int            `json:"operatorUid"`
+	Outcome     string         `json:"outcome,omitempty"` // thawed | reboot | rolled-back
+	PerPID      map[int]string `json:"perPid,omitempty"`  // pid -> moved-home|moved-fallback|moved|cont|gone
+}
+
+func (e *linuxExecutor) Freeze(ctx context.Context, p response.ProcessRef, scope response.Scope) (Handle, error) {
 	pidfd, live, err := e.identify(p)
 	if err != nil {
 		return Handle{}, err
 	}
 	defer func() { _ = syscall.Close(pidfd) }()
 
-	id := newHandleID()
 	pids := e.targetSet(p.PID, scope)
 
 	if !e.cfg.Enforce {
 		e.logf("response/exec: %s would freeze %s pid %d (%s), %d task(s)", e.gate(), scope, p.PID, live.Exe, len(pids))
-		return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, DryRun: true, Method: "dry-run"}, nil
+		return Handle{ID: newHandleID(), Kind: response.ActionFreeze, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, DryRun: true, Method: "dry-run"}, nil
 	}
 
-	// Real enforcement. Prefer the cgroup v2 freezer; fall back to SIGSTOP.
-	if cgDir, orig, ok := e.cgroupFreeze(id, pids); ok {
-		undo, _ := json.Marshal(freezeUndo{Method: "cgroup", PIDs: pids, Orig: orig, Cgroup: cgDir})
-		e.logf("response/exec: %s froze %d task(s) via cgroup %s", e.gate(), len(pids), cgDir)
-		return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "cgroup", Undo: string(undo)}, nil
+	// F7: idempotency. If the target is ALREADY inside a child of CgroupRoot, a
+	// previous Freeze put it there; return that existing handle and make no
+	// second cgroup. A second cgroup would record the FIRST quarantine cgroup as
+	// the pids' Orig, so thawing handle 1 then handle 2 would move them into a
+	// directory handle 1 had removed -- the homeless-pid bug F7 names.
+	if existing, ok := e.existingFreezeID(p.PID); ok {
+		e.logf("response/exec: %s freeze is idempotent: pid %d already frozen under handle %s", e.gate(), p.PID, existing)
+		return e.handleFromFreezeStore(existing, live), nil
 	}
-	// SIGSTOP fallback (weaker: a child forked between the walk and the stop
-	// can escape, and a watchdog SIGCONT can resume it -- recorded as such).
-	stopped := e.sigAll(pids, syscall.SIGSTOP)
-	undo, _ := json.Marshal(freezeUndo{Method: "sigstop", PIDs: stopped})
-	e.logf("response/exec: %s froze %d task(s) via SIGSTOP (no cgroup v2 freezer)", e.gate(), len(stopped))
-	return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "sigstop", Undo: string(undo)}, nil
+
+	id := newHandleID()
+	entryDir := filepath.Join(e.cfg.FreezeDir, id)
+	man := freezeManifest{
+		ID: id, Version: manifestVersion, Order: orderIDFromContext(ctx),
+		State: statePending, Target: freezeTarget{PID: p.PID, Exe: live.Exe, StartTime: live.StartTime},
+		Scope: scope, PIDs: pids, Time: time.Now().UTC(), BootID: currentBootID(),
+	}
+
+	// Prefer the cgroup v2 freezer; fall back to SIGSTOP. In BOTH paths the
+	// manifest is written (state pending) BEFORE anything is stopped or moved,
+	// so an unwritable store refuses the freeze having touched no pid, and a
+	// crash mid-migrate leaves a recoverable pending entry.
+	if dir, ok := e.cgroupCreate(id); ok {
+		man.Method = "cgroup"
+		man.Cgroup = dir
+		// Record each pid's original cgroup WHILE it is still home: this is where
+		// Thaw moves it back to.
+		man.Orig = make(map[int]string, len(pids))
+		for _, pid := range pids {
+			if cg, cerr := readCgroup(pid); cerr == nil {
+				man.Orig[pid] = cg
+			}
+		}
+		if werr := storeWriteManifest(entryDir, man); werr != nil {
+			_ = os.Remove(dir) // the frozen-but-empty cgroup; no pid moved
+			return Handle{}, fmt.Errorf("freeze: manifest-first write failed, no pid moved: %w", werr)
+		}
+		// Act: migrate the pids into the frozen cgroup (frozen on arrival).
+		for _, pid := range pids {
+			_ = writeCgroupProcs(dir, pid)
+		}
+		e.finalizeFreeze(entryDir, &man)
+		e.logf("response/exec: %s froze %d task(s) via cgroup %s", e.gate(), len(pids), dir)
+		return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "cgroup", Undo: id}, nil
+	}
+
+	// SIGSTOP fallback (weaker: a child forked between the walk and the stop can
+	// escape, and a watchdog SIGCONT can resume it -- recorded as such).
+	man.Method = "sigstop"
+	if werr := storeWriteManifest(entryDir, man); werr != nil {
+		return Handle{}, fmt.Errorf("freeze: manifest-first write failed, no pid stopped: %w", werr)
+	}
+	man.PIDs = e.sigAll(pids, syscall.SIGSTOP)
+	e.finalizeFreeze(entryDir, &man)
+	e.logf("response/exec: %s froze %d task(s) via SIGSTOP (no cgroup v2 freezer)", e.gate(), len(man.PIDs))
+	return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "sigstop", Undo: id}, nil
+}
+
+// finalizeFreeze marks a freeze manifest committed (state frozen, 0400). A
+// finalise failure is logged, not fatal: the act already happened, and the
+// recovery pass finalises a still-pending manifest from the live cgroup.
+func (e *linuxExecutor) finalizeFreeze(entryDir string, man *freezeManifest) {
+	man.State = stateFrozen
+	if err := storeWriteManifest(entryDir, *man); err != nil {
+		e.logf("response/exec: WARNING freeze finalise write failed for %s: %v", man.ID, err)
+		return
+	}
+	if err := storeFinalize(entryDir); err != nil {
+		e.logf("response/exec: WARNING freeze finalise seal failed for %s: %v", man.ID, err)
+	}
 }
 
 func (e *linuxExecutor) Thaw(_ context.Context, h Handle) error {
@@ -278,31 +369,87 @@ func (e *linuxExecutor) Thaw(_ context.Context, h Handle) error {
 		e.logf("response/exec: %s would thaw %s", e.gate(), h.ID)
 		return nil
 	}
-	var u freezeUndo
-	if h.Undo != "" {
-		_ = json.Unmarshal([]byte(h.Undo), &u)
+	id := h.Undo
+	if id == "" {
+		id = h.ID
 	}
-	switch u.Method {
+	if id == "" {
+		return errors.New("thaw: handle carries no freeze store id")
+	}
+	entryDir := filepath.Join(e.cfg.FreezeDir, id)
+	var man freezeManifest
+	if err := storeReadManifest(entryDir, &man); err != nil {
+		if errors.Is(err, errNoManifest) {
+			return fmt.Errorf("thaw: no freeze store entry for %s (a dry-run handle, or not a freeze)", id)
+		}
+		return fmt.Errorf("thaw: %w", err)
+	}
+
+	// Idempotent by the tombstone: a second thaw is a no-op.
+	if storeHasTombstone(entryDir, thawedName) {
+		e.logf("response/exec: %s %s already thawed", e.gate(), id)
+		return nil
+	}
+
+	tomb := freezeThawed{Time: time.Now().UTC(), OperatorUID: operatorUID(), PerPID: map[int]string{}}
+
+	// A cgroup does not survive a reboot: a frozen handle from a previous boot
+	// has nothing to move, so write the tombstone and return.
+	if man.Method == "cgroup" && man.BootID != "" && man.BootID != currentBootID() {
+		tomb.Outcome = "reboot"
+		return storeTombstone(entryDir, thawedName, tomb)
+	}
+
+	switch man.Method {
 	case "cgroup":
-		// Move each pid back to its original cgroup first, so a thawed process
-		// never runs for an instant in the quarantine cgroup, then remove it.
-		for _, pid := range u.PIDs {
-			if orig := u.Orig[pid]; orig != "" {
-				_ = writeCgroupProcs(orig, pid)
+		e.thawCgroup(&man, &tomb)
+	case "sigstop":
+		for _, pid := range man.PIDs {
+			if sigPid(pid, syscall.SIGCONT) == nil {
+				tomb.PerPID[pid] = "cont"
+			} else {
+				tomb.PerPID[pid] = "gone"
 			}
 		}
-		if u.Cgroup != "" {
-			_ = os.WriteFile(filepath.Join(u.Cgroup, "cgroup.freeze"), []byte("0"), 0o200)
-			_ = os.Remove(u.Cgroup)
-		}
-		return nil
-	case "sigstop":
-		for _, pid := range u.PIDs {
-			_ = sigPid(pid, syscall.SIGCONT)
-		}
-		return nil
 	default:
-		return fmt.Errorf("thaw: unknown undo method %q", u.Method)
+		return fmt.Errorf("thaw: unknown method %q", man.Method)
+	}
+	tomb.Outcome = "thawed"
+	return storeTombstone(entryDir, thawedName, tomb)
+}
+
+// thawCgroup moves each manifest pid back to its pre-freeze cgroup and removes
+// the quarantine cgroup. It confirms a pid is in the quarantine cgroup BEFORE
+// moving it: a pid that already left (killed, or moved by root) is never
+// force-moved, because the pid may since have been reused by an innocent.
+func (e *linuxExecutor) thawCgroup(man *freezeManifest, tomb *freezeThawed) {
+	inCgroup := map[int]bool{}
+	if procs, err := readCgroupProcs(man.Cgroup); err == nil {
+		for _, pid := range procs {
+			inCgroup[pid] = true
+		}
+	}
+	for _, pid := range man.PIDs {
+		if !inCgroup[pid] {
+			tomb.PerPID[pid] = "moved" // left the cgroup already; do not chase it
+			continue
+		}
+		switch orig := man.Orig[pid]; {
+		case orig != "" && cgroupExists(orig):
+			_ = writeCgroupProcs(orig, pid)
+			tomb.PerPID[pid] = "moved-home"
+		default:
+			// Original cgroup gone: move to the parent of the quarantine root so
+			// the pid is at least out of the frozen cgroup (loud, recorded).
+			_ = writeCgroupProcs(filepath.Dir(e.cfg.CgroupRoot), pid)
+			tomb.PerPID[pid] = "moved-fallback"
+		}
+	}
+	if man.Cgroup != "" {
+		_ = os.WriteFile(filepath.Join(man.Cgroup, "cgroup.freeze"), []byte("0"), 0o200)
+		if e.waitPopulatedZero(man.Cgroup) {
+			_ = os.Remove(man.Cgroup)
+		}
 	}
 }
 
@@ -332,16 +479,33 @@ func (e *linuxExecutor) Kill(_ context.Context, p response.ProcessRef, scope res
 	}
 
 	// Tree kill: move into a frozen cgroup then cgroup.kill (atomic), falling
-	// back to per-pid pidfd SIGKILL over the frozen set.
-	if cgDir, _, ok := e.cgroupFreeze(id, pids); ok {
+	// back to per-pid pidfd SIGKILL over the frozen set. Kill keeps no store
+	// (it is not reversible), so there is no manifest here.
+	if cgDir, ok := e.cgroupCreate(id); ok {
+		for _, pid := range pids {
+			_ = writeCgroupProcs(cgDir, pid)
+		}
 		method := "cgroup-kill"
 		if err := os.WriteFile(filepath.Join(cgDir, "cgroup.kill"), []byte("1"), 0o200); err != nil {
 			method = "pidfd-tree"
 			e.sigAll(pids, syscall.SIGKILL)
 		}
-		_ = os.Remove(cgDir)
+		// F8: a SIGKILLed task leaves the cgroup within milliseconds, but not
+		// instantly; rmdir of a still-populated cgroup returns EBUSY and the dir
+		// leaks. Wait for cgroup.events to report the cgroup unpopulated (bounded)
+		// THEN rmdir -- never rmdir-and-ignore-the-error. A cgroup still populated
+		// at the bound is left for the drain's recovery pass, recorded on the
+		// handle, rather than racing a doomed rmdir.
+		note := "no undo"
+		if e.waitPopulatedZero(cgDir) {
+			if err := os.Remove(cgDir); err != nil {
+				note = "cgroupLeft: " + err.Error()
+			}
+		} else {
+			note = "cgroupLeft: still populated after " + populatedWaitBound.String()
+		}
 		e.logf("response/exec: %s killed %d task(s) via %s", e.gate(), len(pids), method)
-		return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: method, Note: "no undo"}, nil
+		return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: method, Note: note}, nil
 	}
 	e.sigAll(pids, syscall.SIGKILL)
 	e.logf("response/exec: %s killed %d task(s) via per-pid pidfd (no cgroup)", e.gate(), len(pids))
@@ -484,7 +648,24 @@ func (e *linuxExecutor) Restore(_ context.Context, h Handle) error {
 
 // ---- collect ---------------------------------------------------------------
 
-func (e *linuxExecutor) Collect(_ context.Context, p response.ProcessRef) (Handle, error) {
+// evidenceManifest is the evidence store entry, written manifest-first like the
+// freeze store: a pending manifest (carrying the idempotency order id) before
+// any /proc file is snapshotted, finalised to state=collected after.
+type evidenceManifest struct {
+	ID        string    `json:"id"`
+	Version   int       `json:"version"`
+	Order     string    `json:"order,omitempty"`
+	State     string    `json:"state"`
+	PID       int       `json:"pid"`
+	Exe       string    `json:"exe,omitempty"`
+	StartTime time.Time `json:"startTime,omitzero"`
+	SHA256    string    `json:"sha256,omitempty"`
+	Time      time.Time `json:"time"`
+}
+
+const stateCollected = "collected"
+
+func (e *linuxExecutor) Collect(ctx context.Context, p response.ProcessRef) (Handle, error) {
 	// Identify BEFORE snapshotting (§5.1): bind to the process the alert named
 	// -- same pidfd pin, start-time and exe check as kill/freeze -- so the
 	// evidence is of the right process, not of whoever holds the pid now. A
@@ -502,8 +683,15 @@ func (e *linuxExecutor) Collect(_ context.Context, p response.ProcessRef) (Handl
 		return Handle{ID: id, Kind: response.ActionCollect, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, DryRun: true, Method: "dry-run"}, nil
 	}
 	dir := filepath.Join(e.cfg.EvidenceDir, id)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return Handle{}, fmt.Errorf("collect mkdir: %w", err)
+	// Manifest first: the pending manifest (with the order id) is written before
+	// any /proc snapshot, so a crash mid-snapshot leaves a recoverable entry and
+	// a replayed collect order is matched by its id.
+	man := evidenceManifest{
+		ID: id, Version: manifestVersion, Order: orderIDFromContext(ctx),
+		State: statePending, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Time: time.Now().UTC(),
+	}
+	if err := storeWriteManifest(dir, man); err != nil {
+		return Handle{}, fmt.Errorf("collect: manifest-first write failed: %w", err)
 	}
 	for _, name := range []string{"cmdline", "environ", "status", "maps", "cgroup"} {
 		src := fmt.Sprintf("/proc/%d/%s", p.PID, name)
@@ -514,50 +702,296 @@ func (e *linuxExecutor) Collect(_ context.Context, p response.ProcessRef) (Handl
 		// name is from the fixed literal list above, not external input.
 		_ = os.WriteFile(filepath.Join(dir, name), data, 0o600) //#nosec G703,G304 -- fixed evidence filename under our own dir
 	}
-	exe := live.Exe
-	sum := ""
-	if exe != "" {
-		if h, herr := sha256OfPath(exe); herr == nil {
-			sum = h
+	if live.Exe != "" {
+		if sum, herr := sha256OfPath(live.Exe); herr == nil {
+			man.SHA256 = sum
 		}
 	}
-	man := map[string]any{"id": id, "pid": p.PID, "exe": exe, "startTime": live.StartTime, "sha256": sum, "time": time.Now().UTC()}
-	buf, _ := json.MarshalIndent(man, "", "  ")
-	_ = os.WriteFile(filepath.Join(dir, "manifest.json"), buf, 0o600)
+	man.State = stateCollected
+	if err := storeWriteManifest(dir, man); err == nil {
+		_ = storeFinalize(dir)
+	}
 	e.logf("response/exec: %s collected evidence for pid %d into %s", e.gate(), p.PID, dir)
-	return Handle{ID: id, Kind: response.ActionCollect, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "snapshot", Undo: dir}, nil
+	return Handle{ID: id, Kind: response.ActionCollect, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "snapshot", Undo: id}, nil
+}
+
+// ---- store idempotency + recovery ------------------------------------------
+
+// Applied reports whether a store this executor owns already holds a FINALISED
+// entry for orderID, returning the handle to record. It is the drain's
+// already-applied check (docs section 2.4): a replayed order -- a crash between
+// the act and the unlink, or an operator copying an order back in -- is a no-op
+// for the store-backed actions. Freeze and evidence are scanned here; the
+// quarantine store joins in build item 5. Kill keeps no store, so a replayed
+// kill finds the pid gone or a reuser, both handled by identify().
+func (e *linuxExecutor) Applied(_ context.Context, orderID string) (Handle, bool, error) {
+	if id, ok := storeScanForOrder(e.cfg.FreezeDir, orderID); ok {
+		var man freezeManifest
+		_ = storeReadManifest(filepath.Join(e.cfg.FreezeDir, id), &man)
+		return Handle{ID: id, Kind: response.ActionFreeze, PID: man.Target.PID, Method: man.Method, Undo: id, Exe: man.Target.Exe, StartTime: man.Target.StartTime}, true, nil
+	}
+	if id, ok := storeScanForOrder(e.cfg.EvidenceDir, orderID); ok {
+		var man evidenceManifest
+		_ = storeReadManifest(filepath.Join(e.cfg.EvidenceDir, id), &man)
+		return Handle{ID: id, Kind: response.ActionCollect, PID: man.PID, Method: "snapshot", Undo: id, Exe: man.Exe, StartTime: man.StartTime}, true, nil
+	}
+	return Handle{}, false, nil
+}
+
+// Recover is the drain's startup repair pass over the freeze store and the
+// cgroup root (docs section 2.4 step 4). It finalises a pending freeze manifest
+// whose pids did reach the cgroup, rolls back one whose act never landed, and
+// removes an empty cgroup dir that no live manifest owns (the second half of
+// F8: a kill cgroup left populated at the bound, later emptied). It never
+// touches a finalised, untombstoned entry.
+func (e *linuxExecutor) Recover(_ context.Context) ([]RecoveryResult, error) {
+	var out []RecoveryResult
+	live := map[string]bool{} // handle id -> has a live (finalised, untombstoned) manifest
+
+	ents, _ := os.ReadDir(e.cfg.FreezeDir)
+	for _, ent := range ents {
+		if !ent.IsDir() {
+			continue
+		}
+		entryDir := filepath.Join(e.cfg.FreezeDir, ent.Name())
+		var man freezeManifest
+		if err := storeReadManifest(entryDir, &man); err != nil {
+			continue
+		}
+		tombstoned := storeHasTombstone(entryDir, thawedName)
+		if man.State != statePending {
+			if storeFinalised(man.State) && !tombstoned {
+				live[man.ID] = true
+			}
+			continue
+		}
+		if tombstoned {
+			continue // a rolled-back pending entry from an earlier pass
+		}
+		res := e.recoverPendingFreeze(entryDir, &man)
+		out = append(out, res)
+		if res.Outcome == "finalised" {
+			live[man.ID] = true
+		}
+	}
+
+	// Empty cgroup dirs under the root with no live manifest: remove them (a
+	// kill cgroup that was still populated at the F8 bound and has since
+	// emptied, or any other orphan). Never remove one that still holds tasks.
+	cgents, _ := os.ReadDir(e.cfg.CgroupRoot)
+	for _, ent := range cgents {
+		if !ent.IsDir() || live[ent.Name()] {
+			continue
+		}
+		dir := filepath.Join(e.cfg.CgroupRoot, ent.Name())
+		if cgroupPopulated(dir) {
+			continue
+		}
+		if os.Remove(dir) == nil {
+			out = append(out, RecoveryResult{ID: ent.Name(), Outcome: "cgroup-removed"})
+		}
+	}
+	return out, nil
+}
+
+// recoverPendingFreeze finalises or rolls back a single pending freeze entry.
+// It is finalised if the act landed (the cgroup holds the pids); otherwise
+// rolled back (any stray pids moved home, the cgroup dropped, a tombstone
+// written so already-applied never fires on it).
+func (e *linuxExecutor) recoverPendingFreeze(entryDir string, man *freezeManifest) RecoveryResult {
+	res := RecoveryResult{ID: man.ID, Order: man.Order, Kind: response.ActionFreeze}
+
+	migrated := false
+	if man.Method == "cgroup" && man.Cgroup != "" {
+		if procs, err := readCgroupProcs(man.Cgroup); err == nil && len(procs) > 0 {
+			migrated = true
+		}
+	}
+	if migrated {
+		e.finalizeFreeze(entryDir, man)
+		res.Outcome = "finalised"
+		return res
+	}
+
+	// The act never landed: roll back.
+	if man.Method == "cgroup" && man.Cgroup != "" {
+		if procs, err := readCgroupProcs(man.Cgroup); err == nil {
+			for _, pid := range procs {
+				if orig := man.Orig[pid]; orig != "" {
+					_ = writeCgroupProcs(orig, pid)
+				}
+			}
+		}
+		_ = os.WriteFile(filepath.Join(man.Cgroup, "cgroup.freeze"), []byte("0"), 0o200)
+		_ = os.Remove(man.Cgroup)
+	}
+	_ = storeTombstone(entryDir, thawedName, freezeThawed{Time: time.Now().UTC(), OperatorUID: operatorUID(), Outcome: "rolled-back"})
+	res.Outcome = "rolled-back"
+	return res
 }
 
 // ---- cgroup helpers --------------------------------------------------------
 
-// cgroupFreeze creates a child cgroup, freezes it, and migrates the pids into
-// it (a task migrated into a frozen cgroup is frozen on arrival). It returns
-// the cgroup dir, each pid's original cgroup path, and ok=false if the v2
-// freezer is unavailable or not writable (the caller then falls back).
-func (e *linuxExecutor) cgroupFreeze(id string, pids []int) (string, map[int]string, bool) {
+// cgroupCreate creates a child cgroup under CgroupRoot and freezes it (empty),
+// so a task migrated in afterwards is frozen on arrival. It returns the dir and
+// ok=false if the v2 freezer is unavailable or not writable (the caller falls
+// back to SIGSTOP, or, for kill, to per-pid pidfd SIGKILL). Migration is the
+// caller's step, kept separate so Freeze can write its manifest between the
+// create and the migrate.
+func (e *linuxExecutor) cgroupCreate(id string) (string, bool) {
 	root := e.cfg.CgroupRoot
 	if _, err := os.Stat(filepath.Dir(root)); err != nil {
-		return "", nil, false
+		return "", false
 	}
 	dir := filepath.Join(root, id)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return "", nil, false
+		return "", false
 	}
 	if err := os.WriteFile(filepath.Join(dir, "cgroup.freeze"), []byte("1"), 0o200); err != nil {
 		_ = os.Remove(dir)
-		return "", nil, false
+		return "", false
 	}
-	orig := make(map[int]string, len(pids))
-	for _, pid := range pids {
-		if cg, err := readCgroup(pid); err == nil {
-			orig[pid] = cg
-		}
-		_ = writeCgroupProcs(dir, pid)
-	}
-	return dir, orig, true
+	return dir, true
 }
 
-func writeCgroupProcs(cgDir string, pid int) error {
+// existingFreezeID reports the handle id of an EXISTING freeze cgroup the pid
+// already sits in: if /proc/<pid>/cgroup resolves under CgroupRoot, the first
+// path component below the root is that handle id. This is the F7 idempotency
+// key -- a second Freeze of an already-frozen tree returns the first handle
+// instead of making a second cgroup.
+func (e *linuxExecutor) existingFreezeID(pid int) (string, bool) {
+	cg, err := readCgroup(pid)
+	if err != nil {
+		return "", false
+	}
+	full := cg
+	if !strings.HasPrefix(full, "/sys/fs/cgroup") {
+		full = filepath.Join("/sys/fs/cgroup", cg)
+	}
+	root := filepath.Clean(e.cfg.CgroupRoot)
+	if full != root && !strings.HasPrefix(full, root+"/") {
+		return "", false
+	}
+	rest := strings.TrimPrefix(full, root+"/")
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		rest = rest[:i]
+	}
+	if rest == "" {
+		return "", false
+	}
+	return rest, true
+}
+
+// handleFromFreezeStore rebuilds the Handle for an already-frozen tree from its
+// store manifest, so a second Freeze returns the first handle verbatim.
+func (e *linuxExecutor) handleFromFreezeStore(id string, live Live) Handle {
+	method := "cgroup"
+	var man freezeManifest
+	if err := storeReadManifest(filepath.Join(e.cfg.FreezeDir, id), &man); err == nil && man.Method != "" {
+		method = man.Method
+	}
+	return Handle{ID: id, Kind: response.ActionFreeze, PID: live.PID, Exe: live.Exe, StartTime: live.StartTime, Method: method, Undo: id, Note: "already frozen"}
+}
+
+// populatedPollStep and populatedWaitBound bound the wait for a cgroup to empty
+// after a kill (F8) or a thaw migration, before rmdir. A SIGKILLed task leaves
+// the cgroup within milliseconds; 10ms steps over a 2s bound is two hundred
+// chances, far more than a healthy kill needs and short enough not to stall the
+// drain.
+const (
+	populatedPollStep  = 10 * time.Millisecond
+	populatedWaitBound = 2 * time.Second
+)
+
+// waitPopulatedZero polls cgroup.events until the cgroup reports no processes,
+// or the bound elapses. It returns true when the cgroup is empty (safe to
+// rmdir), false if it is still populated at the bound.
+func (e *linuxExecutor) waitPopulatedZero(cgDir string) bool {
+	deadline := time.Now().Add(populatedWaitBound)
+	for {
+		if !cgroupPopulated(cgDir) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(populatedPollStep)
+	}
+}
+
+// cgroupPopulated reports whether cgroup.events says the cgroup still contains
+// at least one process. A missing/unreadable events file (the cgroup is gone or
+// never had one) reads as unpopulated -- there is nothing to wait for. It is a
+// var so a non-root test can exercise waitPopulatedZero's polling.
+var cgroupPopulated = func(cgDir string) bool {
+	data, err := os.ReadFile(filepath.Join(cgDir, "cgroup.events")) //nolint:gosec // our own cgroup dir
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "populated ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "populated ")) != "0"
+		}
+	}
+	return false
+}
+
+// readCgroupProcs returns the pids in a cgroup's cgroup.procs. It is a var so a
+// test can stage the confirm-then-move set without a real cgroup.
+var readCgroupProcs = func(cgDir string) ([]int, error) {
+	if !strings.HasPrefix(cgDir, "/sys/fs/cgroup") {
+		cgDir = filepath.Join("/sys/fs/cgroup", cgDir)
+	}
+	data, err := os.ReadFile(filepath.Join(cgDir, "cgroup.procs")) //nolint:gosec // our own cgroup dir
+	if err != nil {
+		return nil, err
+	}
+	var pids []int
+	for _, f := range strings.Fields(string(data)) {
+		if pid, perr := strconv.Atoi(f); perr == nil {
+			pids = append(pids, pid)
+		}
+	}
+	return pids, nil
+}
+
+// cgroupExists reports whether a cgroup path (absolute or relative to the v2
+// mount) still exists, so Thaw does not move a pid home to a vanished cgroup.
+func cgroupExists(cg string) bool {
+	full := cg
+	if !strings.HasPrefix(full, "/sys/fs/cgroup") {
+		full = filepath.Join("/sys/fs/cgroup", cg)
+	}
+	_, err := os.Stat(full)
+	return err == nil
+}
+
+// currentBootID reads the kernel's boot id. A cgroup does not survive a reboot,
+// so a freeze manifest records it and Thaw treats a different boot id as
+// "nothing to move". A var for the test seam.
+var currentBootID = func() string {
+	data, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// operatorUID is the uid credited in a thaw tombstone: the invoking user behind
+// sudo if known, else the real uid.
+func operatorUID() int {
+	if s := os.Getenv("SUDO_UID"); s != "" {
+		if u, err := strconv.Atoi(s); err == nil {
+			return u
+		}
+	}
+	return os.Getuid()
+}
+
+// writeCgroupProcs migrates a pid into a cgroup by writing cgroup.procs. It is
+// a var so Thaw's confirm-then-move logic can be exercised without a real
+// cgroup (and without root).
+var writeCgroupProcs = func(cgDir string, pid int) error {
 	// cgDir may be an absolute cgroup path ("/sys/fs/cgroup/...") or a path
 	// relative to the v2 mount (from /proc/<pid>/cgroup "0::<path>").
 	if !strings.HasPrefix(cgDir, "/sys/fs/cgroup") {
