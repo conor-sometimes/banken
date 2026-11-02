@@ -26,6 +26,14 @@ func TestLaurelParse(t *testing.T) {
 				User:             "root",
 				CurrentDirectory: "/root",
 				PPID:             1200,
+				Raw: map[string]string{
+					"UID": "root", "a0": "cat", "a1": "/etc/shadow", "argc": "2",
+					"cwd": "/root", "exe": "/usr/bin/cat", "ppid": "1200", "uid": "0",
+				},
+				Multi: map[string][]string{
+					"name": {"/usr/bin/cat"}, "nametype": {"NORMAL"},
+					"type": {"CWD", "EXECVE", "PATH", "SYSCALL"},
+				},
 			}},
 		},
 		{
@@ -40,6 +48,14 @@ func TestLaurelParse(t *testing.T) {
 				TargetFilename: "/etc/shadow",
 				User:           "root",
 				PID:            1234,
+				Raw: map[string]string{
+					"UID": "root", "exe": "/nix/store/x-coreutils-9.11/bin/coreutils",
+					"pid": "1234", "uid": "0",
+				},
+				Multi: map[string][]string{
+					"name": {"/etc/shadow"}, "nametype": {"NORMAL"},
+					"type": {"PATH", "PROCTITLE", "SYSCALL"},
+				},
 			}},
 		},
 		{
@@ -48,6 +64,8 @@ func TestLaurelParse(t *testing.T) {
 			want: []event.Event{{
 				Source: "laurel", Time: time.Unix(10, 0).UTC(),
 				Image: "/bin/id", User: "1000",
+				Raw:   map[string]string{"exe": "/bin/id", "uid": "1000"},
+				Multi: map[string][]string{"type": {"SYSCALL"}},
 			}},
 		},
 		{
@@ -56,6 +74,8 @@ func TestLaurelParse(t *testing.T) {
 			want: []event.Event{{
 				Source: "laurel", Time: time.Unix(11, 0).UTC(),
 				Image: "/usr/bin/curl", CommandLine: "curl -s https://x", User: "1000",
+				Raw:   map[string]string{"exe": "/usr/bin/curl", "uid": "1000"},
+				Multi: map[string][]string{"type": {"PROCTITLE", "SYSCALL"}},
 			}},
 		},
 		{
@@ -65,6 +85,8 @@ func TestLaurelParse(t *testing.T) {
 			want: []event.Event{{
 				Source: "laurel", Time: time.Unix(12, 0).UTC(),
 				Image: "/bin/sh", CommandLine: "sh -c",
+				Raw:   map[string]string{"exe": "/bin/sh"},
+				Multi: map[string][]string{"type": {"PROCTITLE", "SYSCALL"}},
 			}},
 		},
 		{
@@ -73,6 +95,8 @@ func TestLaurelParse(t *testing.T) {
 			want: []event.Event{{
 				Source: "laurel", Time: time.Unix(13, 0).UTC(),
 				Image: "/bin/rm", TargetFilename: "/x",
+				Raw:   map[string]string{"exe": "/bin/rm"},
+				Multi: map[string][]string{"name": {"/x"}, "nametype": {"DELETE"}, "type": {"PATH", "SYSCALL"}},
 			}},
 		},
 		{
@@ -81,6 +105,8 @@ func TestLaurelParse(t *testing.T) {
 			want: []event.Event{{
 				Source: "laurel", Time: time.Unix(14, 0).UTC(),
 				Image: "/bin/id", User: "1000",
+				Raw:   map[string]string{"exe": "/bin/id", "uid": "1000"},
+				Multi: map[string][]string{"type": {"SYSCALL"}},
 			}},
 		},
 		{
@@ -92,13 +118,19 @@ not json at all
 `,
 			want: []event.Event{{
 				Source: "laurel", Time: time.Unix(15, 0).UTC(), Image: "/bin/ok",
+				Raw:   map[string]string{"exe": "/bin/ok"},
+				Multi: map[string][]string{"type": {"SYSCALL"}},
 			}},
 		},
 		{
 			name:  "wrong types everywhere do not panic and yield a bare event",
 			input: `{"ID":123,"SYSCALL":"not an object","EXECVE":{"ARGV":"not an array"},"PATH":"nope","UID":[1,2,3]}`,
 			// ID 123 is a bare number: rendered "123", parsed as epoch seconds.
-			want: []event.Event{{Source: "laurel", Time: time.Unix(123, 0).UTC()}},
+			// Only EXECVE is a well-formed record object; the rest are scalars.
+			want: []event.Event{{
+				Source: "laurel", Time: time.Unix(123, 0).UTC(),
+				Multi: map[string][]string{"type": {"EXECVE"}},
+			}},
 		},
 		{
 			name:  "empty object is a bare event",

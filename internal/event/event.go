@@ -74,6 +74,17 @@ type Event struct {
 	// matching or IOC lookup but that have no dedicated field above. Keyed
 	// by Sigma field name. May be nil.
 	Raw map[string]string `json:"raw,omitempty"`
+
+	// Multi holds the fields a source legitimately makes multi-valued, keyed
+	// by Sigma field name. Only the Linux audit sources need it: auditd folds
+	// the several records that share one audit id (SYSCALL, EXECVE, one PATH
+	// per touched file, ...) into a single event, so a field like `type` (the
+	// set of record types present) or `name` (every path the event touched)
+	// can carry several values at once. Standard Sigma treats a `field: value`
+	// test as matching when ANY of the field's values matches, which is what
+	// the matcher does via Values. Nil for every single-valued source. A field
+	// lives in Raw or Multi, never both.
+	Multi map[string][]string `json:"multi,omitempty"`
 }
 
 // Field returns the value of the named Sigma field, resolving the common
@@ -105,10 +116,35 @@ func (e Event) Field(name string) (string, bool) {
 		return "", false
 	}
 	if e.Raw != nil {
-		v, ok := e.Raw[name]
-		return v, ok
+		if v, ok := e.Raw[name]; ok {
+			return v, ok
+		}
+	}
+	if e.Multi != nil {
+		if vs, ok := e.Multi[name]; ok && len(vs) > 0 {
+			// A single-value caller (response targeting, provenance) gets the
+			// first; the matcher uses Values to see them all.
+			return vs[0], true
+		}
 	}
 	return "", false
+}
+
+// Values returns every value of the named Sigma field: the one value of a
+// single-valued field (named or Raw), or all values of a multi-valued one
+// (Multi). It is what the matcher uses so a `field: value` test honours
+// Sigma's "match if ANY value matches" semantics for the folded audit
+// sources. An absent field yields nil.
+func (e Event) Values(name string) []string {
+	if e.Multi != nil {
+		if vs, ok := e.Multi[name]; ok && len(vs) > 0 {
+			return vs
+		}
+	}
+	if v, ok := e.Field(name); ok {
+		return []string{v}
+	}
+	return nil
 }
 
 // AllText returns every matchable text value on the event: the named string
@@ -119,7 +155,7 @@ func (e Event) Field(name string) (string, bool) {
 // (provenance, not content). The order is stable for the named fields; Raw
 // values follow in map order.
 func (e Event) AllText() []string {
-	out := make([]string, 0, 6+len(e.Raw))
+	out := make([]string, 0, 6+len(e.Raw)+len(e.Multi))
 	for _, v := range []string{e.Image, e.CommandLine, e.ParentImage, e.TargetFilename, e.User, e.CurrentDirectory} {
 		if v != "" {
 			out = append(out, v)
@@ -128,6 +164,13 @@ func (e Event) AllText() []string {
 	for _, v := range e.Raw {
 		if v != "" {
 			out = append(out, v)
+		}
+	}
+	for _, vs := range e.Multi {
+		for _, v := range vs {
+			if v != "" {
+				out = append(out, v)
+			}
 		}
 	}
 	return out
