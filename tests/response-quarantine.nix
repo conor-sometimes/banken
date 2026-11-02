@@ -109,12 +109,14 @@ pkgs.testers.runNixOSTest {
         return [json.loads(l) for l in out.splitlines() if l.strip()]
 
     def latest_quar(path, phase="executed"):
-        """The newest quarantine action line for `path` in the given phase (ledger
-        ids are time-ordered, so max() is the most recent)."""
+        """The newest quarantine action line in `phase`. Each enforcing scan
+        produces exactly one quarantine, so after a scan the newest (ledger ids
+        are time-ordered) is that scan's. Selection is path-agnostic on purpose:
+        the per-phase assertions then diff the recorded path/inode, giving a
+        clear failure if the audit image path is not what we expect."""
         cands = [
             a for a in action_lines()
             if a.get("action") == "quarantine" and a.get("phase") == phase
-            and ((a.get("target") or {}).get("file") or {}).get("path") == path
         ]
         return max(cands, key=lambda a: a["id"]) if cands else None
 
@@ -201,7 +203,11 @@ pkgs.testers.runNixOSTest {
         return rc, out.strip(), err.strip()
 
     # ---- filesystem preconditions (section 4.4): /tmp renames, /dev/shm EXDEVs --
-    machine.succeed("mkdir -p /tmp/q /dev/shm/q")
+    # world-writable sticky scratch dirs, like real /tmp and /dev/shm: alice owns
+    # the payloads she drops there, so phase B's "owner cannot delete" isolates
+    # the immutable bit (not directory permissions) and phase D's squatter can be
+    # created as alice.
+    machine.succeed("mkdir -p /tmp/q /dev/shm/q && chmod 1777 /tmp/q /dev/shm/q")
     dev_tmp = machine.succeed("stat -c %d /tmp/q").strip()
     dev_store = machine.succeed("stat -c %d /var/lib/banken").strip()
     dev_shm = machine.succeed("stat -c %d /dev/shm/q").strip()
@@ -260,7 +266,7 @@ pkgs.testers.runNixOSTest {
     assert man["immutable"] is True, f"phase A: manifest immutable false: {man}"
     mmode = machine.succeed(f"stat -c %a {QDIR}/{Q1}/manifest.json").strip()
     assert mmode == "400", f"phase A: manifest mode {mmode}, want 0400"
-    lst = machine.succeed(f"banken respond list -kind quarantine -config /etc/banken/banken.yml")
+    lst = machine.succeed("banken respond list -kind quarantine -config /etc/banken/banken.yml")
     assert Q1[:8] in lst and "held" in lst, f"phase A: list does not show {Q1[:8]} held:\n{lst}"
     print(f"[phase A] PASS rename: {P1} -> store {Q1[:8]}, inode {stored_ino} bound, 0000+immutable, manifest held")
 
@@ -487,12 +493,12 @@ pkgs.testers.runNixOSTest {
     print("round-tripped byte-identical and refused to clobber; guards held for")
     print("/dev, FIFO, symlink, /etc, 2 GiB sparse.")
     print(f"  Q1  fd identity:      rename ino {stored_ino}, neuter ino {live_ino} (both fstat-bound)")
-    print(f"  Q2  manifest-first:   immutable store refused untouched, then finalised from the order")
-    print(f"  Q3  restore kept:     Q1 entry + tombstone; second restore a no-op")
-    print(f"  Q4  replaced inode:   refused 'inode replaced'; occupied dest refused")
-    print(f"  Q6  over cap:         2 GiB sparse recorded 'unhashed', moved")
-    print(f"  Q14 /dev + forged:    /dev/null downgraded, FIFO/symlink failed, /etc downgraded")
-    print(f"  item2 agreement:      /tmp + /dev/shm in ReadWritePaths (acted), /etc excluded (refused)")
+    print("  Q2  manifest-first:   immutable store refused untouched, then finalised from the order")
+    print("  Q3  restore kept:     Q1 entry + tombstone; second restore a no-op")
+    print("  Q4  replaced inode:   refused 'inode replaced'; occupied dest refused")
+    print("  Q6  over cap:         2 GiB sparse recorded 'unhashed', moved")
+    print("  Q14 /dev + forged:    /dev/null downgraded, FIFO/symlink failed, /etc downgraded")
+    print("  item2 agreement:      /tmp + /dev/shm in ReadWritePaths (acted), /etc excluded (refused)")
     print("  0 innocents touched (S1, S2 restored, /home/alice/secret, /dev/null, FIFO)")
     print("===================================================================")
   '';
