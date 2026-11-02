@@ -94,7 +94,7 @@ func (e *linuxExecutor) identify(p response.ProcessRef) (int, Live, error) {
 	// liveness check below, the pid cannot have been reused between open and
 	// read, so this read describes the pinned process.
 	start, startErr := readStartTime(p.PID)
-	exe, _ := readExe(p.PID)
+	exe, exeErr := readExe(p.PID)
 	cg, _ := readCgroup(p.PID)
 
 	// Liveness through the fd: signal 0 reports existence without sending.
@@ -106,31 +106,130 @@ func (e *linuxExecutor) identify(p response.ProcessRef) (int, Live, error) {
 		return -1, Live{}, fmt.Errorf("pidfd liveness: %w", err)
 	}
 
-	live := Live{PID: p.PID, StartTime: start, Exe: exe, CgroupPath: cg}
+	live := Live{PID: p.PID, StartTime: start, Exe: exe, CgroupPath: cg, UID: -1}
 
-	// Live denylist re-check against what is true now, not what the log said.
-	if base := filepath.Base(exe); builtinDenyNames[base] {
-		_ = syscall.Close(pidfd)
-		return -1, live, fmt.Errorf("%w: live exe %q is protected", ErrDenied, base)
+	// ---- live safety rails (ErrDenied): what is true NOW, not what the log
+	// said. These run against the pinned, confirmed-alive process. ----
+
+	// F2: a built-in protected NAME shields a process ONLY when its LIVE exe
+	// realpath is under a trusted system prefix, or its cgroup is a protected
+	// unit. A payload named after a daemon in a world-writable dir
+	// (/tmp/.x/sshd) is a MASQUERADE: the shield is deliberately not applied,
+	// so it stays killable. Shielding by name alone would let any attacker make
+	// malware un-killable just by naming it `sshd`.
+	realExe := strings.TrimSuffix(exe, " (deleted)")
+	cgProtected := cgroupProtectedUnit(cg)
+	if builtinDenyNames[filepath.Base(realExe)] {
+		if underTrustedExePrefix(realExe) || cgProtected {
+			_ = syscall.Close(pidfd)
+			return -1, live, fmt.Errorf("%w: live exe %q is a protected system process", ErrDenied, exe)
+		}
+		live.Masquerade = true // protected name, untrusted path: a cloak, not a shield
 	}
 
-	// Identity proof.
-	if startErr == nil {
-		if !p.StartTime.IsZero() {
-			if d := start.Sub(p.StartTime); d < -identityTick || d > identityTick {
-				_ = syscall.Close(pidfd)
-				return -1, live, fmt.Errorf("%w: start time %s != reference %s", ErrStaleTarget, start, p.StartTime)
-			}
-		} else if !p.EventTime.IsZero() {
-			// Unknown start time (auditd/Laurel): a reuser was forked after the
-			// event, so its start time exceeds the event time; refuse it.
-			if start.After(p.EventTime.Add(e.cfg.SkewTolerance)) {
-				_ = syscall.Close(pidfd)
-				return -1, live, fmt.Errorf("%w: start time %s is after event %s + skew", ErrStaleTarget, start, p.EventTime)
-			}
+	// F3: refuse any process whose cgroup resolves to a protected system unit
+	// (init.scope or a critical unit), independent of its exe name.
+	if cgProtected {
+		_ = syscall.Close(pidfd)
+		return -1, live, fmt.Errorf("%w: live cgroup %q is a protected unit", ErrDenied, cg)
+	}
+
+	// F3: refuse a live uid-0 target unless allowRoot. Fail closed -- a uid that
+	// cannot be read cannot be confirmed non-root, so it is refused too.
+	uid, uidErr := readUID(p.PID)
+	if uidErr == nil {
+		live.UID = uid
+	}
+	if !e.cfg.AllowRoot {
+		if uidErr != nil {
+			_ = syscall.Close(pidfd)
+			return -1, live, fmt.Errorf("%w: cannot read uid for pid %d: %w", ErrDenied, p.PID, uidErr)
+		}
+		if uid == 0 {
+			_ = syscall.Close(pidfd)
+			return -1, live, fmt.Errorf("%w: live target runs as uid 0 and allowRoot is false", ErrDenied)
+		}
+	}
+
+	// Identity proof. FAIL CLOSED: any failure to confirm identity -- a start
+	// time that cannot be read, a start-time mismatch, an exe that cannot be
+	// read or that does not match the alert's image -- refuses the target with
+	// ErrStaleTarget. A pid whose identity cannot be confirmed is a pid-reuse
+	// risk; refusing is always preferred to acting on the wrong process (§5.1).
+	if startErr != nil {
+		_ = syscall.Close(pidfd)
+		return -1, live, fmt.Errorf("%w: cannot read start time for pid %d: %w", ErrStaleTarget, p.PID, startErr)
+	}
+	switch {
+	case !p.StartTime.IsZero():
+		if d := start.Sub(p.StartTime); d < -identityTick || d > identityTick {
+			_ = syscall.Close(pidfd)
+			return -1, live, fmt.Errorf("%w: start time %s != reference %s", ErrStaleTarget, start, p.StartTime)
+		}
+	case !p.EventTime.IsZero():
+		// Unknown start time (auditd/Laurel): a reuser was forked after the
+		// event, so its start time exceeds the event time; refuse it.
+		if start.After(p.EventTime.Add(e.cfg.SkewTolerance)) {
+			_ = syscall.Close(pidfd)
+			return -1, live, fmt.Errorf("%w: start time %s is after event %s + skew", ErrStaleTarget, start, p.EventTime)
+		}
+	default:
+		// No time reference at all (neither StartTime nor EventTime): pid reuse
+		// cannot be excluded, and an exe match alone would not exclude it (a new
+		// process running the same binary at the same path passes the exe bind).
+		// Refuse, fail closed.
+		_ = syscall.Close(pidfd)
+		return -1, live, fmt.Errorf("%w: no start-time or event-time reference to verify pid %d against", ErrStaleTarget, p.PID)
+	}
+
+	// Exe binding: where the alert recorded an image, the live exe must be that
+	// same on-disk binary. Comparison is by the real file behind each path (its
+	// dev+ino), so a PATH symlink or a coreutils-multicall name still matches
+	// the binary /proc/<pid>/exe resolves to, while a genuinely different
+	// binary (or a process that has since exec'd onto another image) is
+	// refused. Fail closed if the exe cannot be read at all.
+	if p.Image != "" {
+		if exeErr != nil {
+			_ = syscall.Close(pidfd)
+			return -1, live, fmt.Errorf("%w: cannot read exe for pid %d: %w", ErrStaleTarget, p.PID, exeErr)
+		}
+		if !exeMatches(p.Image, p.PID, exe) {
+			_ = syscall.Close(pidfd)
+			return -1, live, fmt.Errorf("%w: live exe %q != image %q", ErrStaleTarget, exe, p.Image)
 		}
 	}
 	return pidfd, live, nil
+}
+
+// exeMatches reports whether the live exe of pid is the same on-disk binary as
+// the alert's expected image. The primary test is inode identity: stat (which
+// follows the magic /proc/<pid>/exe symlink to the real file) against stat of
+// the expected path (following its own symlinks). This matches a PATH entry
+// such as /run/current-system/sw/bin/sleep, or a coreutils multicall name, to
+// the actual binary the kernel recorded, without brittle string munging. If
+// either file cannot be stat'd (e.g. the exe was deleted after exec, so
+// readlink returned a "<path> (deleted)" string), it falls back to a resolved
+// string comparison. A failure to match is a refusal upstream, so this returns
+// false whenever it cannot positively confirm the two are the same binary.
+func exeMatches(expected string, pid int, liveExe string) bool {
+	if expected == "" {
+		return true
+	}
+	var le, ee syscall.Stat_t
+	liveErr := syscall.Stat(fmt.Sprintf("/proc/%d/exe", pid), &le)
+	expErr := syscall.Stat(expected, &ee)
+	if liveErr == nil && expErr == nil {
+		return le.Dev == ee.Dev && le.Ino == ee.Ino
+	}
+	// Fallback for a deleted or unstattable target: compare resolved paths.
+	live := strings.TrimSuffix(liveExe, " (deleted)")
+	if expected == live {
+		return true
+	}
+	if r, err := filepath.EvalSymlinks(expected); err == nil && r == live {
+		return true
+	}
+	return false
 }
 
 func (e *linuxExecutor) Verify(_ context.Context, p response.ProcessRef) (Live, error) {
@@ -164,21 +263,21 @@ func (e *linuxExecutor) Freeze(_ context.Context, p response.ProcessRef, scope r
 
 	if !e.cfg.Enforce {
 		e.logf("response/exec: %s would freeze %s pid %d (%s), %d task(s)", e.gate(), scope, p.PID, live.Exe, len(pids))
-		return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, DryRun: true, Method: "dry-run"}, nil
+		return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, DryRun: true, Method: "dry-run"}, nil
 	}
 
 	// Real enforcement. Prefer the cgroup v2 freezer; fall back to SIGSTOP.
 	if cgDir, orig, ok := e.cgroupFreeze(id, pids); ok {
 		undo, _ := json.Marshal(freezeUndo{Method: "cgroup", PIDs: pids, Orig: orig, Cgroup: cgDir})
 		e.logf("response/exec: %s froze %d task(s) via cgroup %s", e.gate(), len(pids), cgDir)
-		return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, Method: "cgroup", Undo: string(undo)}, nil
+		return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "cgroup", Undo: string(undo)}, nil
 	}
 	// SIGSTOP fallback (weaker: a child forked between the walk and the stop
 	// can escape, and a watchdog SIGCONT can resume it -- recorded as such).
 	stopped := e.sigAll(pids, syscall.SIGSTOP)
 	undo, _ := json.Marshal(freezeUndo{Method: "sigstop", PIDs: stopped})
 	e.logf("response/exec: %s froze %d task(s) via SIGSTOP (no cgroup v2 freezer)", e.gate(), len(stopped))
-	return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, Method: "sigstop", Undo: string(undo)}, nil
+	return Handle{ID: id, Kind: response.ActionFreeze, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "sigstop", Undo: string(undo)}, nil
 }
 
 func (e *linuxExecutor) Thaw(_ context.Context, h Handle) error {
@@ -228,7 +327,7 @@ func (e *linuxExecutor) Kill(_ context.Context, p response.ProcessRef, scope res
 
 	if !e.cfg.Enforce {
 		e.logf("response/exec: %s would kill %s pid %d (%s), %d task(s)", e.gate(), scope, p.PID, live.Exe, len(pids))
-		return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, DryRun: true, Method: "dry-run"}, nil
+		return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, DryRun: true, Method: "dry-run"}, nil
 	}
 
 	if scope == response.ScopeProcess {
@@ -236,7 +335,7 @@ func (e *linuxExecutor) Kill(_ context.Context, p response.ProcessRef, scope res
 			return Handle{}, fmt.Errorf("pidfd_send_signal(SIGKILL): %w", err)
 		}
 		e.logf("response/exec: %s killed pid %d via pidfd", e.gate(), p.PID)
-		return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, Method: "pidfd", Note: "no undo"}, nil
+		return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "pidfd", Note: "no undo"}, nil
 	}
 
 	// Tree kill: move into a frozen cgroup then cgroup.kill (atomic), falling
@@ -249,11 +348,11 @@ func (e *linuxExecutor) Kill(_ context.Context, p response.ProcessRef, scope res
 		}
 		_ = os.Remove(cgDir)
 		e.logf("response/exec: %s killed %d task(s) via %s", e.gate(), len(pids), method)
-		return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, Method: method, Note: "no undo"}, nil
+		return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: method, Note: "no undo"}, nil
 	}
 	e.sigAll(pids, syscall.SIGKILL)
 	e.logf("response/exec: %s killed %d task(s) via per-pid pidfd (no cgroup)", e.gate(), len(pids))
-	return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, Method: "pidfd-tree", Note: "no undo"}, nil
+	return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "pidfd-tree", Note: "no undo"}, nil
 }
 
 // ---- quarantine / restore --------------------------------------------------
@@ -393,10 +492,21 @@ func (e *linuxExecutor) Restore(_ context.Context, h Handle) error {
 // ---- collect ---------------------------------------------------------------
 
 func (e *linuxExecutor) Collect(_ context.Context, p response.ProcessRef) (Handle, error) {
+	// Identify BEFORE snapshotting (§5.1): bind to the process the alert named
+	// -- same pidfd pin, start-time and exe check as kill/freeze -- so the
+	// evidence is of the right process, not of whoever holds the pid now. A
+	// mismatch returns ErrStaleTarget/ErrGone rather than a snapshot of the
+	// wrong /proc. The pidfd is held open across the snapshot.
+	pidfd, live, err := e.identify(p)
+	if err != nil {
+		return Handle{}, err
+	}
+	defer func() { _ = syscall.Close(pidfd) }()
+
 	id := newHandleID()
 	if !e.cfg.Enforce {
-		e.logf("response/exec: %s would collect evidence for pid %d (%s)", e.gate(), p.PID, p.Image)
-		return Handle{ID: id, Kind: response.ActionCollect, PID: p.PID, DryRun: true, Method: "dry-run"}, nil
+		e.logf("response/exec: %s would collect evidence for pid %d (%s)", e.gate(), p.PID, live.Exe)
+		return Handle{ID: id, Kind: response.ActionCollect, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, DryRun: true, Method: "dry-run"}, nil
 	}
 	dir := filepath.Join(e.cfg.EvidenceDir, id)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -411,18 +521,18 @@ func (e *linuxExecutor) Collect(_ context.Context, p response.ProcessRef) (Handl
 		// name is from the fixed literal list above, not external input.
 		_ = os.WriteFile(filepath.Join(dir, name), data, 0o600) //#nosec G703,G304 -- fixed evidence filename under our own dir
 	}
-	exe, _ := readExe(p.PID)
+	exe := live.Exe
 	sum := ""
 	if exe != "" {
 		if h, herr := sha256OfPath(exe); herr == nil {
 			sum = h
 		}
 	}
-	man := map[string]any{"id": id, "pid": p.PID, "exe": exe, "sha256": sum, "time": time.Now().UTC()}
+	man := map[string]any{"id": id, "pid": p.PID, "exe": exe, "startTime": live.StartTime, "sha256": sum, "time": time.Now().UTC()}
 	buf, _ := json.MarshalIndent(man, "", "  ")
 	_ = os.WriteFile(filepath.Join(dir, "manifest.json"), buf, 0o600)
 	e.logf("response/exec: %s collected evidence for pid %d into %s", e.gate(), p.PID, dir)
-	return Handle{ID: id, Kind: response.ActionCollect, PID: p.PID, Method: "snapshot", Undo: dir}, nil
+	return Handle{ID: id, Kind: response.ActionCollect, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, Method: "snapshot", Undo: dir}, nil
 }
 
 // ---- cgroup helpers --------------------------------------------------------
@@ -587,11 +697,14 @@ func chattr(path string, set bool) error {
 
 // ---- /proc readers ---------------------------------------------------------
 
-func readExe(pid int) (string, error) {
+// readExe and readCgroup are vars so a test can stage a trusted-path or
+// protected-unit live identity against a self-owned pid without needing a real
+// system daemon (which a non-root, contained test cannot spawn).
+var readExe = func(pid int) (string, error) {
 	return os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
 }
 
-func readCgroup(pid int) (string, error) {
+var readCgroup = func(pid int) (string, error) {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid)) //nolint:gosec // /proc by pid
 	if err != nil {
 		return "", err
@@ -603,6 +716,69 @@ func readCgroup(pid int) (string, error) {
 		}
 	}
 	return "", errors.New("no cgroup v2 line")
+}
+
+// readUID returns the real uid from /proc/<pid>/status (field 1 of the Uid:
+// line), mirroring the real-user identity the decision layer's allowRoot rail
+// uses. It is a var for the same test-seam reason as readExe.
+var readUID = func(pid int) (int, error) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid)) //nolint:gosec // /proc by pid
+	if err != nil {
+		return -1, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "Uid:") {
+			f := strings.Fields(line)
+			if len(f) >= 2 {
+				return strconv.Atoi(f[1])
+			}
+		}
+	}
+	return -1, errors.New("no Uid line in /proc status")
+}
+
+// trustedExePrefixes are the on-disk locations a genuine system binary lives
+// under. A process earns name-based built-in protection only if its LIVE exe
+// realpath is under one of these; a protected name anywhere else is a
+// masquerade (F2). Mirrors the decision layer's list.
+var trustedExePrefixes = []string{
+	"/nix/store",
+	"/usr",
+	"/bin",
+	"/sbin",
+	"/run/current-system/sw/bin",
+	"/run/wrappers/bin",
+}
+
+func underTrustedExePrefix(path string) bool {
+	clean := filepath.Clean(path)
+	for _, pfx := range trustedExePrefixes {
+		if clean == pfx || strings.HasPrefix(clean, pfx+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// cgroupProtectedUnit reports whether a cgroup v2 path is a protected system
+// unit: pid 1's init.scope, or a .service/.scope whose unit name (sans suffix)
+// is one of the built-in protected names (sshd.service, auditd.service, ...).
+// It deliberately does NOT protect an arbitrary *.service: a reverse shell
+// spawned inside a compromised service inherits that service's cgroup, so
+// blanket service protection would re-open the very masquerade hole F2 closes.
+func cgroupProtectedUnit(cg string) bool {
+	if cg == "" {
+		return false
+	}
+	base := filepath.Base(cg) // e.g. "sshd.service", "init.scope"
+	if base == "init.scope" {
+		return true
+	}
+	name := base
+	for _, suf := range []string{".service", ".scope", ".slice"} {
+		name = strings.TrimSuffix(name, suf)
+	}
+	return builtinDenyNames[name]
 }
 
 // statFields returns the fields of /proc/<pid>/stat after the comm field,
@@ -634,8 +810,10 @@ func readPPID(pid int) (int, bool) {
 }
 
 // readStartTime converts /proc/<pid>/stat field 22 (ticks since boot) to an
-// absolute time using the system boot time.
-func readStartTime(pid int) (time.Time, error) {
+// absolute time using the system boot time. It is a var so a test can force
+// the read-failure branch of identify() (fail-closed) without a real /proc
+// fault, which cannot be staged for a live, self-owned pid.
+var readStartTime = func(pid int) (time.Time, error) {
 	fields, err := statFields(pid)
 	if err != nil {
 		return time.Time{}, err

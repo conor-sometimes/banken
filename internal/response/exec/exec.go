@@ -56,6 +56,13 @@ type Handle struct {
 	Undo   string          `json:"undo,omitempty"`   // executor-private handle for Thaw/Restore
 	DryRun bool            `json:"dryRun"`           // true = NOTHING was actually done
 	Note   string          `json:"note,omitempty"`
+
+	// Exe and StartTime are the verified process identity the executor bound to
+	// before acting (the exe it resolved and start time it confirmed in §5.1).
+	// They are ledgered so the chain of custody records WHICH process was
+	// touched, not just its (reusable) pid. Empty/zero for file actions.
+	Exe       string    `json:"exe,omitempty"`
+	StartTime time.Time `json:"startTime,omitzero"`
 }
 
 // Live is what Verify established about the process right now.
@@ -64,6 +71,11 @@ type Live struct {
 	StartTime  time.Time `json:"startTime,omitzero"`
 	Exe        string    `json:"exe,omitempty"`
 	CgroupPath string    `json:"cgroupPath,omitempty"`
+	UID        int       `json:"uid"`
+	// Masquerade is true when the live exe carries a built-in protected NAME
+	// but its realpath is not under a trusted system prefix: the name-based
+	// shield is deliberately NOT applied, so the process stays actionable.
+	Masquerade bool `json:"masquerade,omitempty"`
 }
 
 // Executor performs one primitive. Every mutating method is a dry-run unless
@@ -96,6 +108,12 @@ type Config struct {
 	// Enforce, when true, ARMS real enforcement. The zero value is false: a
 	// dry-run executor that performs no real action. See the package doc.
 	Enforce bool
+
+	// AllowRoot, when false (the default), makes the executor refuse to act on
+	// a process whose LIVE uid is 0 -- the live-rail mirror of the decision
+	// layer's allowRoot gate (Policy.AllowRoot). The caller sets it from the
+	// policy. Fail-closed: a target whose uid cannot be read is refused too.
+	AllowRoot bool
 
 	// CgroupRoot is the cgroup v2 directory under which frozen/kill trees get
 	// their own child cgroup. Default "/sys/fs/cgroup/banken.quarantine".

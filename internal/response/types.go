@@ -129,4 +129,12 @@ type Decision struct {
 	Entry    string `json:"entry,omitempty"` // policy entry name that matched
 	Target   Target `json:"target"`
 	Scope    Scope  `json:"scope,omitempty"`
+
+	// Masquerade is true when the target carries the NAME of a built-in
+	// protected process (sshd, systemd, ...) but its image path is NOT under a
+	// trusted system prefix: a payload named after a daemon in a world-writable
+	// dir (T1036.005). Such a target is deliberately NOT shielded by the
+	// name-based denylist -- it stays actionable -- and this flag records that
+	// the cloak was seen through, so the ledger shows why a "sshd" was killed.
+	Masquerade bool `json:"masquerade,omitempty"`
 }
