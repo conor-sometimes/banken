@@ -31,6 +31,14 @@ gives each agent its own uid and audits it, which is where the account names com
 - `agent_impair_autonomous_defenses` - the agent stopped/killed/rewrote a security or EDR tool
   (Falcon, osquery, Wazuh, auditd, ClamAV, mdatp ...): **T1685.007 Impair Autonomous Defenses** (new in
   ATT&CK v20). The account-scoped framing of `tamper_banken` / the `disable_*` rules.
+- `agent_anti_automation_evasion` - the agent called a CAPTCHA-solving service (2captcha/CapSolver/
+  anti-captcha ...) or pulled in an anti-bot "stealth" automation toolkit (undetected-chromedriver,
+  playwright-stealth ...): **T1696 Anti-Automation Evasion** (new in ATT&CK v20). banken sees the
+  solver call / toolkit install, not the CAPTCHA itself.
+- `agent_steal_app_password` - the agent read an application-specific password store: a mail client's
+  saved credentials (.msmtprc/.mbsyncrc/.offlineimaprc/.muttrc/Thunderbird), .authinfo, a .netrc
+  machine entry, or git-credentials: **T1697 Steal Application Specific Passwords** (new in ATT&CK
+  v20), the host-observable "obtain an ASP stored on a system" slice only.
 - `honeytoken_access` - any process opened a planted decoy credential (host-wide, critical).
 
 ## ATT&CK v20 AI techniques - what banken can and cannot see
@@ -44,6 +52,22 @@ so it detects an AI technique only when that technique has a host-observable foo
 - **T1685.007 Impair Autonomous Defenses** - detected (`agent_impair_autonomous_defenses`). banken
   can't read the "fake system message" in the malware, but it sees the agent taking the defense tool
   down, which is the realised effect.
+- **T1696 Anti-Automation Evasion** - **partially** detected (`agent_anti_automation_evasion`). The
+  CAPTCHA image and the solved token live in browser/LLM content, which a host EDR cannot see. What
+  banken *can* see is the agent's host-side footprint: a call to a known CAPTCHA-solving service, or
+  the install/use of an anti-bot "stealth" automation toolkit. It deliberately does **not** try to
+  catch the homegrown image-transform approach in T1696.001's own example (an ImageMagick script),
+  because ImageMagick is overwhelmingly benign - matching it would be a false claim dressed as a
+  detection. The site-side view (bot traffic reaching a protected form) is out of banken's reach by
+  design; MITRE itself notes no target-side CAPTCHA telemetry exists.
+- **T1697 Steal Application Specific Passwords** - **partially** detected (`agent_steal_app_password`),
+  the host-observable slice only. T1697 is mostly an identity-provider / SaaS technique: generating an
+  ASP at the IdP, phishing a user for one, then logging in over a legacy non-MFA path. All of that
+  lives in IdP/SaaS audit logs (which the technique's own analytics AN2075-AN2077 key on) and is
+  invisible to a host EDR. The one host-adjacent variant the technique lists is "obtain an ASP stored
+  on a system" - the agent reading an on-host ASP store (mail-client creds, .authinfo, .netrc,
+  git-credentials) - and that is all `agent_steal_app_password` claims. The MFA-bypass login itself is
+  not host-observable and no rule pretends it is.
 - **T1698 Indirect / T1699 Direct Prompt Injection** - **not** detected as such, and no rule pretends
   to. The injection lives in LLM-conversation content (a web page, a document, the prompt box), which
   is invisible to a host EDR by design - the harness transcript is the source, not banken. What banken

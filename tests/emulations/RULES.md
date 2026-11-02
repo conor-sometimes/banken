@@ -70,11 +70,14 @@ anything that would touch the live host) is documented in `./README.md` and in e
 | `rules/impact/gtfobin_file_write_sink.yml` | `gtfowrite.sh` | T1565.001 / T1574.006 | `tee`/`dd` into a SCRATCH `.../etc/ld.so.preload` and `.../etc/profile.d/` (the sink path is in the argv; the real sinks are untouched). |
 | `rules/agent/agent_ai_enabled_exfil.yml` | `aiexfil.sh` | T1700 | agent-scoped: `rclone copy` / `curl --upload-file` of dummy data to a TEST-NET drop (nothing leaves). Agent-account only (see caveat). |
 | `rules/agent/agent_impair_autonomous_defenses.yml` | `aidefense.sh` | T1685.007 | agent-scoped: `systemctl stop` / `pkill` of nonexistent `-emul-dummy` names that look like EDR tools. Agent-account only (see caveat). |
+| `rules/agent/agent_anti_automation_evasion.yml` | `antiautomation.sh` | T1696 / T1696.001 | agent-scoped: `curl` a CAPTCHA-solver name (`2captcha`) and a stealth-toolkit name (`undetected-chromedriver`) under `.invalid` (never resolves). Agent-account only (see caveat). |
+| `rules/agent/agent_steal_app_password.yml` | `appasswd.sh` | T1697 | agent-scoped: `cat` DUMMY application-specific password stores (`.msmtprc`, `.authinfo`, `.netrc`) in scratch. Agent-account only (see caveat). |
 
 ## Caveats (dependencies outside `tests/emulations/`)
 
 - **Agent-account scoping.** The `agent_*` scripts (`agentdecode`, `agentssh`, `destructive`,
-  `exfil`, `gitpersist`, `proxybypass`, `selfconfig`, `sshout`, `aiexfil`, `aidefense`) only fire
+  `exfil`, `gitpersist`, `proxybypass`, `selfconfig`, `sshout`, `aiexfil`, `aidefense`,
+  `antiautomation`, `appasswd`) only fire
   when run **as an agent account** - their rules key on `User` in `{claude,redteam,lab}`. The
   commands themselves match the selections; the `User` comes from the runner. `tests/vm.nix` runs
   emulations as `alice`, so it drops every `agent_*` family from the live expectation and proves
