@@ -30,6 +30,57 @@ let
   # proven instead by the engine golden/replay tests. Drop those families from the live expectation.
   unprovable = r: lib.hasPrefix "agent_" r || r == "honeytoken_access" || r == "netcat" || r == "password_cracker";
   expected = lib.filterAttrs (_: rules: !(lib.any unprovable rules)) expectedAll;
+
+  # ---- module-eval proofs of the two-process split (§2.8), pure Nix, no VM ----
+  # These evaluate the module directly (boot.isContainer keeps the eval light,
+  # no bootloader/fileSystems) and assert, at derivation-eval time, the three
+  # invariants the split rests on: the default config renders NO helper unit; the
+  # daemon unit is byte-identical whether or not enforcement is armed; and a
+  # misconfig trips the module's own assertions. If any fails, building this test
+  # (and `nix flake check`) fails before the VM ever boots.
+  pol = "mode: observe";
+  evalBanken = extra: (pkgs.nixos ({ ... }: {
+    imports = [ ../module.nix ];
+    boot.isContainer = true;
+    system.stateVersion = "26.05";
+    services.banken = { enable = true; package = banken; } // extra;
+  })).config;
+
+  cfgOff = evalBanken { response = { enable = true; enforce = false; policy = pol; }; };
+  cfgOn = evalBanken { response = { enable = true; enforce = true; policy = pol; }; };
+
+  # byte-identical daemon unit regardless of enforce (the whole point of the
+  # split). Reading serviceConfig forces only that unit, not the assertions.
+  daemonIdentical =
+    (builtins.toJSON cfgOff.systemd.services.banken.serviceConfig)
+    == (builtins.toJSON cfgOn.systemd.services.banken.serviceConfig);
+  # the helper exists iff response.enable && response.enforce.
+  noHelperDefault = !(cfgOff.systemd.services ? banken-respond);
+  helperWhenArmed = cfgOn.systemd.services ? banken-respond;
+
+  # Does a config eval to a buildable toplevel? NixOS's assertion plumbing throws
+  # (catchable by tryEval) when any assertion is false, reading the message of
+  # ONLY the failing assertions -- so a misconfig that trips one of this module's
+  # assertions makes this false, while a passing sibling assertion's message is
+  # never forced (the reason we check toplevel, not config.assertions directly).
+  toplevelSucceeds = extra:
+    (builtins.tryEval (builtins.seq (evalBanken extra).system.build.toplevel.drvPath true)).success;
+  # positive control: a valid armed config DOES build (so a "fires" below is our
+  # assertion, not some unrelated failure in this minimal eval).
+  goodBuilds = toplevelSucceeds { response = { enable = true; enforce = true; policy = pol; }; };
+  # response.enforce without response.enable, and an allowPaths entry under a
+  # never-touch prefix, each trip a module assertion.
+  enforceAssertFires = !(toplevelSucceeds { response = { enable = false; enforce = true; }; });
+  allowPathsAssertFires = !(toplevelSucceeds { response = { enable = true; policy = pol; quarantine.allowPaths = [ "/usr/bad" ]; }; });
+
+  moduleEvalOK =
+    assert daemonIdentical;
+    assert noHelperDefault;
+    assert helperWhenArmed;
+    assert goodBuilds;
+    assert enforceAssertFires;
+    assert allowPathsAssertFires;
+    "daemon-identical, default-has-no-helper, armed-has-helper, assertions-fire";
 in
 pkgs.testers.runNixOSTest {
   name = "banken";
@@ -49,13 +100,25 @@ pkgs.testers.runNixOSTest {
     environment.etc."banken-emulations".source = ./emulations;
   };
 
+  # The "# module-eval:" line forces moduleEvalOK at derivation-eval time, so a
+  # broken split invariant fails the build before the VM starts.
   testScript = ''
+    # module-eval: ${moduleEvalOK}
     import json
 
     expected = json.loads(${builtins.toJSON (builtins.toJSON expected)})
 
     machine.wait_for_unit("auditd.service")
     machine.wait_until_succeeds("auditctl -l | grep -q banken-exec")
+
+    # The default posture (response off) renders NO response helper unit, and the
+    # daemon holds only CAP_DAC_READ_SEARCH (the split never grows it). Runtime
+    # confirmation of the §2.8 module-eval proofs above.
+    machine.fail("systemctl cat banken-respond.service")
+    machine.fail("systemctl cat banken-respond.path")
+    daemon_caps = machine.succeed("systemctl show -p CapabilityBoundingSet --value banken.service").strip()
+    assert set(daemon_caps.split()) == {"cap_dac_read_search"}, f"daemon caps = {daemon_caps!r}"
+
     # Drain boot-time events so the first emulation is judged alone.
     machine.succeed("systemctl start banken.service")
 

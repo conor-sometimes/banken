@@ -192,7 +192,12 @@ become a way to run code as root. The guarantee is layered: **rules and logs are
 eval path, no shell-out, no `${...}` expansion - the log4j lesson - RE2 regex only); banken is
 **pure Go, no cgo/`unsafe`, no kernel module**, so EDR bug classes (buffer overflow, use-after-free,
 kernel panic) are structurally impossible; and response actions are operator policy, never
-rule-embedded. Trusted-path checks and signed remote bundles are planned. Full threat model:
+rule-embedded. Enforcement runs as a **two-process least-privilege split**: the daemon that parses
+untrusted bytes decides and writes a work order but holds only `CAP_DAC_READ_SEARCH` and cannot act,
+while a tiny `banken-respond` helper (the sole holder of `CAP_KILL`/`CAP_SYS_PTRACE` and the file
+caps) re-decides each order from its own copy of the policy and the live target before acting - so a
+compromised daemon's only lever is a JSON file that is re-judged under rails it does not control.
+Trusted-path checks and signed remote bundles are planned. Full threat model:
 [docs/security-model.md](docs/security-model.md).
 
 ## Performance
