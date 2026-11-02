@@ -20,6 +20,7 @@
 //	banken-bench forkexec -n 5000
 //	banken-bench sample   -pid 1234 -duration 10s
 //	banken-bench footprint -bin ./banken
+//	banken-bench stress   -rules ./rules -counts 100000,250000,500000
 package main
 
 import (
@@ -78,7 +79,7 @@ var _, _, _ = sinkEvents, sinkAlerts, sinkInt
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: banken-bench <all|latency|rulescale|ruleload|throughput|coldstart|forkexec|sample|footprint> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: banken-bench <all|latency|rulescale|ruleload|throughput|coldstart|forkexec|sample|footprint|stress> [flags]")
 		os.Exit(2)
 	}
 	cmd := os.Args[1]
@@ -163,6 +164,21 @@ func main() {
 		var s benchlib.Section
 		s, err = footprint(*bin, *mods, *pkgs, *srcBytes)
 		sections = []benchlib.Section{s}
+	case "stress":
+		fs := newFS(cmd)
+		rules := fs.String("rules", "./rules", "shipped rule tree used as the baseline the synthetic rules pad")
+		countsCSV := fs.String("counts", "100000,250000,500000", "comma-separated rule counts to sweep (hundreds of thousands)")
+		matchIters := fs.Int("iters", 10000, "measured match iterations per rule count")
+		reps := fs.Int("compile-reps", 3, "matcher builds timed per rule count (compile curve)")
+		dur := fs.Duration("duration", 2*time.Second, "sustained-throughput window per rule count")
+		platform, out = commonFlags(fs, args)
+		var counts []int
+		counts, err = parseCounts(*countsCSV)
+		if err == nil {
+			var s benchlib.Section
+			s, err = stress(*rules, counts, *matchIters, *reps, *dur)
+			sections = []benchlib.Section{s}
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand %q\n", cmd)
 		os.Exit(2)
@@ -742,6 +758,176 @@ func footprint(bin string, modules, thirdPartyPkgs, sourceBytes int) (benchlib.S
 		sec.Metrics = append(sec.Metrics, benchlib.Scalar("thirdparty-source", "bytes", float64(sourceBytes), nil))
 	}
 	return sec, nil
+}
+
+// --- stress: hundreds of thousands of synthetic rules ---
+
+// stress sweeps the rule count far past the shipped tree (the spec's 10k row is
+// a warm-up; a buyer asks "what if I load every SigmaHQ rule plus a vendor feed")
+// and records the curve: how load/compile time, per-event match latency,
+// sustained throughput and the matcher's resident memory move as the rule set
+// crosses hundreds of thousands. The synthetic rules are the same shape the
+// prefilter is built for (a unique command + filename literal each), generated
+// by benchlib.PadTo -- so this is the automaton under a real large tree, not a
+// pathological one. Numbers are measured, never modelled: a point that would not
+// fit in memory is simply not in -counts.
+func stress(rulesDir string, counts []int, matchIters, reps int, dur time.Duration) (benchlib.Section, error) {
+	if len(counts) == 0 {
+		return benchlib.Section{}, errors.New("stress: -counts is empty")
+	}
+	baseline, err := benchlib.LoadBaseline(rulesDir)
+	if err != nil {
+		return benchlib.Section{}, err
+	}
+	maxN := 0
+	for _, n := range counts {
+		if n < len(baseline) {
+			return benchlib.Section{}, fmt.Errorf("stress: count %d is below the %d-rule baseline; pick counts at or above it", n, len(baseline))
+		}
+		if n > maxN {
+			maxN = n
+		}
+	}
+
+	// Generate the largest set once, timing the YAML parse + compile of every
+	// synthetic rule (the "load" half of load-and-compile). Smaller counts are
+	// slices of it: rule i keys off literals unique to index i, so any prefix is
+	// itself a valid, distinctly-keyed rule set.
+	genStart := time.Now()
+	all, err := benchlib.PadTo(baseline, maxN)
+	if err != nil {
+		return benchlib.Section{}, err
+	}
+	genElapsed := time.Since(genStart)
+
+	evThreat, err := oneEvent(mimiThreat)
+	if err != nil {
+		return benchlib.Section{}, err
+	}
+	evClean, err := oneEvent(mimiClean)
+	if err != nil {
+		return benchlib.Section{}, err
+	}
+
+	sec := benchlib.Section{
+		Category: "rule-scaling-stress",
+		Status:   benchlib.StatusMeasured,
+		Note: fmt.Sprintf("hundreds-of-thousands-of-rules stress: per rule count, matcher compile (build the Aho-Corasick automaton), per-event match latency p50/p99/max, sustained single-core throughput, and the matcher's resident bytes. Synthetic rules (benchlib.PadTo) pad the real %d-rule tree; counts swept: %v. Rule generation (YAML parse+compile) is reported once as a rate.",
+			len(baseline), counts),
+		Metrics: []benchlib.Metric{
+			benchlib.Scalar("rule-generation-rate", "rules/sec", float64(maxN)/genElapsed.Seconds(), map[string]any{
+				"rulesGenerated": maxN, "elapsedMs": genElapsed.Milliseconds(),
+			}),
+		},
+	}
+
+	type row struct {
+		n          int
+		compileP50 int64
+		matchP50   int64
+		matchP99   int64
+		eps        float64
+		resident   int64
+	}
+	var curve []row
+
+	for _, n := range counts {
+		rules := all[:n]
+
+		// Compile curve: build the matcher a few times and take the distribution.
+		compileStat := benchlib.Measure(reps, func() {
+			m := sigma.NewMatcher(rules)
+			sinkInt = m.Len()
+		})
+
+		// Automaton memory: the isolated heap the compiled matcher adds (the
+		// rules themselves are already resident in `all`, so the delta is the
+		// prefilter's own structures). matcherBytes forces GC around the build.
+		resident := matcherBytes(rules)
+
+		// One live matcher for the match + throughput numbers.
+		m := sigma.NewMatcher(rules)
+		matchStat := benchlib.Measure(matchIters, func() {
+			sinkInt = len(m.Match(evThreat))
+		})
+		allocs := allocsPerCall(func() { sinkInt = len(m.Match(evThreat)) })
+		eps := sustainedRate(m, evClean, dur)
+		runtime.KeepAlive(m)
+
+		suffix := strconv.Itoa(n) + "-rules"
+		sec.Metrics = append(
+			sec.Metrics,
+			benchlib.Dist("compile-at-"+suffix, "ns", compileStat, map[string]any{
+				"ruleCount": n, "residentBytes": resident, "bytesPerRule": resident / int64(n),
+			}),
+			benchlib.Dist("match-at-"+suffix, "ns", matchStat, map[string]any{
+				"ruleCount": n, "allocsPerEvent": allocs,
+			}),
+			benchlib.Scalar("throughput-at-"+suffix, "events/sec", eps, map[string]any{
+				"ruleCount": n, "cores": 1,
+			}),
+		)
+		curve = append(curve, row{n, compileStat.P50Ns, matchStat.P50Ns, matchStat.P99Ns, eps, resident})
+	}
+
+	// A human-readable curve on stderr, so a reader sees the shape without
+	// parsing the JSON. stdout stays pure JSON.
+	fmt.Fprintf(os.Stderr, "\nstress curve (generation %.0f rules/sec):\n", float64(maxN)/genElapsed.Seconds())
+	fmt.Fprintf(os.Stderr, "%12s  %14s  %12s  %12s  %14s  %12s\n", "rules", "compile p50", "match p50", "match p99", "throughput", "resident")
+	for _, r := range curve {
+		fmt.Fprintf(os.Stderr, "%12d  %12.1fms  %10dns  %10dns  %11.0f/s  %9.1fMB\n",
+			r.n, float64(r.compileP50)/1e6, r.matchP50, r.matchP99, r.eps, float64(r.resident)/(1024*1024))
+	}
+	fmt.Fprintln(os.Stderr)
+
+	return sec, nil
+}
+
+// sustainedRate saturates one core matching ev for dur and returns events/sec.
+func sustainedRate(m *sigma.Matcher, ev event.Event, dur time.Duration) float64 {
+	var processed int64
+	deadline := time.Now().Add(dur)
+	start := time.Now()
+	for time.Now().Before(deadline) {
+		for i := 0; i < 1000; i++ {
+			sinkInt = len(m.Match(ev))
+		}
+		processed += 1000
+	}
+	return float64(processed) / time.Since(start).Seconds()
+}
+
+func oneEvent(line string) (event.Event, error) {
+	evs, err := (parser.Mimi{}).Parse(bytes.NewReader([]byte(line)))
+	if err != nil {
+		return event.Event{}, err
+	}
+	if len(evs) == 0 {
+		return event.Event{}, errors.New("line parsed to no event")
+	}
+	return evs[0], nil
+}
+
+func parseCounts(csv string) ([]int, error) {
+	var out []int
+	for _, p := range strings.Split(csv, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, fmt.Errorf("bad count %q: %w", p, err)
+		}
+		if n <= 0 {
+			return nil, fmt.Errorf("count %d must be positive", n)
+		}
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("no counts parsed")
+	}
+	return out, nil
 }
 
 // --- small helpers ---

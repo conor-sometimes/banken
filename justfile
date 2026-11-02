@@ -177,6 +177,53 @@ bench-e2e n="200000":
 		"$tmp/banken -config $tmp/banken.yml"
 	echo "log: {{n}} events -> $(wc -c < "$tmp/audit.jsonl") bytes"
 
+# stress loads HUNDREDS OF THOUSANDS of synthetic rules (benchlib.PadTo pads the shipped tree)
+# and records the curve as the rule set scales: matcher compile time, per-event match latency
+# (p50/p99/max), sustained single-core throughput, and the automaton's resident bytes. The curve
+# prints to stderr as it runs; raw JSON lands in bench/results/stress.json (banken-bench/1 schema).
+# This is the "what if I load every SigmaHQ rule plus a vendor feed" number. Heavy: minutes, and
+# multi-GB RSS at 500k rules (~2 GB automaton + the rule objects) -- run on a box with headroom.
+# PLATFORM= labels the matrix row, same as run.sh. See bench/README.md "Rule-scaling stress".
+stress counts="100000,250000,500000":
+	#!/usr/bin/env bash
+	set -euo pipefail
+	mkdir -p bench/results
+	plat=(); [ -n "${PLATFORM:-}" ] && plat=(-platform "$PLATFORM")
+	go run ./bench/cmd/banken-bench stress -rules ./rules -counts {{counts}} "${plat[@]}" \
+		-out bench/results/stress.json
+	echo "raw JSON: bench/results/stress.json (curve on stderr above)"
+
+# profile emits a CPU profile and a heap/allocation profile of the detection hot path
+# (BenchmarkDetectionLatency: parse -> prefilter+match), plus text tops that need no external
+# tool, into {{out}} (default bench/profiles). The raw .pprof open as an interactive flame graph
+# with `go tool pprof -http`; SVG call graphs are written too when graphviz (dot) is on PATH.
+# How to read them: bench/README.md "Reading the profiles".
+profile out="bench/profiles" benchtime="3s":
+	#!/usr/bin/env bash
+	set -euo pipefail
+	out="{{out}}"; mkdir -p "$out"
+	echo "profiling BenchmarkDetectionLatency (benchtime {{benchtime}}) -> $out"
+	go test . -run '^$' -bench '^BenchmarkDetectionLatency$' -benchmem -benchtime {{benchtime}} \
+		-cpuprofile "$out/cpu.pprof" -memprofile "$out/mem.pprof" -o "$out/detlat.test" \
+		| tee "$out/bench.txt"
+	bin="$out/detlat.test"
+	# Text tops: always produced, no external dependency, enough to read the hot path from a terminal.
+	go tool pprof -top  -nodecount=40 "$bin" "$out/cpu.pprof"              > "$out/cpu-top.txt"
+	go tool pprof -tree -nodecount=40 "$bin" "$out/cpu.pprof"              > "$out/cpu-tree.txt"
+	go tool pprof -top  -inuse_space -nodecount=40 "$bin" "$out/mem.pprof" > "$out/heap-inuse.txt"
+	go tool pprof -top  -alloc_space -nodecount=40 "$bin" "$out/mem.pprof" > "$out/heap-alloc.txt"
+	# SVG call graphs (the "flame graph"/graph the spec names) need graphviz. Skip cleanly without it.
+	if command -v dot >/dev/null 2>&1; then
+		go tool pprof -svg              "$bin" "$out/cpu.pprof" > "$out/cpu.svg"
+		go tool pprof -svg -inuse_space "$bin" "$out/mem.pprof" > "$out/heap-inuse.svg"
+		echo "wrote cpu.svg + heap-inuse.svg (graphviz)"
+	else
+		echo "graphviz (dot) not on PATH: static SVGs skipped. For the flame graph:"
+		echo "  go tool pprof -http=:8080 $bin $out/cpu.pprof              # interactive flame graph"
+		echo "  nix shell nixpkgs#graphviz -c go tool pprof -svg $bin $out/cpu.pprof > $out/cpu.svg"
+	fi
+	echo "profiles in $out -- how to read them: bench/README.md 'Reading the profiles'"
+
 # Short fuzz run against every Fuzz* target in every package, discovered via
 # `go test -list` (not hardcoded, so a new target is picked up
 # automatically). {{fuzztime}} per target (default 5s).
