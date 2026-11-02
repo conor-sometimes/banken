@@ -1,9 +1,21 @@
 // Package alert turns a rule hit into an alert and fans it out to the
-// configured sinks (journal, jsonl, webhook) through one dispatch point.
+// configured sinks (journal, jsonl, webhook, OTLP) through one dispatch point.
 // That single point is deliberate: a response action -- kill the process,
 // revoke a key, isolate the host -- slots in at Dispatch without touching
 // any sink, so banken can grow from alert-only to EDR response without a
 // redesign.
+//
+// Dispatch must stay fast: it runs on the detection path (the stream follower
+// per event, the periodic scanner per batch) and holds one lock across all
+// sinks. So a sink's Emit must not block on anything slow. The local sinks
+// (journal, jsonl) are quick file writes. The network sinks (webhook, OTLP)
+// would otherwise block on a 15s HTTP timeout, so they send asynchronously:
+// Emit queues the alert to a bounded buffer drained by one background goroutine
+// and returns at once (see async.go). A hung endpoint therefore never stalls
+// detection output -- it fills the queue and then drops, and because an EDR must
+// never lose an alert silently, each drop is counted, returned from Emit as an
+// error, and summarised by the sink's Close. Per-sink delivery stays FIFO; there
+// is no cross-sink ordering guarantee.
 package alert
 
 import (
@@ -67,6 +79,8 @@ type Dispatcher struct {
 	// mu serializes Dispatch and Close: banken's unified daemon dispatches from more than one
 	// goroutine at once (a continuous stream follower and the periodic scanner share one
 	// dispatcher), and a sink -- a day-file, a webhook -- is not required to be concurrency-safe.
+	// It is held only for the quick fan-out (file writes, queueing the network sinks); no sink
+	// blocks on the network under it, so it is never the latency bottleneck it once was.
 	mu        sync.Mutex
 	sinks     []Sink
 	responder Responder

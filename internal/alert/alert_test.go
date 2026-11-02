@@ -213,6 +213,10 @@ func TestWebhookSinkGenericAndSlack(t *testing.T) {
 	if err := ws.Emit(sampleAlert("critical")); err != nil {
 		t.Fatalf("Emit: %v", err)
 	}
+	// Delivery is asynchronous; Close flushes so gotBody reflects the POST.
+	if err := ws.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 	var a Alert
 	if err := json.Unmarshal(gotBody, &a); err != nil {
 		t.Fatalf("generic body not Alert JSON: %v (%s)", err, gotBody)
@@ -229,6 +233,9 @@ func TestWebhookSinkGenericAndSlack(t *testing.T) {
 	if err := ws.Emit(sampleAlert("critical")); err != nil {
 		t.Fatalf("Emit slack: %v", err)
 	}
+	if err := ws.Close(); err != nil {
+		t.Fatalf("Close slack: %v", err)
+	}
 	var slack map[string]string
 	if err := json.Unmarshal(gotBody, &slack); err != nil {
 		t.Fatalf("slack body not JSON: %v", err)
@@ -242,6 +249,9 @@ func TestWebhookSinkGenericAndSlack(t *testing.T) {
 	ws, _ = NewWebhookSink(WebhookConfig{URL: srv.URL, Style: StyleOCSF, OCSF: testOpts})
 	if err := ws.Emit(sampleAlert("critical")); err != nil {
 		t.Fatalf("Emit ocsf: %v", err)
+	}
+	if err := ws.Close(); err != nil {
+		t.Fatalf("Close ocsf: %v", err)
 	}
 	var f OCSFFinding
 	if err := json.Unmarshal(gotBody, &f); err != nil {
@@ -275,6 +285,9 @@ func TestWebhookSinkReadsURLFromFile(t *testing.T) {
 	if err := ws.Emit(sampleAlert("high")); err != nil {
 		t.Fatalf("Emit: %v", err)
 	}
+	if err := ws.Close(); err != nil { // flush the async send
+		t.Fatalf("Close: %v", err)
+	}
 	if !hit {
 		t.Error("server was not hit")
 	}
@@ -294,7 +307,10 @@ func TestWebhookSinkErrors(t *testing.T) {
 	}))
 	defer srv.Close()
 	ws, _ := NewWebhookSink(WebhookConfig{URL: srv.URL})
-	if err := ws.Emit(sampleAlert("high")); err == nil {
+	if err := ws.Emit(sampleAlert("high")); err != nil {
+		t.Fatalf("Emit queues and should not error: %v", err)
+	}
+	if err := ws.Close(); err == nil { // the 500 surfaces as a Close summary error
 		t.Error("expected error on 500 response")
 	}
 }

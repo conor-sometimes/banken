@@ -17,12 +17,17 @@ import (
 // the pipe, so any OTel-aware backend (Grafana, Datadog, Splunk, Elastic) ingests banken's findings
 // with no glue. It is hand-rolled JSON with no OpenTelemetry SDK, to keep banken's dependency
 // surface at zero -- the OTLP/HTTP logs body is a small, stable shape.
+//
+// The POST runs on a background sender (see asyncSender), not inline in Emit, so
+// a slow or hung collector can never stall the detection path; past the bounded
+// queue it drops visibly with a count. Close flushes and reports any loss.
 type OTLPSink struct {
 	endpoint string
 	headers  map[string]string
 	host     string
 	version  string
 	client   *http.Client
+	async    *asyncSender
 }
 
 // OTLPConfig configures an OTLPSink.
@@ -51,21 +56,32 @@ func NewOTLPSink(cfg OTLPConfig) (*OTLPSink, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &OTLPSink{endpoint: ep, headers: cfg.Headers, host: cfg.Host, version: cfg.Version, client: client}, nil
+	s := &OTLPSink{endpoint: ep, headers: cfg.Headers, host: cfg.Host, version: cfg.Version, client: client}
+	s.async = newAsyncSender("otlp", asyncQueueDepth, s.post)
+	return s, nil
 }
 
 // Name implements Sink.
 func (*OTLPSink) Name() string { return "otlp" }
 
-// Close implements Sink (nothing to release).
-func (*OTLPSink) Close() error { return nil }
+// Close implements Sink: flushes the queued records (bounded by
+// asyncFlushTimeout) and reports any that were dropped or failed to send.
+func (s *OTLPSink) Close() error { return s.async.close() }
 
-// Emit implements Sink: encodes the alert as one OTLP log record and POSTs it, treating any non-2xx
-// as an error. An observe-mode hit is skipped (OTLP is a notify/export path).
+// Emit implements Sink: it hands the alert to the background sender and returns
+// at once, so a slow collector never delays dispatch. An observe-mode hit is
+// skipped (OTLP is a notify/export path). A full queue returns a drop error; the
+// POST and its outcome happen on the sender, surfaced by Close.
 func (s *OTLPSink) Emit(a Alert) error {
 	if a.Observed {
 		return nil
 	}
+	return s.async.enqueue(a)
+}
+
+// post encodes one alert as an OTLP log record and POSTs it, treating any
+// non-2xx as an error. It runs on the background sender, never inline in Emit.
+func (s *OTLPSink) post(a Alert) error {
 	body, err := s.encode(a)
 	if err != nil {
 		return err
