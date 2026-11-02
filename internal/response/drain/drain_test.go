@@ -71,8 +71,8 @@ func (f *fakeExec) Collect(_ context.Context, p response.ProcessRef) (exec.Handl
 	return exec.Handle{ID: "h-collect", Kind: response.ActionCollect, PID: p.PID, Exe: p.Image, DryRun: !f.enforcing}, nil
 }
 
-func (f *fakeExec) Thaw(_ context.Context, _ exec.Handle) error    { return nil }
-func (f *fakeExec) Restore(_ context.Context, _ exec.Handle) error { return nil }
+func (f *fakeExec) Thaw(_ context.Context, _ exec.Handle) error              { return nil }
+func (f *fakeExec) Restore(_ context.Context, _ exec.Handle, _ string) error { return nil }
 
 func (f *fakeExec) Applied(_ context.Context, orderID string) (exec.Handle, bool, error) {
 	h, ok := f.applied[orderID]

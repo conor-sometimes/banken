@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -19,10 +20,10 @@ import (
 )
 
 // runRespond dispatches `banken respond <sub>`: the privileged half of the
-// two-process response split and the operator CLI. Only drain is implemented in
-// this build; list/explain/thaw/restore land with the later build items (the
-// read-only and undo commands). A compromised daemon cannot run any of these --
-// they live in a separate unit (the helper) or a root operator shell.
+// two-process response split and the operator CLI. list and explain are the
+// read-only operator surface; thaw and restore are the privileged in-process
+// undo. A compromised daemon cannot run any of these -- they live in a separate
+// unit (the helper) or a root operator shell.
 func runRespond(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		respondUsage(stderr)
@@ -35,8 +36,10 @@ func runRespond(args []string, stdout, stderr io.Writer) error {
 		return runRespondList(args[1:], stdout, stderr)
 	case "explain":
 		return runRespondExplain(args[1:], stdout, stderr)
-	case "thaw", "restore":
-		return fmt.Errorf("banken respond %s: not implemented in this build (the undo commands land with a later build item)", args[0])
+	case "thaw":
+		return runRespondThaw(args[1:], stdout, stderr)
+	case "restore":
+		return runRespondRestore(args[1:], stdout, stderr)
 	default:
 		respondUsage(stderr)
 		return exitError{code: 2, err: fmt.Errorf("banken respond: unknown subcommand %q", args[0])}
@@ -47,8 +50,9 @@ func respondUsage(stderr io.Writer) {
 	logln(stderr, "usage: banken respond <subcommand> [-config path]")
 	logln(stderr, "  list     [-since 24h] [-kind freeze|kill|quarantine|collect] [-state held|frozen|thawed|restored|lost] [-json]")
 	logln(stderr, "  explain  <decision-id | handle-id> [-verify] [-json]")
+	logln(stderr, "  thaw     <handle-id>              reverse a freeze (root shell)")
+	logln(stderr, "  restore  <handle-id> [-to PATH]   reverse a quarantine (root shell)")
 	logln(stderr, "  drain    (the privileged helper unit; not for operators)")
-	logln(stderr, "  thaw | restore: a later build item")
 }
 
 // runRespondDrain is the `banken respond drain` subcommand: the privileged unit
@@ -338,4 +342,214 @@ func orZeroTime(t time.Time) string {
 		return "-"
 	}
 	return t.UTC().Format("2006-01-02 15:04:05")
+}
+
+// ---- the privileged undo CLI: thaw and restore (§3.3, §3.4) ----------------
+//
+// thaw and restore run the undo IN-PROCESS under the operator's root shell:
+// sudo is the privilege boundary, not the spool/helper (the doc default, §3).
+// They read the store entry, reverse the act through the SAME exec package the
+// drain uses, and write a thawed/restored ledger line carrying the operator
+// uid. Both are idempotent via the item 4/5 tombstones: a second run is a clean
+// no-op and the store entry is KEPT (never deleted -- that was the Q3 bug), so
+// list keeps showing what was done to whom.
+
+func runRespondThaw(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("banken respond thaw", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var configPath string
+	fs.StringVar(&configPath, "config", "", "path to the YAML config (to locate the state dir, policy and stores)")
+	fs.Usage = func() {
+		logln(stderr, "usage: banken respond thaw <handle-id> [-config path]")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return exitError{code: 2, err: errors.New("banken respond thaw: exactly one handle id is required")}
+	}
+	id := fs.Arg(0)
+
+	cfg, err := configForCmd(configPath)
+	if err != nil {
+		return err
+	}
+	entry, err := newViewReader(cfg).FindEntry(response.ActionFreeze, id)
+	if err != nil {
+		return exitError{code: 1, err: fmt.Errorf("banken respond thaw: %w", err)}
+	}
+
+	ledger, err := response.NewLedger(responseLedgerDir(cfg))
+	if err != nil {
+		return err
+	}
+	uid := operatorUID()
+	decisionID := ""
+	if entry.Freeze != nil {
+		decisionID = entry.Freeze.Order
+	}
+	target := freezeTargetRef(entry)
+
+	// Already thawed: a clean no-op with a ledger note (§3.3 step 1).
+	if entry.Thawed {
+		logln(stdout, "already thawed at "+orZeroTime(entry.ThawedAt))
+		recordUndo(ledger, cfg, "thawed", response.ActionFreeze, decisionID, target, uid, "already")
+		return nil
+	}
+
+	ex, err := undoExecutor(cfg, stderr)
+	if err != nil {
+		return exitError{code: 1, err: fmt.Errorf("banken respond thaw: %w", err)}
+	}
+	h := exec.Handle{ID: entry.ID, Undo: entry.ID, Kind: response.ActionFreeze}
+	if err := ex.Thaw(context.Background(), h); err != nil {
+		return exitError{code: 1, err: fmt.Errorf("banken respond thaw %s: %w", entry.ID, err)}
+	}
+	logln(stdout, "thawed "+entry.ID)
+	recordUndo(ledger, cfg, "thawed", response.ActionFreeze, decisionID, target, uid, "")
+	return nil
+}
+
+func runRespondRestore(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("banken respond restore", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		configPath string
+		to         string
+	)
+	fs.StringVar(&configPath, "config", "", "path to the YAML config (to locate the state dir, policy and stores)")
+	fs.StringVar(&to, "to", "", "restore to this absolute path instead of the original (bounded by the policy's quarantine allowPaths; does not bypass it)")
+	fs.Usage = func() {
+		logln(stderr, "usage: banken respond restore <handle-id> [-to PATH] [-config path]")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return exitError{code: 2, err: errors.New("banken respond restore: exactly one handle id is required")}
+	}
+	id := fs.Arg(0)
+
+	cfg, err := configForCmd(configPath)
+	if err != nil {
+		return err
+	}
+	entry, err := newViewReader(cfg).FindEntry(response.ActionQuarantine, id)
+	if err != nil {
+		return exitError{code: 1, err: fmt.Errorf("banken respond restore: %w", err)}
+	}
+
+	ledger, err := response.NewLedger(responseLedgerDir(cfg))
+	if err != nil {
+		return err
+	}
+	uid := operatorUID()
+	decisionID := ""
+	origPath := ""
+	if entry.Quar != nil {
+		decisionID = entry.Quar.Order
+		origPath = entry.Quar.OrigPath
+	}
+	target := quarTargetRef(entry)
+
+	// Already restored: a clean no-op with a ledger note (§3.4 step 1).
+	if entry.Restored {
+		dest := entry.RestoreDest
+		if dest == "" {
+			dest = origPath
+		}
+		logln(stdout, fmt.Sprintf("already restored at %s to %s", orZeroTime(entry.RestoredAt), dest))
+		recordUndo(ledger, cfg, "restored", response.ActionQuarantine, decisionID, target, uid, "already")
+		return nil
+	}
+
+	ex, err := undoExecutor(cfg, stderr)
+	if err != nil {
+		return exitError{code: 1, err: fmt.Errorf("banken respond restore: %w", err)}
+	}
+	h := exec.Handle{ID: entry.ID, Undo: entry.ID, Kind: response.ActionQuarantine}
+	if err := ex.Restore(context.Background(), h, to); err != nil {
+		return exitError{code: 1, err: fmt.Errorf("banken respond restore %s: %w", entry.ID, err)}
+	}
+	dest := origPath
+	if to != "" {
+		dest = to
+	}
+	logln(stdout, fmt.Sprintf("restored %s to %s", entry.ID, dest))
+	recordUndo(ledger, cfg, "restored", response.ActionQuarantine, decisionID, target, uid, "")
+	return nil
+}
+
+// undoExecutor builds the executor for an in-process thaw/restore. Thaw and
+// Restore work from the store and reverse the act regardless of
+// response.enforce (an undo is the safe direction, §3); the store dirs are
+// resolved exactly as the drain and the view resolve them so all three agree.
+func undoExecutor(cfg config.Config, stderr io.Writer) (exec.Executor, error) {
+	policy, err := loadResponsePolicy(cfg.Response)
+	if err != nil {
+		return nil, err
+	}
+	return exec.New(exec.Config{
+		Enforce:              cfg.Response.Enforce,
+		AllowRoot:            policy.AllowRoot,
+		CgroupRoot:           cfg.Response.CgroupRoot,
+		QuarantineDir:        cfg.Response.QuarantineDir,
+		QuarantineAllowPaths: policy.Quarantine.AllowPaths,
+		MaxFileBytes:         policy.Quarantine.MaxFileBytes,
+		Logf: func(format string, a ...any) {
+			logAt(stderr, levelWarning, format, a...)
+		},
+	})
+}
+
+// recordUndo appends a thawed/restored ledger line for an operator undo. The
+// line references the decision id the manifest carried and the operator uid, so
+// the audit trail shows who reversed what; it is a record, not the state
+// list/explain read (those compute state from the store tombstone). A ledger
+// write error is logged by the ledger, never fatal to an undo that already
+// landed.
+func recordUndo(ledger *response.Ledger, cfg config.Config, phase string, action response.Action, decisionID string, target response.Target, uid int, note string) {
+	n := fmt.Sprintf("operator uid %d", uid)
+	if note != "" {
+		n = note + "; " + n
+	}
+	_, _ = ledger.RecordAction(response.ActionRecord{
+		Phase:      phase,
+		Note:       n,
+		DecisionID: decisionID,
+		Action:     action,
+		Target:     target,
+		Enforced:   cfg.Response.Enforce,
+		Version:    version,
+	})
+}
+
+// freezeTargetRef / quarTargetRef render a store entry's target for the undo
+// ledger line, so a reader sees which pid or file was reversed.
+func freezeTargetRef(e view.Entry) response.Target {
+	if e.Freeze == nil {
+		return response.Target{}
+	}
+	return response.Target{Process: &response.ProcessRef{PID: e.Freeze.Target.PID, Image: e.Freeze.Target.Exe}}
+}
+
+func quarTargetRef(e view.Entry) response.Target {
+	if e.Quar == nil {
+		return response.Target{}
+	}
+	return response.Target{File: &response.FileRef{Path: e.Quar.OrigPath}}
+}
+
+// operatorUID is the uid credited in a thawed/restored ledger line: the user
+// behind sudo if known, else the real uid. It mirrors the executor tombstone's
+// convention so the ledger line and the tombstone agree on who acted.
+func operatorUID() int {
+	if s := os.Getenv("SUDO_UID"); s != "" {
+		if u, err := strconv.Atoi(s); err == nil {
+			return u
+		}
+	}
+	return os.Getuid()
 }

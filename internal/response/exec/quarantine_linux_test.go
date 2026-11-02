@@ -423,7 +423,7 @@ func TestQuarantineRestoreNeuterEXDEV(t *testing.T) {
 		t.Errorf("neutered file mode = %o, want 0000", m)
 	}
 
-	if err := e.Restore(ctx, h); err != nil {
+	if err := e.Restore(ctx, h, ""); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
 	if m, _ := lstatMode(t, victim); m != 0o755 {
