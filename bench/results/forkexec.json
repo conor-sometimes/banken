@@ -1,0 +1,40 @@
+{
+  "schema": "banken-bench/1",
+  "tool": "banken-bench forkexec",
+  "generated": "2026-11-02T00:50:14.8551932Z",
+  "host": {
+    "hostname": "hokkaido",
+    "os": "linux",
+    "arch": "amd64",
+    "numCpu": 8,
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "kernel": "6.18.59",
+    "goVersion": "go1.26.8"
+  },
+  "sections": [
+    {
+      "category": "sensor-overhead-baseline",
+      "status": "measured",
+      "note": "per-exec wall time with NO sensor attached (the probe-detached baseline). The added us/exec with the mimi probe attached is sensor-overhead-attached (pending): subtract this baseline from that run.",
+      "metrics": [
+        {
+          "name": "fork-exec-no-probe",
+          "unit": "ns",
+          "stat": {
+            "samples": 3000,
+            "minNs": 1087056,
+            "p50Ns": 1433738,
+            "p99Ns": 2024321,
+            "maxNs": 2852866,
+            "meanNs": 1454339,
+            "timerOverheadNs": 0
+          },
+          "extra": {
+            "cmd": "/nix/store/bhv6xyvqw6gjs3j488gi1z6wdv18bdpa-coreutils-9.11/bin/true",
+            "iterations": 3000
+          }
+        }
+      ]
+    }
+  ]
+}

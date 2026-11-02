@@ -1,0 +1,40 @@
+{
+  "schema": "banken-bench/1",
+  "tool": "banken-bench coldstart",
+  "generated": "2026-11-02T00:50:15.034497291Z",
+  "host": {
+    "hostname": "hokkaido",
+    "os": "linux",
+    "arch": "amd64",
+    "numCpu": 8,
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "kernel": "6.18.59",
+    "goVersion": "go1.26.8"
+  },
+  "sections": [
+    {
+      "category": "startup-recovery",
+      "status": "measured",
+      "note": "cold start: wall time from banken process start to the first finding written to disk, one-shot scan of a 1-line log. Boot-to-first-finding after reboot and backlog replay are the VM versions (startup-boot-to-finding, pending).",
+      "metrics": [
+        {
+          "name": "process-start-to-first-finding",
+          "unit": "ns",
+          "stat": {
+            "samples": 12,
+            "minNs": 11504522,
+            "p50Ns": 12222436,
+            "p99Ns": 36405989,
+            "maxNs": 36405989,
+            "meanNs": 14156976,
+            "timerOverheadNs": 0
+          },
+          "extra": {
+            "reps": 12,
+            "repsThatFired": 12
+          }
+        }
+      ]
+    }
+  ]
+}

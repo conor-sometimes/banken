@@ -1,0 +1,59 @@
+{
+  "schema": "banken-bench/1",
+  "tool": "banken-bench sample",
+  "generated": "2026-11-02T00:42:58.176807211Z",
+  "platform": "hokkaido",
+  "host": {
+    "hostname": "hokkaido",
+    "os": "linux",
+    "arch": "amd64",
+    "numCpu": 8,
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "kernel": "6.18.59",
+    "goVersion": "go1.26.8"
+  },
+  "sections": [
+    {
+      "category": "resource-cost",
+      "status": "measured",
+      "note": "RSS and CPU of banken idle (8s smoke) (pid 840178) sampled every 500ms over 8s. The idle-24h and under-kernel-build rows are this same command with a longer window and the right workload (resource-cost-idle-24h / resource-cost-kernel-build, pending).",
+      "metrics": [
+        {
+          "name": "rss",
+          "unit": "bytes",
+          "stat": {
+            "samples": 16,
+            "minNs": 14589952,
+            "p50Ns": 14807040,
+            "p99Ns": 14987264,
+            "maxNs": 14987264,
+            "meanNs": 14812160,
+            "timerOverheadNs": 0
+          },
+          "extra": {
+            "label": "banken idle (8s smoke)",
+            "samples": 16
+          }
+        },
+        {
+          "name": "cpu",
+          "unit": "milli-percent",
+          "stat": {
+            "samples": 15,
+            "minNs": 119859,
+            "p50Ns": 123838,
+            "p99Ns": 127858,
+            "maxNs": 127858,
+            "meanNs": 123583,
+            "timerOverheadNs": 0
+          },
+          "extra": {
+            "clkTck": 100,
+            "label": "banken idle (8s smoke)",
+            "samples": 15
+          }
+        }
+      ]
+    }
+  ]
+}

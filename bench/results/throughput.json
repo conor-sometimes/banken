@@ -1,0 +1,43 @@
+{
+  "schema": "banken-bench/1",
+  "tool": "banken-bench throughput",
+  "generated": "2026-11-02T00:50:10.481195367Z",
+  "host": {
+    "hostname": "hokkaido",
+    "os": "linux",
+    "arch": "amd64",
+    "numCpu": 8,
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "kernel": "6.18.59",
+    "goVersion": "go1.26.8"
+  },
+  "sections": [
+    {
+      "category": "throughput",
+      "status": "measured",
+      "note": "sustained single-core match rate (events/sec through prefilter+match), and a bounded-queue drop demo that counts dropped events explicitly. The ring-buffer-under-fork-bomb test needs the live mimi sensor -- see backpressure-forkbomb (pending).",
+      "metrics": [
+        {
+          "name": "sustained-match-rate",
+          "unit": "events/sec",
+          "value": 25229.460982984383,
+          "extra": {
+            "cores": 1,
+            "elapsedMs": 2021,
+            "processed": 51000
+          }
+        },
+        {
+          "name": "drop-demo-dropped",
+          "unit": "events",
+          "value": 12141498,
+          "extra": {
+            "consumed": 27197,
+            "dropRate": 0.9977650027385846,
+            "queueDepth": 1024
+          }
+        }
+      ]
+    }
+  ]
+}

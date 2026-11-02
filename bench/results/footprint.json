@@ -1,0 +1,46 @@
+{
+  "schema": "banken-bench/1",
+  "tool": "banken-bench footprint",
+  "generated": "2026-11-02T00:50:15.137884556Z",
+  "host": {
+    "hostname": "hokkaido",
+    "os": "linux",
+    "arch": "amd64",
+    "numCpu": 8,
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "kernel": "6.18.59",
+    "goVersion": "go1.26.8"
+  },
+  "sections": [
+    {
+      "category": "footprint",
+      "status": "measured",
+      "note": "static stripped binary size, and the transitive dependency and source-byte counts under audit. The counts are passed in by run.sh (go list); 0 means run.sh did not compute them this invocation.",
+      "metrics": [
+        {
+          "name": "binary-size",
+          "unit": "bytes",
+          "value": 7352482,
+          "extra": {
+            "path": "/tmp/nix-shell.gBMJtE/tmp.Ogdoexj9w0/banken"
+          }
+        },
+        {
+          "name": "transitive-modules",
+          "unit": "count",
+          "value": 3
+        },
+        {
+          "name": "thirdparty-packages-linked",
+          "unit": "count",
+          "value": 1
+        },
+        {
+          "name": "thirdparty-source",
+          "unit": "bytes",
+          "value": 328751
+        }
+      ]
+    }
+  ]
+}
