@@ -128,6 +128,51 @@ let
     sigmahq_remove_package = [ "proc_creation_lnx_remove_package" ];
     sigmahq_base64_exec =[ "proc_creation_lnx_base64_execution" "proc_creation_lnx_base64_decode" "proc_creation_lnx_susp_pipe_shell" ];
 
+    # Batch 4 -- more process_creation rules plus four more file_event rules.
+    # The process_creation ones are the same shape as earlier batches: a
+    # distinctive binary/flag combination an unprivileged user runs benignly
+    # (interpreter one-liners whose reverse-shell indicators sit in dead string
+    # literals; reads that are denied or target nonexistent paths; payloads that
+    # are the stock `true` binary copied into /tmp or /dev/shm). Twins, where one
+    # benign one-liner inherently trips a second rule that genuinely matches the
+    # same behaviour, are listed so they are not counted as wild hits:
+    #   * nohup into /tmp also trips the base nohup rule;
+    #   * mkfifo in /tmp also trips the base mkfifo rule.
+    sigmahq_perl_reverse_shell = [ "proc_creation_lnx_perl_reverse_shell" ];
+    sigmahq_php_reverse_shell = [ "proc_creation_lnx_php_reverse_shell" ];
+    sigmahq_ruby_reverse_shell = [ "proc_creation_lnx_ruby_reverse_shell" ];
+    sigmahq_python_reverse_shell = [ "proc_creation_lnx_python_reverse_shell" ];
+    sigmahq_vim_shell_execution = [ "proc_creation_lnx_vim_shell_execution" ];
+    sigmahq_flock_shell_execution = [ "proc_creation_lnx_flock_shell_execution" ];
+    sigmahq_python_base64_encoded_execution = [ "proc_creation_lnx_python_base64_encoded_execution" ];
+    sigmahq_chmod_targeting_sensitive_directories = [ "proc_creation_lnx_chmod_targeting_sensitive_directories" ];
+    sigmahq_cp_passwd_or_shadow_tmp = [ "proc_creation_lnx_cp_passwd_or_shadow_tmp" ];
+    # cat of /etc/sudoers also trips local_account (its selection_3 keys on a
+    # reader of /etc/passwd|shadow|sudoers) -- a legitimate twin.
+    sigmahq_susp_process_reading_sudoers = [ "proc_creation_lnx_susp_process_reading_sudoers" "proc_creation_lnx_local_account" ];
+    sigmahq_nohup_susp_execution = [ "proc_creation_lnx_nohup_susp_execution" "proc_creation_lnx_nohup" ];
+    sigmahq_mkfifo_named_pipe_creation_susp_location = [ "proc_creation_lnx_mkfifo_named_pipe_creation_susp_location" "proc_creation_lnx_mkfifo_named_pipe_creation" ];
+    sigmahq_base64_shebang_cli = [ "proc_creation_lnx_base64_shebang_cli" ];
+    sigmahq_bash_interactive_shell = [ "proc_creation_lnx_bash_interactive_shell" ];
+    sigmahq_susp_container_residence_discovery = [ "proc_creation_lnx_susp_container_residence_discovery" ];
+    sigmahq_susp_dockerenv_recon = [ "proc_creation_lnx_susp_dockerenv_recon" ];
+    sigmahq_susp_inod_listing = [ "proc_creation_lnx_susp_inod_listing" ];
+    sigmahq_susp_exec_from_dev_shm = [ "proc_creation_lnx_susp_exec_from_dev_shm" ];
+    sigmahq_susp_execution_tmp_folder = [ "proc_creation_lnx_susp_execution_tmp_folder" ];
+    sigmahq_proxy_connection = [ "proc_creation_lnx_proxy_connection" ];
+    sigmahq_wget_download_suspicious_directory = [ "proc_creation_lnx_wget_download_suspicious_directory" ];
+
+    # Batch 4 file_event rules. Three key on the filename alone (a path segment
+    # or suffix), so creating the indicator file in a watched scratch path is
+    # enough; the fourth (wget into /tmp) also keys on the writing process, so
+    # the write is produced by wget and the proc_creation wget rule fires as its
+    # twin. The watched scratch files/dirs are added to audit.watchPaths and
+    # systemd.tmpfiles.rules below.
+    sigmahq_fe_profile_script = [ "file_event_lnx_susp_shell_script_under_profile_directory" ];
+    sigmahq_fe_triple_cross_lock = [ "file_event_lnx_triple_cross_rootkit_lock_file" ];
+    sigmahq_fe_doas_conf = [ "file_event_lnx_doas_conf_creation" ];
+    sigmahq_fe_wget_tmp = [ "file_event_lnx_wget_download_file_in_tmp_dir" "proc_creation_lnx_wget_download_suspicious_directory" ];
+
     sigmahq_benign = [ ];
   };
 in
@@ -155,13 +200,27 @@ pkgs.testers.runNixOSTest {
         "/etc/gshadow"
         "/var/lib/bkfwatch/ebpfbackdoor"
         "/var/lib/bkfwatch/bk-{echo"
+        # Batch 4 file_event scratch targets. Each is watched as an exact file so
+        # nothing but its emulation ever touches it (no ambient file_event noise).
+        # The rule each one feeds keys on the filename segment/suffix shown.
+        "/var/lib/bkfwatch/etc/profile.d/bk.sh" # contains '/etc/profile.d/', ends '.sh'
+        "/var/lib/bkfwatch/etc/doas.conf"       # ends with '/etc/doas.conf'
+        "/tmp/rootlog"                          # exactly '/tmp/rootlog'
+        "/tmp/bk-wget-fe"                        # starts with '/tmp/', written by wget
       ];
     };
 
     # The watched scratch dir. World-writable so the emulations run as alice can
     # create the indicator files; created early by systemd-tmpfiles, before the
     # audit rules load.
-    systemd.tmpfiles.rules = [ "d /var/lib/bkfwatch 0777 root root -" ];
+    systemd.tmpfiles.rules = [
+      "d /var/lib/bkfwatch 0777 root root -"
+      # Batch 4: scratch parents for the file_event watches. World-writable so
+      # alice can create the indicator files; created before the audit rules load
+      # (a missing watched FILE is fine, a missing parent DIR is not).
+      "d /var/lib/bkfwatch/etc 0777 root root -"
+      "d /var/lib/bkfwatch/etc/profile.d 0777 root root -"
+    ];
     # The test drives every scan itself, so a scan lands between emulations.
     systemd.timers.banken.wantedBy = lib.mkForce [ ];
 
@@ -193,6 +252,12 @@ pkgs.testers.runNixOSTest {
       # Batch 3 additions, for the new emulations' tools.
       gawk # awk (awk_shell_spawn)
       dpkg # dpkg (remove_package)
+      # Batch 4 additions, for the new emulations' interpreters and tools.
+      perl # perl (perl_reverse_shell)
+      php # php (php_reverse_shell)
+      ruby # ruby (ruby_reverse_shell)
+      vim # vim (vim_shell_execution)
+      wget # wget (wget_download_suspicious_directory, fe_wget_tmp)
     ];
     environment.etc."banken-emulations".source = ./emulations;
   };
