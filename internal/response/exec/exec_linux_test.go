@@ -447,6 +447,26 @@ func TestVerifyStartTimeUnreadableFailsClosed(t *testing.T) {
 	}
 }
 
+// TestVerifyNoTimeReferenceRefused: a ProcessRef with NEITHER StartTime nor
+// EventTime has no pid-reuse reference, so it is refused -- an exe match alone
+// cannot exclude a reuser running the same binary at the same path.
+func TestVerifyNoTimeReferenceRefused(t *testing.T) {
+	_, pid, bin := spawnSleep(t)
+	e, _ := New(Config{Enforce: true, AllowRoot: true})
+	ctx := context.Background()
+	ref := response.ProcessRef{PID: pid, Image: bin} // no StartTime, no EventTime
+
+	if _, err := e.Verify(ctx, ref); !errors.Is(err, ErrStaleTarget) {
+		t.Fatalf("Verify with no time reference = %v, want ErrStaleTarget", err)
+	}
+	if _, err := e.Kill(ctx, ref, response.ScopeProcess); !errors.Is(err, ErrStaleTarget) {
+		t.Fatalf("Kill with no time reference = %v, want ErrStaleTarget", err)
+	}
+	if !alive(pid) {
+		t.Fatalf("refused Kill signalled the process")
+	}
+}
+
 // TestExeMismatchRefused is (b): a reference whose image is a different binary
 // than the live exe is refused, even though the pid and start time are right.
 func TestExeMismatchRefused(t *testing.T) {

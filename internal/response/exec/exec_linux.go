@@ -172,6 +172,13 @@ func (e *linuxExecutor) identify(p response.ProcessRef) (int, Live, error) {
 			_ = syscall.Close(pidfd)
 			return -1, live, fmt.Errorf("%w: start time %s is after event %s + skew", ErrStaleTarget, start, p.EventTime)
 		}
+	} else {
+		// No time reference at all (neither StartTime nor EventTime): pid reuse
+		// cannot be excluded, and an exe match alone would not exclude it (a new
+		// process running the same binary at the same path passes the exe bind).
+		// Refuse, fail closed.
+		_ = syscall.Close(pidfd)
+		return -1, live, fmt.Errorf("%w: no start-time or event-time reference to verify pid %d against", ErrStaleTarget, p.PID)
 	}
 
 	// Exe binding: where the alert recorded an image, the live exe must be that
