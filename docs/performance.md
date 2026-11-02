@@ -43,6 +43,27 @@ allocations per event are **constant** regardless of rule count. (Parallelising 
 a goroutine pool is a later, complementary lever - the matcher is read-only and so trivially
 parallel - but the algorithm is what makes rule count cheap.)
 
+**IOC match scaling** (`go test -bench BenchmarkIOCMatch`, matching one event against a feed of N
+domain plus N filename/path indicators, on the host in the table above). The bulk IOC path is held
+to the same promise as the Sigma prefilter: indicator count is free. A domain indicator resolves by
+a label-suffix lookup in an exact map (host, then each parent domain), and a filename/path
+indicator by one Aho-Corasick pass over the field - the same literal-set automaton the Sigma
+prefilter uses (`internal/acmatch`), built once at load. Neither test is a per-event scan of the
+feed, and indicator values are folded to lower case once at load, not per event:
+
+| Indicators (domains + files) | ns/op | B/op | allocs/op |
+| ---: | ---: | ---: | ---: |
+| 1,000 + 1,000 | 11,834 | 955 | 17 |
+| 100,000 + 100,000 | 9,573 | 944 | 17 |
+
+A hundredfold more indicators does not raise the per-event cost (the two rows sit in the same
+~10-15 us band, which is the shared host's load noise, not the feed size - repeated runs of each
+row span that band), and allocations per event are **constant** at 17, set by the event's fields
+and hits, never by the feed. The one-time compile of the automaton and the map is paid at load and
+excluded from the loop (a reload builds a fresh set and swaps it in atomically). This replaces the
+previous linear scan, which lower-cased every indicator on every event and grew the per-event cost
+with the feed.
+
 **Detection latency, staged.** The headline number, broken into stages so a regression shows where
 it landed. Measured against the *real* shipped rule tree (not the synthetic regex-free set above),
 on the shared host in the table, so these are honest upper bounds - the representative quiet-box

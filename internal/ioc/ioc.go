@@ -1,9 +1,27 @@
 // Package ioc loads the plain indicator lists under rules/ioc/*.txt --
 // filenames, IP addresses and domains, one per line -- and matches them
-// against an event's fields with a fast lookup. It is the bulk-feed
-// counterpart to a Sigma rule: thousands of flat values that would be
-// absurd as one YAML file each, checked by set membership and domain-suffix
-// rather than by condition logic.
+// against an event's fields with a fast lookup whose per-event cost does not
+// grow with the number of indicators. It is the bulk-feed counterpart to a
+// Sigma rule: thousands of flat values that would be absurd as one YAML file
+// each.
+//
+// Each kind is matched the way its shape warrants, and none by a per-event
+// linear scan of the feed:
+//
+//   - IP indicators: exact set membership of a whole host token (so 192.0.2.1
+//     never fires on 192.0.2.100).
+//   - Domain indicators: a label-suffix lookup in an exact map, so a feed
+//     domain matches the host and any subdomain (evil.test matches c2.evil.test
+//     but not notevil.test) in time proportional to the token's label count,
+//     not to the feed size.
+//   - Filename/path indicators: one shared Aho-Corasick automaton
+//     (internal/acmatch, the same literal-set matcher the Sigma prefilter uses)
+//     finds every indicator present as a substring of a field in a single pass,
+//     independent of how many indicators were loaded.
+//
+// Indicator values are folded to lower case once, at Add time, not per event.
+// The maps and the automaton are built once, lazily, on the first Match and
+// then only read, so a published Set is safe for concurrent matching.
 package ioc
 
 import (
@@ -15,8 +33,11 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 
+	"github.com/conor-sometimes/banken/internal/acmatch"
 	"github.com/conor-sometimes/banken/internal/event"
 )
 
@@ -44,11 +65,26 @@ type Indicator struct {
 
 // Set is a compiled collection of indicators with a fast matcher.
 type Set struct {
-	all     []Indicator
-	exact   map[string]Indicator // value -> indicator, for O(1) token hits
-	domains []Indicator          // checked by suffix
-	files   []Indicator          // checked by substring/basename
-	ips     []Indicator          // checked by token membership
+	all   []Indicator
+	exact map[string]Indicator // IP value -> indicator, for O(1) whole-token hits
+	doms  []loweredInd         // domain indicators, value pre-lowered at Add
+	files []loweredInd         // filename/path indicators, value pre-lowered at Add
+
+	// Built once on the first Match, then only read (see compile). domainIx maps
+	// a lowered feed domain to its indicator for the label-suffix lookup; fileAC
+	// is the Aho-Corasick automaton over the distinct lowered file values, whose
+	// literal ids index fileInds.
+	compileOnce sync.Once
+	domainIx    map[string]Indicator
+	fileAC      *acmatch.Matcher
+	fileInds    []Indicator
+}
+
+// loweredInd keeps an indicator alongside its value folded to lower case once,
+// so matching never lower-cases the indicator per event.
+type loweredInd struct {
+	ind   Indicator
+	lower string
 }
 
 // Match is a single indicator hit on an event.
@@ -162,14 +198,41 @@ func (s *Set) Add(value, source string) {
 	s.all = append(s.all, ind)
 	switch ind.Kind {
 	case KindIP:
-		s.ips = append(s.ips, ind)
 		s.exact[value] = ind
 	case KindDomain:
-		s.domains = append(s.domains, ind)
-		s.exact[strings.ToLower(value)] = ind
+		s.doms = append(s.doms, loweredInd{ind: ind, lower: strings.ToLower(value)})
 	default:
-		s.files = append(s.files, ind)
+		s.files = append(s.files, loweredInd{ind: ind, lower: strings.ToLower(value)})
 	}
+}
+
+// compile builds the domain-suffix map and the filename automaton from the
+// loaded indicators. It runs once, under compileOnce, on the first Match: the
+// documented lifecycle is build (Read/Add) then publish then match, so a Set is
+// never added to after it is first matched, and the sync.Once gives every
+// concurrent first Match a consistent, fully built view. On a reload the engine
+// swaps in a freshly built Set, so a mutated feed is always a new Set.
+func (s *Set) compile() {
+	s.domainIx = make(map[string]Indicator, len(s.doms))
+	for _, d := range s.doms {
+		// First load of a value wins, so the reported Source matches the feed
+		// order a linear scan would have reported.
+		if _, ok := s.domainIx[d.lower]; !ok {
+			s.domainIx[d.lower] = d.ind
+		}
+	}
+
+	patID := make(map[string]int, len(s.files))
+	patterns := make([][]byte, 0, len(s.files))
+	for _, fi := range s.files {
+		if _, ok := patID[fi.lower]; ok {
+			continue // a repeated value is one literal; its first load keeps the id
+		}
+		patID[fi.lower] = len(patterns)
+		patterns = append(patterns, []byte(fi.lower))
+		s.fileInds = append(s.fileInds, fi.ind)
+	}
+	s.fileAC = acmatch.New(patterns)
 }
 
 // Classify reports an indicator value's kind from its shape, by the same
@@ -227,6 +290,8 @@ func matchedFields(e event.Event) []struct{ name, val string } {
 // Match returns every indicator that fires on the event, deduplicated by
 // (indicator value, field).
 func (s *Set) Match(e event.Event) []Match {
+	s.compileOnce.Do(s.compile)
+
 	var hits []Match
 	seen := map[string]bool{}
 	add := func(ind Indicator, field string) {
@@ -251,18 +316,37 @@ func (s *Set) Match(e event.Event) []Match {
 			if ind, ok := s.exact[tok]; ok && ind.Kind == KindIP {
 				add(ind, f.name)
 			}
-			ltok := strings.ToLower(tok)
-			for _, d := range s.domains {
-				dv := strings.ToLower(d.Value)
-				if ltok == dv || strings.HasSuffix(ltok, "."+dv) {
-					add(d, f.name)
+			// A domain indicator matches the token exactly or as a dot-suffix.
+			// The label-suffix chain of the token (host, then every parent
+			// domain) is exactly the set of values that satisfy that rule, so
+			// looking each up in domainIx replaces the per-event scan of every
+			// loaded domain with a lookup per label.
+			for suffix := strings.ToLower(tok); ; {
+				if ind, ok := s.domainIx[suffix]; ok {
+					add(ind, f.name)
 				}
+				dot := strings.IndexByte(suffix, '.')
+				if dot < 0 {
+					break
+				}
+				suffix = suffix[dot+1:]
 			}
 		}
-		// Filenames: plain substring (a path or name appearing anywhere).
-		for _, fi := range s.files {
-			if strings.Contains(lower, strings.ToLower(fi.Value)) {
-				add(fi, f.name)
+
+		// Filenames: a substring of the field anywhere. The automaton reports
+		// which loaded file values occur in one pass over the field, so the cost
+		// is the field length, not the indicator count. Reported in id order
+		// (load order) for a stable hit sequence.
+		present := make(map[int]struct{})
+		s.fileAC.ScanInto(lower, present)
+		if len(present) > 0 {
+			ids := make([]int, 0, len(present))
+			for id := range present {
+				ids = append(ids, id)
+			}
+			sort.Ints(ids)
+			for _, id := range ids {
+				add(s.fileInds[id], f.name)
 			}
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/conor-sometimes/banken/internal/acmatch"
 	"github.com/conor-sometimes/banken/internal/event"
 )
 
@@ -28,7 +29,7 @@ import (
 // -- causing a wasted Rule.Match -- never miss a detection.
 type Matcher struct {
 	rules []*Rule
-	ac    *acMatcher
+	ac    *acmatch.Matcher
 	pre   []rulePrefilter // parallel to rules
 	inv   map[int][]int   // literal id -> indices of rules that reference it
 	// always holds indices of rules that could match with no literal present
@@ -130,7 +131,7 @@ func NewMatcher(rules []*Rule) *Matcher {
 		}
 	}
 
-	m.ac = newACMatcher(patterns)
+	m.ac = acmatch.New(patterns)
 	return m
 }
 
@@ -188,17 +189,17 @@ func (m *Matcher) Match(ev event.Event) []*Rule {
 // the authoritative match can never disagree about which text an event has.
 func (m *Matcher) scanEvent(ev event.Event, present map[int]struct{}) {
 	for _, v := range ev.AllText() {
-		m.ac.scanInto(fold(v), present)
+		m.ac.ScanInto(fold(v), present)
 	}
 	// ProcessId / ParentProcessId are matchable via Event.Field but are not in
 	// AllText (they are ids, not keyword text), so scan them here too -- the
 	// prefilter must cover EVERY value Field() can return, or a rule keying on
 	// them would be wrongly skipped. Keyword matching still ignores them.
 	if ev.PID > 0 {
-		m.ac.scanInto(fold(strconv.Itoa(ev.PID)), present)
+		m.ac.ScanInto(fold(strconv.Itoa(ev.PID)), present)
 	}
 	if ev.PPID > 0 {
-		m.ac.scanInto(fold(strconv.Itoa(ev.PPID)), present)
+		m.ac.ScanInto(fold(strconv.Itoa(ev.PPID)), present)
 	}
 }
 
