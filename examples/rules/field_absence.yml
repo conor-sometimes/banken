@@ -1,0 +1,23 @@
+title: Process with no parent recorded
+id: 2c1b8e74-5a90-4d6c-b3e2-0f9a7c4d81ab
+status: experimental
+description: >
+  Demonstrates Sigma null / |exists field-presence matching (gap-closing
+  example): fires on a process execution whose ParentImage field is absent while
+  a CommandLine is present. `field: null` and `field|exists: false` are true
+  when the field is absent; `field|exists: true` is true when it is present -
+  the pySigma truth table.
+author: banken
+date: 2026-11-02
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.defense-evasion
+detection:
+  has_cmd:
+    CommandLine|exists: true
+  no_parent:
+    ParentImage: null
+  condition: has_cmd and no_parent
+level: low

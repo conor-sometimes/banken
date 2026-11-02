@@ -79,8 +79,13 @@ func NewMatcher(rules []*Rule) *Matcher {
 				smp := selMapPrefilter{fields: make([]fieldPrefilter, 0, len(alt.fields))}
 				for _, fm := range alt.fields {
 					fp := fieldPrefilter{all: fm.all}
-					if fm.op == opRegexp || fm.op == opCIDR {
-						fp.wild = true // not a literal; cannot prefilter on it
+					if fm.op == opRegexp || fm.op == opCIDR || fm.op == opExists {
+						// Not a literal substring test: a regexp/CIDR carries no
+						// folded literal, and a presence test (opExists) can match
+						// an event with no literal present at all (field absent).
+						// Either way the prefilter cannot gate on it, so it always
+						// could-match -- sound (over-admits, never misses).
+						fp.wild = true
 					} else {
 						for _, v := range fm.values {
 							folded := fold(v)

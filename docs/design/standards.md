@@ -20,7 +20,9 @@ provenance, YARA sidecar. Each is a day or two; each is a word a hiring manager 
 
 - Sigma v2 correlation rules (event_count, value_count, temporal). Almost no OSS engine implements
   them; run the pySigma differential on them too.
-- Sigma pipelines / field mappings per logsource, so SigmaHQ rules load unmodified per sensor.
+- Sigma pipelines / field mappings per logsource, so SigmaHQ rules load unmodified per sensor. DONE
+  (internal/sigma/pipeline.{yml,go}; docs/design/sigma-pipelines.md). Declarative logsource ->
+  sensor-Source routing; field renames supported (identity for today's sensors, by design).
 - YARA via yara-x. (*) Needed the day quarantine lands ("what is this file"). Rust sidecar, not CGO.
 - STIX 2.1 bundles over TAXII 2.1 for indicators (hashes, IPs, domains); MISP export as a 2nd input.
 - ATT&CK Navigator layer JSON export of coverage. (*) DONE (tools/attack-layer). Recognisable heatmap.

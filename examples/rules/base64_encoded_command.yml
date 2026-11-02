@@ -1,0 +1,26 @@
+title: Base64-encoded command on the command line
+id: 7e6f1d2a-9c3b-4f0e-8a21-3b7c5e9a1f44
+status: experimental
+description: >
+  Demonstrates the |base64offset|contains value modifier (gap-closing example):
+  the rule's plaintext values are compiled to their three offset-shifted base64
+  encodings, so an encoded `whoami` / `cat /etc/shadow` is found no matter where
+  it sits inside a longer base64 blob (echo <b64> | base64 -d, a -enc payload).
+references:
+  - https://sigmahq.io/docs/basics/modifiers.html
+author: banken
+date: 2026-11-02
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.execution
+  - attack.t1027
+detection:
+  sel:
+    CommandLine|base64offset|contains:
+      - whoami
+      - cat /etc/shadow
+      - /bin/sh -i
+  condition: sel
+level: high
