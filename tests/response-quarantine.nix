@@ -386,14 +386,18 @@ pkgs.testers.runNixOSTest {
     assert rc == 1 and "occupied" in err, f"phase D: restore over a squatter must be refused (occupied): rc={rc} err={err}"
     assert machine.succeed(f"cat {P1}").strip() == "squatter", "phase D: the squatter was clobbered"
     assert machine.succeed(f"test -e {QDIR}/{Q3}/file && echo y || echo n").strip() == "y", "phase D: stored file gone after a refused restore"
+    # The -to refusals must run BEFORE any successful restore: once an entry is
+    # restored it is tombstoned, and a later restore is an idempotent no-op (rc 0)
+    # that never reaches the -to check.
+    rc, out, err = restore(Q3, to="/etc/x")
+    assert rc == 1, f"phase D: -to /etc must be refused (never-touch): rc={rc} err={err}"
+    rc, out, err = restore(Q3, to=f"{QDIR}/x")
+    assert rc == 1, f"phase D: -to inside the store must be refused: rc={rc} err={err}"
+    # Now the successful -to (tombstones the entry).
     rc, out, err = restore(Q3, to="/tmp/q/payload.restored")
     assert rc == 0, f"phase D: restore -to a free path failed: {err}"
     assert machine.succeed("sha256sum /tmp/q/payload.restored").split()[0] == p1d_pre["sha"], \
         "phase D: -to destination does not have the original content"
-    rc, out, err = restore(Q3, to="/etc/x")
-    assert rc == 1, f"phase D: -to /etc must be refused (never-touch): rc={rc}"
-    rc, out, err = restore(Q3, to=f"{QDIR}/x")
-    assert rc == 1, f"phase D: -to inside the store must be refused: rc={rc}"
     machine.succeed(f"rm -f {P1}")  # clear the squatter for later phases
 
     # D2: Q4, a replaced inode is refused (neuter method on /dev/shm).
