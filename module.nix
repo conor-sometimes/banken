@@ -89,8 +89,46 @@ let
     response = {
       inherit (cfg.response) enable enforce ledgerDir;
       policyFile = responsePolicyPath;
+      spool.maxAge = cfg.response.spool.maxAge;
+      # The sandbox the helper unit's ReadWritePaths is bounded to, rendered here
+      # too so the drain can refuse at startup a policy whose quarantine.allowPaths
+      # lies outside it (§2.4 -- the sandbox and the policy must agree). With
+      # fileActions off this is the empty list, so the drain refuses ANY quarantine
+      # entry at startup: a kill-only host never carries the file capabilities.
+      quarantineAllowPaths = lib.optionals cfg.response.fileActions cfg.response.quarantine.allowPaths;
     };
   };
+
+  # The helper (banken-respond) exists only when response enforcement is armed.
+  # It is the ONLY unit holding the act capabilities (§2.1); the daemon holds
+  # none after the split. Gating the units (and the cgroup-root tmpfiles rule)
+  # on this one predicate keeps "armed" a single source of truth.
+  responseHelper = cfg.response.enable && cfg.response.enforce;
+
+  # The cgroup v2 root under which a freeze/tree-kill gets its own child cgroup
+  # (the executor default; §2.1). The helper's ReadWritePaths carves it out of
+  # the otherwise read-only /sys (ProtectSystem=strict), and a tmpfiles rule
+  # pre-creates it so the carve-out resolves.
+  responseCgroupRoot = "/sys/fs/cgroup/banken.quarantine";
+
+  # The helper's capability set (§2.1). CAP_DAC_READ_SEARCH reads the policy and
+  # ledger whatever their mode; CAP_KILL signals another uid's process via
+  # pidfd; CAP_SYS_PTRACE reads /proc/<pid>/exe of another uid for the identity
+  # rail. The three FILE capabilities (write a 0700 home on the rename path,
+  # rename/fchmod another uid's file in a sticky dir, set/clear the immutable
+  # bit) are dropped when response.fileActions is off, leaving a kill-only host
+  # no immutable cap it never uses.
+  responseFileCaps = [ "CAP_DAC_OVERRIDE" "CAP_FOWNER" "CAP_LINUX_IMMUTABLE" ];
+  responseHelperCaps = [ "CAP_KILL" "CAP_SYS_PTRACE" "CAP_DAC_READ_SEARCH" ]
+    ++ lib.optionals cfg.response.fileActions responseFileCaps;
+
+  # Mirror of internal/response/policy.go's never-touch check, so a bad
+  # quarantine.allowPaths fails at nixos-rebuild rather than at the helper's
+  # first alert (the same prefixes, the same path-component match). item 3 adds
+  # /dev with a /dev/shm carve-out to both sides at once.
+  neverTouchPrefixes = [ "/nix/store" "/usr" "/bin" "/sbin" "/lib" "/lib64" "/etc" "/boot" "/proc" "/sys" "/run" ];
+  underNeverTouch = p: lib.any (pfx: p == pfx || lib.hasPrefix "${pfx}/" p) neverTouchPrefixes;
+  badAllowPaths = lib.filter (p: !(lib.hasPrefix "/" p) || underNeverTouch p) cfg.response.quarantine.allowPaths;
 
   # The fleet rules puller: the ONLY piece with git and the network. It pulls the
   # rules repo into the runtime checkout, optionally verifies the signed HEAD,
@@ -557,6 +595,42 @@ in
           are the chain of custody for "why did banken touch this process".
         '';
       };
+
+      fileActions = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Let an armed host quarantine files (the doc's default behaviour). When false, the helper unit
+          drops the three file capabilities (CAP_DAC_OVERRIDE, CAP_FOWNER, CAP_LINUX_IMMUTABLE) and the
+          quarantine.allowPaths ReadWritePaths, and quarantineAllowPaths is rendered empty so the drain
+          refuses a quarantine entry at startup -- a kill-only host never carries the immutable cap it
+          would never use. Has no effect unless response.enforce is also set.
+        '';
+      };
+
+      spool.maxAge = lib.mkOption {
+        type = lib.types.str;
+        default = "10m";
+        example = "5m";
+        description = ''
+          How long a work order may sit in the spool before the drain expires it unacted (a kill
+          landing later than this is one the operator did not expect). A systemd/Go duration string.
+          Five default 2 min scans by default. Rendered to banken.yml response.spool.maxAge.
+        '';
+      };
+
+      quarantine.allowPaths = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ "/tmp" "/var/tmp" "/dev/shm" "/home" "/root" "/opt" ];
+        description = ''
+          The directories a quarantine action may move or neuter a file in. Rendered BOTH into the
+          helper unit's ReadWritePaths (the sandbox) AND into banken.yml response.quarantineAllowPaths,
+          so the drain refuses at startup a policy whose allowPaths lie outside this list rather than
+          failing with EROFS at the first alert (the silent-disarm failure, §2.4). Every entry must be
+          absolute and not under a never-touch prefix (/etc, /usr, /bin, /sbin, /lib, /boot, /sys,
+          /proc, /dev except /dev/shm). Ignored when response.fileActions is off.
+        '';
+      };
     };
   };
 
@@ -574,6 +648,12 @@ in
     } {
       assertion = cfg.response.enable -> (cfg.response.policyFile != null || cfg.response.policy != "");
       message = "services.banken.response.enable needs response.policyFile or response.policy (the response policy YAML).";
+    } {
+      assertion = cfg.response.enforce -> cfg.response.enable;
+      message = "services.banken.response.enforce needs response.enable: the banken-respond helper only exists when the responder does.";
+    } {
+      assertion = !(cfg.response.enable && cfg.response.fileActions) || badAllowPaths == [ ];
+      message = "services.banken.response.quarantine.allowPaths has entries that are not absolute or lie under a never-touch prefix (/etc, /usr, /sys, /nix/store, ...): ${toString badAllowPaths}. The drain refuses such a policy at startup, so the module refuses it here.";
     }];
 
     environment.systemPackages = [ cfg.package ];
@@ -639,16 +719,14 @@ in
         OOMScoreAdjust = -900;
 
         # Root, because the audit log is root's; every other power is taken
-        # away. CAP_DAC_READ_SEARCH reads a log another user owns (Laurel's
-        # is _laurel:_laurel 0640).
-        # CAP_DAC_READ_SEARCH reads a log another user owns. When (and ONLY when)
-        # real response enforcement is armed, the in-process executor also needs
-        # CAP_KILL (to SIGKILL another uid's process via pidfd) and CAP_SYS_PTRACE
-        # (to read /proc/<pid>/exe of another uid for the pid-reuse identity
-        # check). enforce is off by default, so the real host keeps the lone
-        # CAP_DAC_READ_SEARCH it has always had.
-        CapabilityBoundingSet = [ "CAP_DAC_READ_SEARCH" ]
-          ++ lib.optionals cfg.response.enforce [ "CAP_KILL" "CAP_SYS_PTRACE" ];
+        # away. CAP_DAC_READ_SEARCH reads a log another user owns (Laurel's is
+        # _laurel:_laurel 0640). After the two-process split the daemon NEVER
+        # grows this set: it only decides and writes a work order, and the act
+        # capabilities (CAP_KILL, CAP_SYS_PTRACE and the file caps) live solely
+        # in banken-respond.service. So this unit is byte-identical whether or
+        # not enforcement is armed -- the point of the split, asserted by the
+        # module-eval check in tests/vm.nix. See docs/design/response-architecture.md §2.1.
+        CapabilityBoundingSet = [ "CAP_DAC_READ_SEARCH" ];
         NoNewPrivileges = true;
         ProtectSystem = "strict";
         # The response ledger defaults to <StateDirectory>/response, which is
@@ -671,22 +749,115 @@ in
         ProtectControlGroups = true;
         ProtectClock = true;
         ProtectHostname = true;
-        # invisible hides other users' processes from banken, which would blind the
-        # executor's /proc identity read; with REAL enforcement armed it must see
-        # the target it is about to act on. Off by default -> banken stays invisible.
-        ProtectProc = if cfg.response.enforce then "default" else "invisible";
+        # invisible hides other users' processes from the daemon. Before the split
+        # an armed in-process executor had to flip this to "default" to read its
+        # target's /proc; after the split the daemon never reads another process's
+        # /proc (the helper does), so it stays invisible unconditionally.
+        ProtectProc = "invisible";
         RestrictNamespaces = true;
         RestrictRealtime = true;
         RestrictSUIDSGID = true;
         LockPersonality = true;
         MemoryDenyWriteExecute = true;
         SystemCallArchitectures = "native";
-        # pidfd_open / pidfd_send_signal are the race-free way the executor pins and
-        # signals a target; added only when enforcement is armed (they are part of
-        # @system-service on current systemd, but named here so the filter is correct
-        # regardless of the host's group definition).
-        SystemCallFilter = [ "@system-service" ]
-          ++ lib.optionals cfg.response.enforce [ "pidfd_open" "pidfd_send_signal" "pidfd_getfd" ];
+        # The daemon never signals or pins a process after the split, so it no
+        # longer needs the pidfd syscalls; they moved to the helper's filter. This
+        # list is now the same whether or not enforcement is armed.
+        SystemCallFilter = [ "@system-service" ];
+        SystemCallErrorNumber = "EPERM";
+        UMask = "0077";
+      };
+    };
+
+    # --- the response helper: banken-respond.{service,path} (the two-process split) ---
+    #
+    # The ONLY unit that holds the act capabilities (§2.1). It runs `banken
+    # respond drain`: it reads work orders the daemon wrote to the spool,
+    # RE-DECIDES each from its own copy of the policy on disk, re-checks the live
+    # target, and acts -- so a compromised daemon's only lever is a JSON file
+    # that is re-judged under rails it does not control. Exists only when
+    # enforcement is armed (responseHelper); a non-armed host has neither unit.
+    #
+    # The path unit fires the oneshot on inotify when an order lands
+    # (DirectoryNotEmpty), MakeDirectory pre-creates the 0700 spool dir. No
+    # ordering between the two units is needed: the daemon writes orders whether
+    # or not the helper is up, and the path unit catches up when it is.
+    systemd.paths.banken-respond = lib.mkIf responseHelper {
+      description = "Fire banken-respond when a response work order lands in the spool";
+      documentation = [ "https://github.com/conor-sometimes/banken" ];
+      wantedBy = [ "multi-user.target" ];
+      pathConfig = {
+        DirectoryNotEmpty = "/var/lib/banken/spool";
+        MakeDirectory = true;
+        DirectoryMode = "0700";
+      };
+    };
+
+    systemd.services.banken-respond = lib.mkIf responseHelper {
+      description = "banken response helper (re-decides and executes work orders)";
+      documentation = [ "https://github.com/conor-sometimes/banken" ];
+      # Ordering only (the helper has no sensor dependency): a drain reads the
+      # audit log's /proc targets, not the log, so it needs auditd present but
+      # does not wait on events. Never wantedBy: the path unit starts it.
+      after = [ "auditd.service" ];
+      # A drain that fails five times in a minute (unreadable policy, an order it
+      # cannot unlink) stops being retried until an operator looks; the number is
+      # the systemd default shape, in the unit so the journal names the limit.
+      unitConfig = {
+        StartLimitIntervalSec = 60;
+        StartLimitBurst = 5;
+      };
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${lib.getExe cfg.package} respond drain -config /etc/banken/banken.yml";
+        StateDirectory = "banken";
+        StateDirectoryMode = "0700";
+
+        OOMScoreAdjust = -900;
+
+        # The act capability set (§2.1). This unit is the sole holder; the daemon
+        # holds CAP_DAC_READ_SEARCH only. fileActions off drops the file caps.
+        CapabilityBoundingSet = responseHelperCaps;
+        # pidfd_open/_send_signal pin and signal a target race-free; pidfd_getfd
+        # grabs the target's fds for a collect; renameat2 (not on the generic
+        # syscall-table group on every systemd) is the quarantine rename. Named so
+        # the filter is correct regardless of the host's @system-service group.
+        SystemCallFilter = [ "@system-service" "pidfd_open" "pidfd_send_signal" "pidfd_getfd" "renameat2" ];
+
+        # It must see and act on other users' processes and files, so the three
+        # daemon shields are OFF here -- the write set is bounded by ReadWritePaths
+        # instead, and the sandbox below is otherwise the daemon's.
+        ProtectProc = "default";
+        ProtectControlGroups = false;
+        PrivateTmp = false;
+        ProtectHome = false;
+        # The cgroup root (freeze/tree-kill writes child cgroups there; '-' so a
+        # kill-only host where it was never created still starts), the quarantine
+        # allowPaths (fileActions only), and a ledgerDir outside the state dir.
+        ReadWritePaths = [ "-${responseCgroupRoot}" ]
+          ++ lib.optionals cfg.response.fileActions cfg.response.quarantine.allowPaths
+          ++ lib.optional
+            (!(lib.hasPrefix "/var/lib/banken" cfg.response.ledgerDir))
+            cfg.response.ledgerDir;
+
+        # It has no reason to speak to the network at all.
+        PrivateNetwork = true;
+        RestrictAddressFamilies = [ "AF_UNIX" ];
+
+        NoNewPrivileges = true;
+        ProtectSystem = "strict";
+        PrivateDevices = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectKernelLogs = true;
+        ProtectClock = true;
+        ProtectHostname = true;
+        RestrictNamespaces = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
+        LockPersonality = true;
+        MemoryDenyWriteExecute = true;
+        SystemCallArchitectures = "native";
         SystemCallErrorNumber = "EPERM";
         UMask = "0077";
       };
@@ -716,9 +887,13 @@ in
       home = cfg.refresh.dir;
     };
     users.groups.banken-rules = lib.mkIf cfg.refresh.enable { };
-    systemd.tmpfiles.rules = lib.mkIf cfg.refresh.enable [
-      "d ${cfg.refresh.dir} 0755 banken-rules banken-rules -"
-    ];
+    # The puller's checkout dir (when on) and the response helper's cgroup-v2
+    # root (when armed): the latter pre-created so the helper's ReadWritePaths
+    # carve-out of the otherwise read-only /sys resolves. One rules list, since a
+    # nested attrpath may be assigned only once in this attrset.
+    systemd.tmpfiles.rules =
+      lib.optionals cfg.refresh.enable [ "d ${cfg.refresh.dir} 0755 banken-rules banken-rules -" ]
+      ++ lib.optionals responseHelper [ "d ${responseCgroupRoot} 0700 root root -" ];
 
     # The puller: pull -> (verify) -> preflight -> (on success) reload. Unprivileged, network-facing,
     # hardened as far as a git+network job allows. A failure rolls the checkout back and exits
