@@ -151,4 +151,102 @@
         machine.succeed(f"printf %s {b64} | base64 -d > /var/lib/banken/spool.tmp/{oid}.json")
         machine.succeed(f"mv /var/lib/banken/spool.tmp/{oid}.json /var/lib/banken/spool/{oid}.json")
         return oid
+
+    # ================= freeze-proof harness (docs section 4.1) =================
+    # A heartbeat carrier, a process-tree victim, and the heartbeat read/stall
+    # helpers that tests/response-freeze.nix needs. Appended self-contained so
+    # they never touch enf_scan / enf_order / enf_spawn above (item 9 edits this
+    # same file in parallel). They reuse _b64, _STAY and the launcher discipline
+    # already defined above.
+
+    # The heartbeat settle/window constants. settle_ms lets an in-flight `sleep`
+    # that was mid-exit land its final append before the first size read;
+    # window_ms is long enough that a running beat (every ~10 ms) grows the file
+    # by many bytes, so "no growth over the window" means the tree is truly
+    # stopped, not merely between ticks.
+    HB_SETTLE_MS = 200
+    HB_WINDOW_MS = 1000
+
+    def _hb_file(name):
+        return f"/tmp/hb_{name}"
+
+    def hb_size(name):
+        """Byte size of a victim's heartbeat file (0 if it does not exist)."""
+        return int(machine.succeed(
+            f"stat -c %s {_hb_file(name)} 2>/dev/null || echo 0"
+        ).strip())
+
+    def hb_stalled(name, settle_ms=HB_SETTLE_MS, window_ms=HB_WINDOW_MS):
+        """True when the heartbeat file is NOT growing: let in-flight writes
+        settle, read the size, wait the window, read again, compare. A frozen
+        victim's file is static (-> True); a live one grows (-> False)."""
+        machine.succeed(f"sleep {settle_ms / 1000.0}")
+        before = hb_size(name)
+        machine.succeed(f"sleep {window_ms / 1000.0}")
+        after = hb_size(name)
+        return after == before
+
+    # The heartbeat stay-alive tail: append to the heartbeat file, fork a short
+    # `sleep` and wait on it, forever. The file's growth is the ground truth for
+    # "this process is making progress" -- frozen the instant the shell is. The
+    # 10 ms sleep forks a child each tick: the fork-during-migration shape a
+    # scope:tree freeze must catch.
+    def _beat_tail(name):
+        return f"while :; do echo . >> {_hb_file(name)}; sleep 0.01; done"
+
+    def enf_beat(name, trigger="", user="alice"):
+        """Spawn a heartbeat shell victim carrying `trigger` in its CommandLine
+        (a CommandLine-only rule's marker) and then beating. Returns its pid.
+        Same discipline as enf_spawn: the marker is read from a file and the
+        launchers exec-replace, so no launcher process carries the marker."""
+        hb = _hb_file(name)
+        pidf = f"/tmp/enf_{name}.pid"
+        trigf = f"/tmp/enf_{name}.trig"
+        machine.succeed(f"rm -f {hb} {pidf}")
+        body = (trigger + " ; " if trigger else "") + _beat_tail(name)
+        machine.succeed(f"printf %s {_b64(body)} | base64 -d > {trigf}")
+        machine.succeed(f"chmod 0644 {trigf}")
+        boot = f'echo $$ > {pidf} ; exec bash -c "$(cat {trigf})"'
+        pre = "" if user == "root" else f"runuser -u {user} -- "
+        machine.succeed(
+            f'( {pre}setsid bash -c "$(printf %s {_b64(boot)} | base64 -d)" >/dev/null 2>&1 & ) ; true'
+        )
+        machine.wait_for_file(pidf)
+        pid = machine.succeed(f"cat {pidf}").strip()
+        machine.succeed(f"kill -0 {pid}")
+        machine.wait_until_succeeds(f"test -s {hb}")  # it is beating
+        return pid
+
+    def enf_tree(name, trigger="", beat=False, user="alice"):
+        """Spawn a process-tree victim: a bash shell that first backgrounds a
+        long-lived `sleep` child (recorded) and then either beats (beat=True) or
+        sleeps. Returns (shell_pid, child_pid). The child's ppid is the shell, so
+        targetSet(scope:tree) enumerates both and they share the shell's cgroup,
+        so the cgroup freezer/kill catches the whole tree. The child is spawned
+        BEFORE the trigger so a slow trigger cannot keep the child from being
+        recorded."""
+        hb = _hb_file(name)
+        pidf = f"/tmp/enf_{name}.pid"
+        childf = f"/tmp/enf_{name}.child"
+        trigf = f"/tmp/enf_{name}.trig"
+        machine.succeed(f"rm -f {hb} {pidf} {childf}")
+        tail = _beat_tail(name) if beat else _STAY
+        body = (f"sleep 1000000 & echo $! > {childf} ; "
+                + (trigger + " ; " if trigger else "") + tail)
+        machine.succeed(f"printf %s {_b64(body)} | base64 -d > {trigf}")
+        machine.succeed(f"chmod 0644 {trigf}")
+        boot = f'echo $$ > {pidf} ; exec bash -c "$(cat {trigf})"'
+        pre = "" if user == "root" else f"runuser -u {user} -- "
+        machine.succeed(
+            f'( {pre}setsid bash -c "$(printf %s {_b64(boot)} | base64 -d)" >/dev/null 2>&1 & ) ; true'
+        )
+        machine.wait_for_file(pidf)
+        machine.wait_for_file(childf)
+        shell_pid = machine.succeed(f"cat {pidf}").strip()
+        child_pid = machine.succeed(f"cat {childf}").strip()
+        machine.succeed(f"kill -0 {shell_pid}")
+        machine.succeed(f"kill -0 {child_pid}")
+        if beat:
+            machine.wait_until_succeeds(f"test -s {hb}")
+        return shell_pid, child_pid
 ''
