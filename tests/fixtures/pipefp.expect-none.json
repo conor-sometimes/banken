@@ -1,0 +1,29 @@
+[
+  {
+    "source": "auditd",
+    "image": "/usr/bin/curl",
+    "commandLine": "curl -O https://example.com/archive.tar.gz",
+    "user": "1000",
+    "pid": 8800,
+    "ppid": 8799,
+    "currentDirectory": "/home/u"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/bash",
+    "commandLine": "bash -c curl -s https://example.com/setup.sh | cashier --run",
+    "user": "1000",
+    "pid": 8801,
+    "ppid": 8799,
+    "currentDirectory": "/home/u"
+  },
+  {
+    "source": "auditd",
+    "image": "/usr/bin/bash",
+    "commandLine": "bash -c curl -s https://example.com/x | bashful-wrapper",
+    "user": "1000",
+    "pid": 8802,
+    "ppid": 8799,
+    "currentDirectory": "/home/u"
+  }
+]

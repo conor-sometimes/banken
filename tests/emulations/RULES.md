@@ -34,7 +34,8 @@ anything that would touch the live host) is documented in `./README.md` and in e
 | `rules/defense-evasion/tamper_banken.yml` | `tamper.sh` | T1562 | stop/kill/rm a nonexistent `banken-emul-dummy`, unprivileged `auditctl -D` (pre-existing). |
 | `rules/defense-evasion/timestomp.yml` | `stomp.sh` | T1070.006 | `touch -t <past>` and `touch -r /bin/sh` on dummy scratch files. |
 | `rules/discovery/network_sniffing.yml` | `sniff.sh` | T1040 | Invoke `tcpdump`/`tshark`/ with `--version` only - no capture. |
-| `rules/execution/pipe_to_shell.yml` | `xmrig.sh` | T1059.004 | `curl  \| sh` from TEST-NET (pre-existing). |
+| `rules/execution/pipe_to_shell.yml` | `xmrig.sh` | T1059.004 | `curl  \| sh` from TEST-NET, plus `curl \| fish` and `wget -qO- \| ash` (the shells the old `(ba\|da\|z\|k)?sh` set missed). |
+| `rules/execution/exec_from_tmp.yml` | `tmpexec.sh` | T1059 | Copy `true` into a `/tmp` scratch dir under an ordinary name and run it (image under a temp dir), and run `bash /tmp/<scratch>/run.sh` + `python3 /dev/shm/<scratch>/calc.py` (interpreter handed a temp script path). All no-ops. |
 | `rules/optional/netcat.yml` | `netcat.sh` | T1095 | Plain `nc` connect (no `-z`) to TEST-NET with a short timeout. |
 | `rules/optional/password_cracker.yml` | `johncrack.sh` | T1110 | Invoke `john`/`hashcat`/etc. with `--version` only - cracks nothing. |
 | `rules/persistence/account_creation.yml` | `newuser.sh` | T1136.001 | `useradd banken-emul-dummy`, **unprivileged-only** (cannot write `/etc/passwd`). |
@@ -44,7 +45,7 @@ anything that would touch the live host) is documented in `./README.md` and in e
 | `rules/privilege-escalation/setuid_bit_set.yml` | `setuid.sh` | T1548.001 | `chmod u+xs` / `chmod 4755` on a dummy scratch file. |
 | `rules/defense-evasion/audit_config_tamper.yml` | `auditconf.sh` | T1562.006 | `cp` the real `/etc/audit/auditd.conf` + `/etc/rsyslog.conf` to scratch (read-only); edit lands only on the scratch copy. |
 | `rules/defense-evasion/disable_mac.yml` | `setenforce0.sh` | T1562.001 | `sed SELINUX=disabled` on a scratch selinux config + `systemctl stop` a nonexistent `apparmor-emul-dummy`; `setenforce 0` only if present and unprivileged. |
-| `rules/defense-evasion/masquerading.yml` | `masqdaemon.sh` | T1036.005 | Copy `true` into a `/tmp` scratch dir as `crond` and into a `...` dir, then exec (both just exit 0). |
+| `rules/defense-evasion/masquerading.yml` | `masqdaemon.sh` | T1036.005 | Copy `true` into a `/tmp` scratch dir as `crond` and into a `...` dir, then exec (both just exit 0). Also trips `exec_from_tmp` (it runs a binary from `/tmp`) - masqdaemon's fixtures name both. |
 | `rules/defense-evasion/permission_modification.yml` | `permtamper.sh` | T1222.002 | `chmod 777` + `chattr -i` on a dummy scratch file. |
 | `rules/discovery/network_service_scan.yml` | `portscan.sh` | T1046 | Invoke `nmap`/`masscan`/etc. with `--version` only - no scan (the `nc -z` form is avoided to not cross-fire `netcat`). |
 | `rules/persistence/kernel_module_load.yml` | `insmodload.sh` | T1547.006 / T1014 | `modprobe` / `insmod` a nonexistent dummy module - loads nothing. |
@@ -58,7 +59,7 @@ anything that would touch the live host) is documented in `./README.md` and in e
 | `rules/persistence/rc_script_persistence.yml` | `rcpersist.sh` | T1037.004 | `tee -a` a no-op line into a scratch `.../etc/rc.local` (never the real boot script). |
 | `rules/discovery/security_software_discovery.yml` | `edrdiscover.sh` | T1518.001 | `pgrep`/`grep -E` for EDR/AV agent names (`falcond`/`osqueryd`/`wazuh-agent`...); matches nothing on a clean box. |
 | `rules/credential-access/shell_history_read.yml` | `histread.sh` | T1552.003 | `cat` a DUMMY `.bash_history` in scratch (reading it; wiping is `history_tamper`). |
-| `rules/defense-evasion/masquerade_extension.yml` | `masqext.sh` | T1036.008 / T1036.007 | `sh` a scratch `image.png` script, and exec a scratch `report.pdf.sh` (each just echoes). |
+| `rules/defense-evasion/masquerade_extension.yml` | `masqext.sh` | T1036.008 / T1036.007 | `sh` a scratch `image.png` script, and exec a scratch `report.pdf.sh` (each just echoes). Also trips `exec_from_tmp` (both run from `/tmp`) - masqext's fixtures name both. |
 | `rules/command-and-control/tor_usage.yml` | `torstart.sh` | T1090.003 | `systemctl start` a nonexistent `tor-emul` unit (starts nothing; the `tor`+start argv is the signal). |
 | `rules/credential-access/browser_credential_access.yml` | `browsercred.sh` | T1555.003 / T1217 | `cat` a DUMMY `logins.json` under a scratch `.mozilla/firefox` profile. |
 | `rules/exfiltration/public_paste_exfil.yml` | `pasteexfil.sh` | T1567.004 / T1048.002 | `curl -F` to `file.io`/a Discord webhook HOSTNAME, pinned to TEST-NET with `--resolve` (nothing leaves). |

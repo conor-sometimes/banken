@@ -1,0 +1,47 @@
+title: Executable or script run from a world-writable temp dir
+id: eff4d539-815c-4cde-af26-c9f5a8f61ac9
+status: experimental
+description: >
+  A process executed out of a world-writable scratch dir - either its own image lives under /tmp,
+  /dev/shm, /var/tmp or /run/user (a dropped payload run directly, or through its shebang), or an
+  interpreter (bash, sh, python, perl ...) was handed a script PATH under one of those dirs.
+  Legitimate programs are installed under /usr, /bin or the nix store and run from there; staging a
+  payload in a scratch dir and executing it is a classic post-download step. The executable LOCATION
+  is the signal - this deliberately does NOT fire on an interpreter that merely mentions a temp path
+  inside inline `-c` code (only a temp script-file argument counts).
+references:
+  - https://attack.mitre.org/techniques/T1059/
+author: banken
+date: 2026-11-02
+logsource:
+  product: linux
+  category: process_creation
+tags:
+  - attack.execution
+  - attack.t1059
+# ATT&CK: mapped to T1059 (Execution). ATT&CK has no dedicated technique for "ran from a
+# world-writable dir"; the established public convention (e.g. Elastic's "Binary/Script Executed
+# from a Writable Directory") tags exactly this as Execution / T1059, sometimes alongside
+# Masquerading / T1036. We take the honest Execution tactic here and leave T1036.005 to
+# masquerading.yml, which catches the distinct NAME-match shape (a daemon-named binary in /tmp) and
+# the "..."-dir trick - not the generic location signal below. T1059 is precise for the script
+# branch and the best available fit for a bare-ELF drop.
+detection:
+  # (a) the process's own image is under a world-writable temp dir (direct exec or shebang exec)
+  image_in_tmp:
+    Image|re: '^/(tmp|var/tmp|dev/shm|run/user/[0-9]+|run/shm)/'
+  # (b) an interpreter handed a script-PATH argument under a temp dir. The temp path must be the
+  # script argument (right after the interpreter and any non `-c` flags), NOT anywhere in the
+  # command, so inline `-c '... /tmp/x ...'` code does not trip it: a bare `-c` is excluded from the
+  # optional flag run, which stops the match before the temp path can be reached.
+  interp_tmp_script:
+    CommandLine|re: '(^|\s|/)(bash|dash|zsh|ksh|fish|ash|sh|python[0-9.]*|perl|ruby|php|node|awk)\s+((-[^c\s]\S*|--\S+)\s+)*(/tmp/|/var/tmp/|/dev/shm/|/run/user/[0-9]+/|/run/shm/)'
+  condition: image_in_tmp or interp_tmp_script
+falsepositives:
+  - Package managers and build systems run maintainer/config scripts from /tmp or /var/tmp during
+    installs and builds (dpkg/rpm maintainer scripts, ./configure conftest binaries, a pip wheel's
+    `sh /tmp/pip-xxx/build.sh`). Those WILL fire and are review-worthy by design - like a piped
+    installer, a program executing from a scratch dir is worth a glance even when benign. Add an
+    allow-list for the known builder paths if a given host is too noisy. A build that compiles and
+    runs a test binary out of /tmp is the same class.
+level: high
