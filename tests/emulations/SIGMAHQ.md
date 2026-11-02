@@ -23,16 +23,16 @@ entry and proves it, move that rule from a "pending/deferred" line here to the s
 drop any matching note). When a batch finds a rule genuinely unemulatable, record it here with the
 reason rather than leaving it silent.
 
-## Summary (as of batch 5, r2026-07-01)
+## Summary (as of batch 6, r2026-07-01)
 
 | SigmaHQ Linux category | Total | Supported here | Notes |
 | --- | --- | --- | --- |
-| `process_creation/` | 122 | ~91 (see `expected`) | the grind's main layer |
+| `process_creation/` | 122 | ~94 (see `expected`) | the grind's main layer |
 | `file_event/` | 8 | 6 (see `expected`) | reached via `audit.watchPaths` scratch files |
 | `network_connection/` | 5 | 0 | deferred - auditd-network-fields engine gap |
 | `auditd/` | 53 | 0 gated | auditd-logsource layer; some fire as bonus twins, none gated here yet |
 | `builtin/` | 22 | 0 | service-log / syslog message rules; see category note |
-| **total** | **210** | **~97 distinct rules** | |
+| **total** | **210** | **~100 distinct rules** | |
 
 Supported jumped from 54 (batches 1-3) to ~79 with batch 4 (+21 process_creation, +4 file_event;
 the `nohup`/`mkfifo` base rules were already supported and fire as twins of the new
@@ -45,6 +45,13 @@ the `nohup`/`mkfifo` base rules were already supported and fire as twins of the 
 `susp_recon_indicators`, `susp_shell_script_exec_from_susp_location`,
 `susp_network_utilities_execution`; the already-supported `curl_usage`, `services_stop_and_disable`
 and `file_and_directory_discovery` fire as twins of the new rules).
+
+Batch 6 added the last three Image/CommandLine-only process_creation rules (+3, to ~100):
+`susp_git_clone` (clone of a nonexistent local repo whose path carries 'CVE-'/'proxyshell'),
+`rsync_shell_execution` (`true` copied as 'rsync', run with ' -e '/'/bin/sh ') and `chroot_execution`
+(`sudo -n --chroot` refused for the unprivileged user). It also drew the line under the layer: the
+six remaining pending process_creation rules all key on a PARENT field this harness's source does
+not carry, and are recorded below as deferred (never faked).
 
 ## Deferred to the distro matrix (task `d468b494`)
 
@@ -90,6 +97,28 @@ port) that banken's engine does not yet surface. Blocked on that engine work, no
 - `net_connection_lnx_ngrok_tunnel.yml`
 - `net_connection_lnx_susp_malware_callback_port.yml`
 
+### Deferred - parent-field source gap (process_creation)
+
+These six rules key on a field describing the PARENT process that this harness's log source does not
+carry. This harness auto-detects the raw auditd source (`/var/log/audit/audit.log`): an auditd
+EXECVE/SYSCALL record gives the parent's PID (`ppid=`) but neither the parent's executable path nor
+its command line, so banken's auditd parser leaves `ParentImage` empty and never sets
+`ParentCommandLine`. Confirmed by a batch-6 run: a benign emulation that forks the right child (a
+copied `bash` named `java`/`nginx`/`rsync`, or a `/tmp`-resident parent, spawning `/bin/sh` or
+`whoami`) IS captured as a child execve, but the parent-field selection does not match, so the rule
+does not fire. These are not faked or skipped silently; they become emulatable once the harness
+ingests a Laurel source (Laurel enriches `ParentImage` from `SYSCALL.PPID.exe`) - future harness
+work, not a rule-writing task.
+
+| Rule (file) | Parent field needed |
+| --- | --- |
+| `process_creation/proc_creation_lnx_susp_java_children.yml` | `ParentImage` endswith `/java` |
+| `process_creation/proc_creation_lnx_webshell_detection.yml` | `ParentImage` endswith a web-server name (`/nginx`, `/apache2`, ...) |
+| `process_creation/proc_creation_lnx_rsync_shell_spawn.yml` | `ParentImage` endswith `/rsync` |
+| `process_creation/proc_creation_lnx_susp_shell_child_process_from_parent_tmp_folder.yml` | `ParentImage` startswith `/tmp/` |
+| `process_creation/proc_creation_lnx_git_shell_execution.yml` | `ParentCommandLine` contains ` -p ` + `help` (not carried by auditd OR Laurel) |
+| `process_creation/proc_creation_lnx_susp_interactive_bash.yml` | `ParentCommandLine` exactly `bash -i` (not carried by auditd OR Laurel) |
+
 ## Permanent skips
 
 Targets the distro matrix will never carry (a hypervisor CLI, or a proprietary product), so no
@@ -116,33 +145,19 @@ benign Linux-distro emulation is possible.
 
 ## Pending - emulatable, future grind batches (process_creation)
 
-Still unsupported but have no blocker beyond not-yet-written; good next-batch targets (rule names
-shown without the `proc_creation_lnx_` prefix): `susp_git_clone`,
-`susp_shell_child_process_from_parent_tmp_folder` (needs a parent process whose image is under
-`/tmp/` - fiddly to stage benignly without tripping the tmp-exec rules).
+None. The gated `process_creation` layer is exhausted: every SigmaHQ Linux `process_creation` rule
+is now either supported (see `expected`), deferred with a reason above (distro matrix `d468b494`;
+the parent-field source gap; the root-only `/etc` file_event paths; the network_connection engine
+gap), or a permanent skip (ESXi x9, Kaspersky). The `file_event` layer is likewise exhausted (6
+supported, 2 deferred for needing a root write under `/etc`).
 
-(Batch 5 proved `netcat_reverse_shell`, `ssh_shell_execution`, `curl_wget_exec_tmp`,
-`install_root_certificate`, `install_suspicious_packages`, `security_tools_disabling`,
-`clipboard_collection`, `susp_shell_script_exec_from_susp_location`,
-`malware_gobrat_grep_payload_discovery`, `pnscan_binary_cli_pattern`,
-`susp_network_utilities_execution`, `susp_recon_indicators`, `triple_cross_rootkit_execve_hijack`,
-`triple_cross_rootkit_install`, `xterm_reverse_shell`, `dd_process_injection` from this list, plus
-`bpftrace_unsafe_option_usage` and `bpf_kprob_tracing_enabled`. `apt_shell_execution` moved to the
-distro-matrix table - `apt`/`apt-get` are not in nixpkgs.)
-
-### Pending - harder (process_creation)
-
-Need a specific parent process, interpreter runtime, or shell topology that is awkward to stage
-benignly; doable but fiddly, not blocked:
-
-- `rsync_shell_spawn.yml` / `rsync_shell_execution.yml` - rsync as PARENT spawning a shell, with the
-  normal ` -e ` form explicitly filtered out.
-- `git_shell_execution.yml` - parent `git -p help` with a shell pager.
-- `susp_interactive_bash.yml` - requires `ParentCommandLine` exactly `bash -i`.
-- `webshell_detection.yml` - shell child of a web-server user (apache/nginx/www-data).
-- `susp_java_children.yml` - JVM spawning a shell.
-- `chroot_execution.yml` - keys on `sudo --chroot`; running `sudo` risks tripping the
-  privilege-escalation path the harness deliberately avoids (`runuser`, never `su`/`sudo`).
+Batch 6 proved the last three Image/CommandLine-only rules - `susp_git_clone`,
+`rsync_shell_execution`, `chroot_execution` - and moved the six parent-field rules
+(`susp_java_children`, `webshell_detection`, `rsync_shell_spawn`,
+`susp_shell_child_process_from_parent_tmp_folder`, `git_shell_execution`, `susp_interactive_bash`)
+to the parent-field deferred table once a batch-6 run confirmed they cannot fire under the raw-auditd
+source. The next coverage gains come from the auditd/builtin layers (below) or a Laurel-source
+harness that would unlock the four `ParentImage` rules.
 
 ## Pending categories (not process_creation)
 

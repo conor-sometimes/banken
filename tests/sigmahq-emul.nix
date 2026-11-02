@@ -206,6 +206,31 @@ let
     sigmahq_recon_indicators = [ "proc_creation_lnx_susp_recon_indicators" "proc_creation_lnx_file_and_directory_discovery" ];
     sigmahq_shell_script_susp_location = [ "proc_creation_lnx_susp_shell_script_exec_from_susp_location" ];
 
+    # Batch 6 -- the last Image/CommandLine-only process_creation rules this
+    # harness can prove. Same shapes as the earlier batches: a distinctive
+    # binary/flag combination run benignly (a clone of a NONEXISTENT local repo
+    # whose path carries the 'CVE-'/'proxyshell' keywords; sudo refused
+    # non-interactively with ' --chroot '; the stock `true` binary copied under
+    # the name 'rsync' run with ' -e '/'/bin/sh '). None spawns a shell, connects
+    # anywhere, or needs privilege; each keys purely on an Image name + command
+    # line, which the raw-auditd source surfaces.
+    #
+    # The six remaining pending process_creation rules all key on a PARENT field
+    # the auditd source does not carry, so they are recorded in SIGMAHQ.md as
+    # deferred rather than emulated here (never faked):
+    #   * ParentImage (susp_java_children, webshell_detection, rsync_shell_spawn,
+    #     susp_shell_child_process_from_parent_tmp_folder) -- the raw auditd log
+    #     records the parent PID but not its executable path, and banken's auditd
+    #     parser leaves ParentImage empty (only the Laurel source enriches it from
+    #     SYSCALL.PPID.exe); this harness auto-detects the raw auditd source, so
+    #     these never match. Confirmed by a run: the child shell/whoami execve is
+    #     captured but the ParentImage selection does not fire.
+    #   * ParentCommandLine (git_shell_execution, susp_interactive_bash) -- neither
+    #     the auditd nor the Laurel source carries the parent's command line.
+    sigmahq_repo_clone = [ "proc_creation_lnx_susp_git_clone" ];
+    sigmahq_rsync_shell_execution = [ "proc_creation_lnx_rsync_shell_execution" ];
+    sigmahq_chroot_execution = [ "proc_creation_lnx_chroot_execution" ];
+
     sigmahq_benign = [ ];
   };
 in
