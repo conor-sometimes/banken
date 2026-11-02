@@ -148,6 +148,7 @@
       # ship them -- it needs only the module (no mimi), like vm.
       checks.x86_64-linux = {
         vm = import ./tests/vm.nix { inherit pkgs; banken = bankenPkg; };
+        response-enforce = import ./tests/response-enforce.nix { inherit pkgs; banken = bankenPkg; };
         switch = import ./tests/switch.nix { inherit pkgs mimiModule; banken = bankenPkg; };
         switch-floor = import ./tests/switch-floor.nix { inherit pkgs mimiModule; banken = bankenPkg; };
         switch-restart = import ./tests/switch-restart.nix { inherit pkgs mimiModule; banken = bankenPkg; };

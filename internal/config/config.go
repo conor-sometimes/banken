@@ -62,6 +62,45 @@ type Config struct {
 	Intel []IntelFeed `yaml:"intel"`
 	// Alerts configures the sinks.
 	Alerts Alerts `yaml:"alerts"`
+	// Response configures the response-action layer (decide + execute). Empty
+	// is the common case: with no response block banken is alert-only, exactly
+	// as it has always been. See ResponseConfig; nothing here arms real
+	// enforcement unless Enforce is explicitly true.
+	Response ResponseConfig `yaml:"response"`
+}
+
+// ResponseConfig wires the response layer into the daemon. The decision policy
+// (which rule/tag maps to which action, the mode, the rails) lives in its own
+// YAML, supplied either as PolicyFile (a path) or Policy (inline). Enable turns
+// the responder on; Enforce ARMS the executor to perform REAL actions.
+//
+// SAFETY: Enforce is off by default and the NixOS module keeps it off on every
+// real host. With Enforce false the executor is a dry-run: it decides and
+// records to the ledger but kills, freezes or quarantines nothing. Only the
+// throwaway VM integration test (tests/response-enforce.nix) sets it true. See
+// docs/design/response-actions.md.
+type ResponseConfig struct {
+	// Enable installs the responder on the alert dispatch point. Off => the
+	// daemon is alert-only (no Decide, no ledger, no executor).
+	Enable bool `yaml:"enable"`
+	// Enforce ARMS real enforcement (Config.Enforce on the executor). Default
+	// false: a dry-run executor that performs no real action. The one place it
+	// is ever true is the VM test.
+	Enforce bool `yaml:"enforce"`
+	// PolicyFile is a path to the response policy YAML. Used when non-empty.
+	PolicyFile string `yaml:"policyFile"`
+	// Policy is the response policy YAML inline, used only when PolicyFile is
+	// unset. Convenient for a small policy the module renders from options.
+	Policy string `yaml:"policy"`
+	// LedgerDir is where the append-only decision/action ledger is written.
+	// Empty means response/ under the state directory.
+	LedgerDir string `yaml:"ledgerDir"`
+	// CgroupRoot is the cgroup v2 directory under which a freeze/tree-kill gets
+	// its own child cgroup. Empty means the executor default.
+	CgroupRoot string `yaml:"cgroupRoot"`
+	// QuarantineDir is where quarantined files are moved. Empty means the
+	// executor default.
+	QuarantineDir string `yaml:"quarantineDir"`
 }
 
 // RefreshConfig bounds and governs a runtime rule refresh. A rule is close to

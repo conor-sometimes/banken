@@ -1,9 +1,10 @@
 # Response actions - design spec
 
-Status: **partially implemented; real enforcement DISABLED and not armed.** The decision layer
-(phases 0-1) and the executor (phase 2) are built; see the "Implementation status" box below for
+Status: **partially implemented; real enforcement DISABLED by default and armed only inside one VM
+test.** The decision layer (phases 0-1), the executor (phase 2) and the responder that wires an
+alert through `Decide` to the executor are built; see the "Implementation status" box below for
 exactly what exists and -- loudly -- for the fact that no process is killed, frozen or quarantined
-anywhere by default. The design text below is the original proposal, written against the tree as of
+on any real host. The design text below is the original proposal, written against the tree as of
 2026-10-31 (`17c1d21`); where the code and this prose diverge the code is the truth.
 
 > ## Implementation status (as built)
@@ -33,9 +34,33 @@ anywhere by default. The design text below is the original proposal, written aga
 >   so `GOOS=windows` still builds. Tests exercise dry-run everywhere and, on Linux, the real paths
 >   against only self-spawned `sleep` children and files the test created under `/tmp`.
 >
-> Not built here (deferred): wiring the responder/spool/drain into the scan, the `banken respond`
-> subcommands, the `banken-respond.{service,path}` units with seccomp+Landlock, and anything that
-> would actually arm enforcement (phases 3-4 and the arming step).
+> - **Responder wiring** (`internal/response/respond`, `main.go`, `module.nix`): the deferred
+>   alert -> `Decide` -> executor path is now built. `respond.Responder` implements
+>   `alert.Responder`: for every dispatched alert it runs the pure `Decide` against the loaded
+>   policy, records the verdict to the decision ledger, and -- when the policy decided a real action
+>   -- invokes the executor (kill/freeze/quarantine/collect) and records the outcome (an
+>   `executed`/`failed` line in `actions-<day>.jsonl`, with the handle and whether enforcement was
+>   armed). It runs under a recover (never-die), tracks a run-local budget and dedupe set, and
+>   re-stats the kill-switch on every alert. `internal/response` still does NOT import
+>   `internal/response/exec`; the responder sits above both and is the one place that depends on all
+>   three layers. `main.go` installs it behind `response.enable`; the NixOS module exposes
+>   `services.banken.response` (`enable`, `enforce`, `policyFile`/`policy`, `ledgerDir`).
+>   `response.enforce` ARMS the executor and defaults **false** on every real host; it relaxes the
+>   scan unit's sandbox (adds `CAP_KILL` + `CAP_SYS_PTRACE`, `ProtectProc=default`, the pidfd
+>   syscalls) only when set.
+> - **End-to-end enforcement proof** (`tests/response-enforce.nix`, wired into `nix flake check` as
+>   `response-enforce`): a throwaway KVM VM with `response.enforce = true` and a policy mapping
+>   `reverse_shell` and `pipe_to_shell` to `kill`. The test spawns benign long-lived processes (as an
+>   unprivileged user) that carry each rule's triggering argv and then sleep; one banken scan detects
+>   them and the executor SIGKILLs exactly the rule-matched ones via pidfd, leaving an innocent
+>   process untouched, and the ledger records each real kill. This is the ONLY configuration anywhere
+>   that arms real enforcement. The process set is a parametrized `cases` list so the follow-up
+>   enforcement-coverage stress phase can extend it to the whole emulation corpus.
+>
+> Not built here (deferred): the two-process spool/drain split (this responder acts in-process; the
+> separate `banken-respond.{service,path}` least-privilege executor unit from section 8 is still the
+> target shape), the `banken respond list|thaw|restore|explain` subcommands, and freeze/quarantine
+> enforcement proofs in the VM (only process-scope `kill` is proven end to end so far).
 
 banken today is alert-only. This is the design for the subsystem that lets it *act* on an alert:
 freeze or kill a process, quarantine a file, and later isolate a process from the network and
