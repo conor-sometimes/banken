@@ -41,6 +41,11 @@ func TestOTLPSinkEmitsValidLogRecord(t *testing.T) {
 	if err := s.Emit(a); err != nil {
 		t.Fatalf("Emit: %v", err)
 	}
+	// Delivery is asynchronous; Close flushes the queue so the collector has the
+	// record (and reports no loss for this 200-returning server).
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 	if gotCT != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", gotCT)
 	}
@@ -104,6 +109,9 @@ func TestOTLPSinkSkipsObserved(t *testing.T) {
 	}
 	if err := s.Emit(Alert{Level: "high", Rule: "netcat", Observed: true}); err != nil {
 		t.Fatalf("Emit: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 	if posted {
 		t.Error("an observe-mode hit must not be exported (observe is recorded, never paged)")

@@ -34,11 +34,17 @@ const (
 // inline in config or the Nix store. Shaping is per-style so Slack/Discord/
 // ntfy get a body they render, while generic receivers get the full Alert
 // JSON.
+//
+// The POST runs on a background sender (see asyncSender), not inline in Emit:
+// a slow or hung receiver can never stall the detection path, only fill the
+// bounded queue and drop -- visibly, with a count -- past that. Close flushes
+// the queue and reports any drops or delivery failures.
 type WebhookSink struct {
 	url    string
 	style  WebhookStyle
 	client *http.Client
 	ocsf   OCSFOptions // used only by StyleOCSF
+	async  *asyncSender
 }
 
 // WebhookConfig configures a WebhookSink.
@@ -81,19 +87,29 @@ func NewWebhookSink(cfg WebhookConfig) (*WebhookSink, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &WebhookSink{url: url, style: style, client: client, ocsf: cfg.OCSF}, nil
+	s := &WebhookSink{url: url, style: style, client: client, ocsf: cfg.OCSF}
+	s.async = newAsyncSender("webhook", asyncQueueDepth, s.post)
+	return s, nil
 }
 
 // Name implements Sink.
 func (*WebhookSink) Name() string { return "webhook" }
 
-// Emit implements Sink: shapes and POSTs the alert, treating any non-2xx
-// response as an error. An observe-mode hit is skipped: the webhook is a
-// notify path, and observe mode is "recorded, never paged".
+// Emit implements Sink: it hands the alert to the background sender and returns
+// at once, so a slow receiver never delays dispatch. An observe-mode hit is
+// skipped (not even queued): the webhook is a notify path, and observe mode is
+// "recorded, never paged". A full queue returns a drop error (see asyncSender);
+// the actual POST and its outcome happen on the sender, surfaced by Close.
 func (s *WebhookSink) Emit(a Alert) error {
 	if a.Observed {
 		return nil
 	}
+	return s.async.enqueue(a)
+}
+
+// post shapes and POSTs one alert, treating any non-2xx response as an error.
+// It runs on the background sender, never inline in Emit.
+func (s *WebhookSink) post(a Alert) error {
 	body, contentType, err := s.shape(a)
 	if err != nil {
 		return err
@@ -116,8 +132,10 @@ func (s *WebhookSink) Emit(a Alert) error {
 	return nil
 }
 
-// Close implements Sink (nothing to release).
-func (*WebhookSink) Close() error { return nil }
+// Close implements Sink: it flushes the queued alerts (bounded by
+// asyncFlushTimeout) and returns a summary error if any were dropped or failed
+// to send over the run.
+func (s *WebhookSink) Close() error { return s.async.close() }
 
 // shape builds the request body for the configured style.
 func (s *WebhookSink) shape(a Alert) (body []byte, contentType string, err error) {

@@ -26,6 +26,12 @@ func capture(t *testing.T, style WebhookStyle, a Alert) (body []byte, contentTyp
 	if err := s.Emit(a); err != nil {
 		t.Fatalf("Emit: %v", err)
 	}
+	// The sink delivers asynchronously; Close flushes the queue and (for these
+	// 200-returning tests) reports no loss, so the server has handled the POST
+	// by the time we read what it captured.
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 	return body, contentType, posted
 }
 
@@ -83,7 +89,9 @@ func TestWebhookSkipsObserved(t *testing.T) {
 	}
 }
 
-// TestWebhookNon2xxIsError: a receiver returning non-2xx must surface as an error, not be swallowed.
+// TestWebhookNon2xxIsError: a receiver returning non-2xx must surface, not be
+// swallowed. Delivery is asynchronous now, so the failure is counted on the
+// background sender and reported by Close rather than returned from Emit.
 func TestWebhookNon2xxIsError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -93,7 +101,10 @@ func TestWebhookNon2xxIsError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Emit(sampleAlert("critical")); err == nil {
-		t.Error("a 500 from the receiver must be an error")
+	if err := s.Emit(sampleAlert("critical")); err != nil {
+		t.Fatalf("Emit queues and should not error: %v", err)
+	}
+	if err := s.Close(); err == nil {
+		t.Error("a 500 from the receiver must surface as a Close summary error")
 	}
 }
