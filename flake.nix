@@ -30,6 +30,19 @@
         cp ${pkgs.stdenv.cc.cc.lib}/lib/libgcc_s.so.1 $out/libgcc_s.so.1
         chmod -R u+w $out
       '';
+
+      # A nixos test (runNixOSTest) run as a `nix run` app: its .driver executes the baked-in
+      # testScript non-interactively and streams the narrated transcript to the terminal. Run in a
+      # scratch dir so the driver's VM state and logs land there, not in the caller's cwd.
+      demoRunner = name: test: nixpkgs.lib.getExe (pkgs.writeShellApplication {
+        name = "banken-${name}";
+        text = ''
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          cd "$work"
+          exec ${test.driver}/bin/nixos-test-driver "$@"
+        '';
+      });
     in
     {
       nixosModules.default = import ./module.nix;
@@ -57,6 +70,30 @@
         program = nixpkgs.lib.getExe (pkgs.callPackage ./tests/distros {
           banken = bankenPkg;
           inherit mimiBundle;
+        });
+      };
+
+      # nix run .#demo / .#demo-mimi: the repo showcase (docs/design/showcase.md, demo/demo.nix).
+      # Each boots a throwaway NixOS VM, runs the repo's own benign revshell as an unprivileged
+      # user, and prints a narrated transcript ending in the OCSF reverse_shell finding and the
+      # measured exec->alert latency. demo = the auditd FLOOR (universal: only this repo + nixpkgs +
+      # KVM); demo-mimi = the eBPF SWITCH (also needs the mimi input), the sub-second catch off the
+      # mimi stream. Both REUSE tests/vm.nix / tests/switch.nix assertions, mirroring the
+      # distro-matrix / distro-matrix-mimi split -- the plain one never touches mimi.
+      apps.x86_64-linux.demo = {
+        type = "app";
+        program = demoRunner "demo" (import ./demo/demo.nix {
+          inherit pkgs;
+          banken = bankenPkg;
+          flavour = "auditd";
+        });
+      };
+      apps.x86_64-linux.demo-mimi = {
+        type = "app";
+        program = demoRunner "demo-mimi" (import ./demo/demo.nix {
+          inherit pkgs mimiModule;
+          banken = bankenPkg;
+          flavour = "mimi";
         });
       };
 
