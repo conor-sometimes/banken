@@ -63,6 +63,38 @@ func (e *linuxExecutor) gate() string {
 	return "DRY-RUN"
 }
 
+// dryRunProcess builds the DryRun handle for a non-enforcing process verb
+// (freeze, kill, collect). It evaluates the live target through identify() --
+// the SAME rails the enforcing path runs -- but a rail refusal is RECORDED in
+// the handle's Note ("would be refused: ...") and NEVER returned as an error: a
+// dry-run must never act and never fail on a rail, so it reports the same
+// outcome whether the target is uid 0 (as a self-target is when the suite runs
+// as root) or not (E1). Any pidfd identify opened is closed here, and signal 0
+// is the strongest syscall reached, so nothing is signalled, stopped or moved.
+func (e *linuxExecutor) dryRunProcess(kind response.Action, p response.ProcessRef, scope response.Scope, verb string) Handle {
+	pidfd, live, err := e.identify(p)
+	if pidfd >= 0 {
+		_ = syscall.Close(pidfd)
+	}
+	h := Handle{ID: newHandleID(), Kind: kind, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, DryRun: true, Method: "dry-run"}
+	if err != nil {
+		h.Note = "would be refused: " + err.Error()
+		e.logf("response/exec: %s would %s pid %d but the live target would be refused: %v", e.gate(), verb, p.PID, err)
+		return h
+	}
+	e.logf("response/exec: %s would %s pid %d (%s)%s", e.gate(), verb, p.PID, live.Exe, scopeNote(scope))
+	return h
+}
+
+// scopeNote renders a scope for a dry-run log line, or "" for a scopeless verb
+// (collect). It keeps dryRunProcess one shape across freeze, kill and collect.
+func scopeNote(scope response.Scope) string {
+	if scope == "" {
+		return ""
+	}
+	return " scope " + string(scope)
+}
+
 // ---- process identity (the correctness crux) -------------------------------
 
 // identify opens a pidfd (pinning one process for its lifetime), reads its
@@ -278,6 +310,13 @@ type freezeThawed struct {
 }
 
 func (e *linuxExecutor) Freeze(ctx context.Context, p response.ProcessRef, scope response.Scope) (Handle, error) {
+	// Dry-run FIRST, before identify can turn a rail into a returned error: a
+	// non-enforcing executor records the would-be outcome and acts on nothing
+	// (E1). The enforcing path below runs the same identify and does act.
+	if !e.cfg.Enforce {
+		return e.dryRunProcess(response.ActionFreeze, p, scope, "freeze"), nil
+	}
+
 	pidfd, live, err := e.identify(p)
 	if err != nil {
 		return Handle{}, err
@@ -285,11 +324,6 @@ func (e *linuxExecutor) Freeze(ctx context.Context, p response.ProcessRef, scope
 	defer func() { _ = syscall.Close(pidfd) }()
 
 	pids := e.targetSet(p.PID, scope)
-
-	if !e.cfg.Enforce {
-		e.logf("response/exec: %s would freeze %s pid %d (%s), %d task(s)", e.gate(), scope, p.PID, live.Exe, len(pids))
-		return Handle{ID: newHandleID(), Kind: response.ActionFreeze, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, DryRun: true, Method: "dry-run"}, nil
-	}
 
 	// F7: idempotency. If the target is ALREADY inside a child of CgroupRoot, a
 	// previous Freeze put it there; return that existing handle and make no
@@ -455,6 +489,13 @@ func (e *linuxExecutor) thawCgroup(man *freezeManifest, tomb *freezeThawed) {
 // ---- kill ------------------------------------------------------------------
 
 func (e *linuxExecutor) Kill(_ context.Context, p response.ProcessRef, scope response.Scope) (Handle, error) {
+	// Dry-run FIRST (E1): record the would-be outcome, signal nothing. A rail
+	// (uid-0 self-target under a root test runner, a masquerade, a stale pid) is
+	// a recorded note here, never a returned error.
+	if !e.cfg.Enforce {
+		return e.dryRunProcess(response.ActionKill, p, scope, "kill"), nil
+	}
+
 	pidfd, live, err := e.identify(p)
 	if err != nil {
 		return Handle{}, err
@@ -463,11 +504,6 @@ func (e *linuxExecutor) Kill(_ context.Context, p response.ProcessRef, scope res
 
 	id := newHandleID()
 	pids := e.targetSet(p.PID, scope)
-
-	if !e.cfg.Enforce {
-		e.logf("response/exec: %s would kill %s pid %d (%s), %d task(s)", e.gate(), scope, p.PID, live.Exe, len(pids))
-		return Handle{ID: id, Kind: response.ActionKill, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, DryRun: true, Method: "dry-run"}, nil
-	}
 
 	if scope == response.ScopeProcess {
 		if err := pidfdSendSignal(pidfd, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
@@ -569,41 +605,65 @@ type quarantineRestored struct {
 	Dest        string    `json:"dest,omitempty"`
 }
 
-func (e *linuxExecutor) Quarantine(ctx context.Context, f response.FileRef) (Handle, error) {
-	path := filepath.Clean(f.Path)
+// inspectQuarantineTarget runs the quarantine path rails and opens the live
+// inode read-only (O_PATH|O_NOFOLLOW), returning the open fd (the caller closes
+// any non-negative fd), its stat, the bounded hash and any refusal. The refusal
+// is a RETURNED VALUE, not a control-flow jump, so the dry-run path can record
+// it in the handle (E1) while the enforcing path returns it before touching
+// anything. Every later act binds to THIS fd's inode, never a re-resolved path,
+// so a swap of the directory entry cannot redirect the act onto an innocent
+// file (Q1). The hash is bounded by MaxFileBytes (Q6): over the cap the file is
+// still taken but recorded "unhashed", so a 1 TiB sparse file cannot block the
+// drain.
+func (e *linuxExecutor) inspectQuarantineTarget(path string) (fd int, st syscall.Stat_t, sum string, railErr error) {
+	fd = -1
 	if pfx, bad := response.UnderNeverTouch(path); bad {
-		return Handle{}, fmt.Errorf("%w: %q under never-touch %q", ErrDenied, path, pfx)
+		return -1, st, "", fmt.Errorf("%w: %q under never-touch %q", ErrDenied, path, pfx)
 	}
 	if !response.UnderAllowPaths(e.cfg.QuarantineAllowPaths, path) {
-		return Handle{}, fmt.Errorf("%w: %q not under quarantine allowPaths", ErrDenied, path)
+		return -1, st, "", fmt.Errorf("%w: %q not under quarantine allowPaths", ErrDenied, path)
 	}
-
-	// Open the path without following symlinks and confirm it is a regular
-	// file; every later act is on THIS fd's inode, never a re-resolved path, so
-	// a swap of the directory entry cannot redirect us onto an innocent file
-	// (Q1).
-	fd, err := syscall.Open(path, oPath|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	opened, err := syscall.Open(path, oPath|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
-		return Handle{}, fmt.Errorf("open %q: %w", path, err)
+		return -1, st, "", fmt.Errorf("open %q: %w", path, err)
 	}
-	defer func() { _ = syscall.Close(fd) }()
-	var st syscall.Stat_t
+	fd = opened
 	if err := syscall.Fstat(fd, &st); err != nil {
-		return Handle{}, fmt.Errorf("fstat %q: %w", path, err)
+		return fd, st, "", fmt.Errorf("fstat %q: %w", path, err)
 	}
 	if st.Mode&syscall.S_IFMT != syscall.S_IFREG {
-		return Handle{}, fmt.Errorf("%w: %q is not a regular file", ErrStaleTarget, path)
+		return fd, st, "", fmt.Errorf("%w: %q is not a regular file", ErrStaleTarget, path)
 	}
-	// Hash is bounded by MaxFileBytes (Q6): over the cap the file is still taken
-	// but recorded "unhashed" -- a 1 TiB sparse file must not block the drain.
-	sum := e.hashBounded(fd, st.Size)
-	fstat := statToFileStat(st)
+	return fd, st, e.hashBounded(fd, st.Size), nil
+}
+
+func (e *linuxExecutor) Quarantine(ctx context.Context, f response.FileRef) (Handle, error) {
+	path := filepath.Clean(f.Path)
+	fd, st, sum, railErr := e.inspectQuarantineTarget(path)
+	if fd >= 0 {
+		defer func() { _ = syscall.Close(fd) }()
+	}
 
 	id := newHandleID()
+	// Dry-run FIRST (E1): a rail refusal (never-touch, allowPaths, a non-regular
+	// file) is RECORDED in the handle's Note, never returned as an error; nothing
+	// is moved or neutered. The enforcing path returns the same refusal below,
+	// before touching anything.
 	if !e.cfg.Enforce {
-		e.logf("response/exec: %s would quarantine %q (ino %d, sha256 %s)", e.gate(), path, st.Ino, sum)
-		return Handle{ID: id, Kind: response.ActionQuarantine, DryRun: true, Method: "dry-run", Note: "sha256:" + sum}, nil
+		h := Handle{ID: id, Kind: response.ActionQuarantine, DryRun: true, Method: "dry-run"}
+		if railErr != nil {
+			h.Note = "would be refused: " + railErr.Error()
+			e.logf("response/exec: %s would quarantine %q but it would be refused: %v", e.gate(), path, railErr)
+		} else {
+			h.Note = "sha256:" + sum
+			e.logf("response/exec: %s would quarantine %q (ino %d, sha256 %s)", e.gate(), path, st.Ino, sum)
+		}
+		return h, nil
 	}
+	if railErr != nil {
+		return Handle{}, railErr
+	}
+	fstat := statToFileStat(st)
 
 	entryDir := filepath.Join(e.cfg.QuarantineDir, id)
 	dest := filepath.Join(entryDir, "file")
@@ -627,7 +687,7 @@ func (e *linuxExecutor) Quarantine(ctx context.Context, f response.FileRef) (Han
 		quarantineSwapHook()
 	}
 
-	err = renameat2Fn(atFDCWD, path, atFDCWD, dest, renameNoReplace)
+	err := renameat2Fn(atFDCWD, path, atFDCWD, dest, renameNoReplace)
 	switch {
 	case err == nil:
 		// Post-rename inode recheck: if the entry at the old path was swapped
@@ -691,9 +751,9 @@ func (e *linuxExecutor) hashBounded(opathFd int, size int64) string {
 	return sum
 }
 
-func (e *linuxExecutor) Restore(_ context.Context, h Handle) error {
+func (e *linuxExecutor) Restore(_ context.Context, h Handle, to string) error {
 	if h.DryRun {
-		e.logf("response/exec: %s would restore %s", e.gate(), h.ID)
+		e.logf("response/exec: %s would restore %s to %s", e.gate(), h.ID, orOrig(to))
 		return nil
 	}
 	id := h.Undo
@@ -711,43 +771,165 @@ func (e *linuxExecutor) Restore(_ context.Context, h Handle) error {
 		}
 		return fmt.Errorf("restore: %w", err)
 	}
+
+	// Idempotent by the tombstone (Q3): a second restore is a clean no-op and the
+	// entry is KEPT, so the record of what was done to whom survives for list.
+	if storeHasTombstone(entryDir, restoredName) {
+		e.logf("response/exec: %s %s already restored", e.gate(), id)
+		return nil
+	}
+
+	dest, err := e.restoreDest(man, to)
+	if err != nil {
+		return err
+	}
+
 	switch man.Method {
 	case "rename":
-		dest := filepath.Join(entryDir, "file")
-		var dst syscall.Stat_t
-		if err := syscall.Lstat(dest, &dst); err != nil {
-			return fmt.Errorf("restore: stat quarantined file: %w", err)
-		}
-		if dst.Dev != man.Stat.Dev || dst.Ino != man.Stat.Ino {
-			return errors.New("restore: quarantined (dev,ino) no longer matches manifest")
-		}
-		// The store file was neutered to 0000 (+ immutable where it took) at
-		// quarantine time (Q7); reverse that before handing the inode back. The
-		// store dir is 0700 root and not attacker-reachable, so a path-based
-		// chmod here is race-free (the fd-discipline Q1 guards is for the live
-		// origPath, which Restore writes to via the atomic rename below).
-		if man.Immutable {
-			_ = clearImmutable(dest)
-		}
-		if err := os.Chmod(dest, os.FileMode(man.Stat.Mode&0o7777)); err != nil {
-			return fmt.Errorf("restore: chmod stored file: %w", err)
-		}
-		if err := renameat2(atFDCWD, dest, atFDCWD, man.OrigPath, renameNoReplace); err != nil {
-			return fmt.Errorf("restore: rename back: %w", err)
-		}
-		_ = os.RemoveAll(entryDir)
-		return nil
+		err = e.restoreRename(entryDir, man, dest)
 	case "neuter":
-		if man.Immutable {
-			_ = clearImmutable(man.OrigPath)
-		}
-		if err := os.Chmod(man.OrigPath, os.FileMode(man.Stat.Mode&0o7777)); err != nil {
-			return fmt.Errorf("restore: chmod: %w", err)
-		}
-		_ = os.RemoveAll(entryDir)
-		return nil
+		err = e.restoreNeuter(man, dest)
 	default:
 		return fmt.Errorf("restore: unknown method %q", man.Method)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Keep the entry and the inode; write the tombstone (Q3). The record of what
+	// was done to whom, and now to where, survives the restore.
+	e.logf("response/exec: %s restored %s to %s", e.gate(), id, dest)
+	return storeTombstone(entryDir, restoredName, quarantineRestored{
+		Time: time.Now().UTC(), OperatorUID: operatorUID(), Outcome: "restored", Dest: dest,
+	})
+}
+
+// restoreDest resolves the restore destination: the manifest's original path by
+// default, or the operator's -to path when one was given. A non-empty -to does
+// NOT bypass the allow-list -- it is bounded by the SAME functions the forward
+// path uses (absolute, under allowPaths, outside never-touch) and may not land
+// inside the quarantine store (docs §3.4). It is a path the operator typed,
+// checked rather than trusted.
+func (e *linuxExecutor) restoreDest(man quarantineManifest, to string) (string, error) {
+	if to == "" {
+		return man.OrigPath, nil
+	}
+	clean := filepath.Clean(to)
+	if !filepath.IsAbs(clean) {
+		return "", fmt.Errorf("%w: -to %q must be an absolute path", ErrDenied, to)
+	}
+	if pfx, bad := response.UnderNeverTouch(clean); bad {
+		return "", fmt.Errorf("%w: -to %q under never-touch %q", ErrDenied, to, pfx)
+	}
+	if !response.UnderAllowPaths(e.cfg.QuarantineAllowPaths, clean) {
+		return "", fmt.Errorf("%w: -to %q not under quarantine allowPaths", ErrDenied, to)
+	}
+	store := filepath.Clean(e.cfg.QuarantineDir)
+	if clean == store || strings.HasPrefix(clean, store+"/") {
+		return "", fmt.Errorf("%w: -to %q is inside the quarantine store", ErrDenied, to)
+	}
+	return clean, nil
+}
+
+// restoreRename reverses a rename-method quarantine. It confirms the stored
+// inode is still the one the manifest recorded (Q4: BOTH dev and ino),
+// un-neuters it (Q7's store neuter, reversed) and moves it to dest with
+// RENAME_NOREPLACE, so an occupied destination is refused -- never clobbered --
+// and the squatter is left untouched. On any failure after the immutable bit
+// was cleared the stored file is made inert again, so the artifact is never
+// left readable or executable in the store.
+func (e *linuxExecutor) restoreRename(entryDir string, man quarantineManifest, dest string) error {
+	stored := filepath.Join(entryDir, "file")
+	var st syscall.Stat_t
+	if err := syscall.Lstat(stored, &st); err != nil {
+		return fmt.Errorf("restore: stat quarantined file: %w", err)
+	}
+	if st.Dev != man.Stat.Dev || st.Ino != man.Stat.Ino {
+		return fmt.Errorf("%w: stored (dev,ino) no longer matches manifest", ErrStaleTarget)
+	}
+	// The store dir is 0700 root and not attacker-reachable, so a path-based
+	// chmod of the stored file is race-free (the Q1 fd discipline is for the live
+	// origPath; the move below is atomic).
+	if man.Immutable {
+		_ = clearImmutable(stored)
+	}
+	// Reapply the recorded mode with the RAW bits via syscall.Chmod, not
+	// os.Chmod: os.FileMode's special bits (setuid/setgid/sticky) live at
+	// 1<<23.. and os.Chmod would silently drop a 0o4000/0o2000/0o1000 bit, so a
+	// setuid dropper would come back without its setuid bit.
+	if err := syscall.Chmod(stored, man.Stat.Mode&0o7777); err != nil {
+		reinertStore(stored, man.Immutable)
+		return fmt.Errorf("restore: chmod stored file: %w", err)
+	}
+	if err := renameat2(atFDCWD, stored, atFDCWD, dest, renameNoReplace); err != nil {
+		reinertStore(stored, man.Immutable)
+		if errors.Is(err, syscall.EEXIST) {
+			return fmt.Errorf("%w: %q is occupied; move it aside or use -to", ErrDenied, dest)
+		}
+		return fmt.Errorf("restore: rename back: %w", err)
+	}
+	return nil
+}
+
+// restoreNeuter reverses an in-place neuter. It opens the ORIGINAL path
+// O_PATH|O_NOFOLLOW, confirms BOTH dev and ino against the manifest (Q4: a weak
+// neuter's path may be a different file by now -- refuse with "inode replaced"),
+// then clears the immutable bit and reapplies the recorded mode ON THE FD (Q1's
+// fd discipline applied to the reverse direction), confirming the mode landed.
+// A -to destination then moves the un-neutered inode there with RENAME_NOREPLACE.
+func (e *linuxExecutor) restoreNeuter(man quarantineManifest, dest string) error {
+	fd, err := syscall.Open(man.OrigPath, oPath|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("restore: open neutered path %q: %w", man.OrigPath, err)
+	}
+	defer func() { _ = syscall.Close(fd) }()
+	var st syscall.Stat_t
+	if err := syscall.Fstat(fd, &st); err != nil {
+		return fmt.Errorf("restore: fstat neutered path: %w", err)
+	}
+	if st.Dev != man.Stat.Dev || st.Ino != man.Stat.Ino {
+		return fmt.Errorf("%w: inode replaced at %q since neuter", ErrStaleTarget, man.OrigPath)
+	}
+	// Reopen the identical inode O_RDONLY through /proc/self/fd (an O_PATH fd can
+	// neither fchmod nor ioctl); same inode by construction, no re-resolution.
+	rf, err := os.Open(fmt.Sprintf("/proc/self/fd/%d", fd)) //nolint:gosec // our own fd, reopened by number
+	if err != nil {
+		return fmt.Errorf("restore: reopen neutered inode: %w", err)
+	}
+	defer func() { _ = rf.Close() }()
+	if man.Immutable {
+		_ = chattrFd(int(rf.Fd()), false)
+	}
+	// Raw-bit fchmod on the fd (not os.File.Chmod): preserve setuid/setgid/sticky
+	// (os.FileMode would drop them) and stay on the confirmed inode (Q1).
+	if err := syscall.Fchmod(int(rf.Fd()), man.Stat.Mode&0o7777); err != nil {
+		return fmt.Errorf("restore: fchmod neutered inode: %w", err)
+	}
+	var after syscall.Stat_t
+	if err := syscall.Fstat(int(rf.Fd()), &after); err != nil {
+		return fmt.Errorf("restore: re-fstat neutered inode: %w", err)
+	}
+	if after.Mode&0o7777 != man.Stat.Mode&0o7777 {
+		return fmt.Errorf("restore: recorded mode %o did not take (now %o)", man.Stat.Mode&0o7777, after.Mode&0o7777)
+	}
+	if dest != man.OrigPath {
+		if err := renameat2(atFDCWD, man.OrigPath, atFDCWD, dest, renameNoReplace); err != nil {
+			if errors.Is(err, syscall.EEXIST) {
+				return fmt.Errorf("%w: %q is occupied; move it aside or use -to", ErrDenied, dest)
+			}
+			return fmt.Errorf("restore: move to -to dest: %w", err)
+		}
+	}
+	return nil
+}
+
+// reinertStore returns a partially-un-neutered stored file to its inert state
+// (mode 0, immutable where it had been set) after a restore step failed, so the
+// kept artifact is never left readable or executable in the store.
+func reinertStore(stored string, wasImmutable bool) {
+	_ = os.Chmod(stored, 0)
+	if wasImmutable {
+		_ = chattr(stored, true)
 	}
 }
 
@@ -771,6 +953,12 @@ type evidenceManifest struct {
 const stateCollected = "collected"
 
 func (e *linuxExecutor) Collect(ctx context.Context, p response.ProcessRef) (Handle, error) {
+	// Dry-run FIRST (E1): a rail refusal is a recorded note, never a returned
+	// error; no /proc is snapshotted.
+	if !e.cfg.Enforce {
+		return e.dryRunProcess(response.ActionCollect, p, "", "collect evidence for"), nil
+	}
+
 	// Identify BEFORE snapshotting (§5.1): bind to the process the alert named
 	// -- same pidfd pin, start-time and exe check as kill/freeze -- so the
 	// evidence is of the right process, not of whoever holds the pid now. A
@@ -783,10 +971,6 @@ func (e *linuxExecutor) Collect(ctx context.Context, p response.ProcessRef) (Han
 	defer func() { _ = syscall.Close(pidfd) }()
 
 	id := newHandleID()
-	if !e.cfg.Enforce {
-		e.logf("response/exec: %s would collect evidence for pid %d (%s)", e.gate(), p.PID, live.Exe)
-		return Handle{ID: id, Kind: response.ActionCollect, PID: p.PID, Exe: live.Exe, StartTime: live.StartTime, DryRun: true, Method: "dry-run"}, nil
-	}
 	dir := filepath.Join(e.cfg.EvidenceDir, id)
 	// Manifest first: the pending manifest (with the order id) is written before
 	// any /proc snapshot, so a crash mid-snapshot leaves a recoverable entry and

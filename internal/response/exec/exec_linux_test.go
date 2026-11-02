@@ -118,7 +118,12 @@ func procStateIs(t *testing.T, pid int, want string) bool {
 
 // TestDryRunDefaultDoesNotAct is the central safety proof: with Enforce false
 // (the default), Freeze and Kill touch nothing -- the self-spawned sleep is
-// still alive and not stopped afterwards.
+// still alive and not stopped afterwards. It asserts a DryRun handle and no
+// action with NO error REGARDLESS of the target's uid: run as root the
+// self-spawned sleep is uid 0, which would trip the uid-0 safety rail, but a
+// dry-run records that would-be refusal instead of returning it (E1), so this
+// passes as root or non-root. The deterministic rail-recording proof is
+// TestDryRunNeverErrorsOnUID0Rail.
 func TestDryRunDefaultDoesNotAct(t *testing.T) {
 	_, pid, bin := spawnSleep(t)
 	e, err := New(Config{}) // Enforce defaults to false
@@ -338,7 +343,7 @@ func TestQuarantineRestore(t *testing.T) {
 		t.Errorf("manifest missing: %v", err)
 	}
 
-	if err := e.Restore(ctx, h); err != nil {
+	if err := e.Restore(ctx, h, ""); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
 	got, err := os.ReadFile(victim) //nolint:gosec // test-owned path

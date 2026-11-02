@@ -51,8 +51,8 @@ func (d dryRun) Quarantine(_ context.Context, f response.FileRef) (Handle, error
 	return Handle{Kind: response.ActionQuarantine, DryRun: true, Method: "dry-run"}, nil
 }
 
-func (d dryRun) Restore(_ context.Context, h Handle) error {
-	d.cfg.Logf("response/exec: DRY-RUN would restore %s", h.ID)
+func (d dryRun) Restore(_ context.Context, h Handle, to string) error {
+	d.cfg.Logf("response/exec: DRY-RUN would restore %s to %s", h.ID, orOrig(to))
 	return nil
 }
 

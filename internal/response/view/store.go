@@ -183,6 +183,42 @@ func (r *Reader) readEntry(kind response.Action, id string) (Entry, error) {
 	return e, nil
 }
 
+// FindEntry resolves an id (exact, or a prefix of at least minIDPrefix
+// characters) to the one store entry of kind that it addresses, and reads it.
+// It is how the privileged undo commands (thaw, restore) turn the operator's
+// short id into a full handle id and learn the entry's order id, target and
+// tombstone state before acting -- the same resolution list/explain use, so an
+// id that lists is an id that thaws. A query that matches no entry, or more
+// than one, is a clear error naming the ambiguity; a query shorter than the
+// minimum is refused rather than matched loosely.
+func (r *Reader) FindEntry(kind response.Action, query string) (Entry, error) {
+	if len(query) < minIDPrefix {
+		return Entry{}, fmt.Errorf("id %q is too short: give at least %d hex characters", query, minIDPrefix)
+	}
+	dir := r.storeDirFor(kind)
+	if dir == "" {
+		return Entry{}, fmt.Errorf("no store for %s", kind)
+	}
+	ents, err := fs.ReadDir(r.root, dir)
+	if err != nil {
+		return Entry{}, fmt.Errorf("no %s store entry for %q", kind, query)
+	}
+	var matches []string
+	for _, ent := range ents {
+		if ent.IsDir() && idMatches(ent.Name(), query) {
+			matches = append(matches, ent.Name())
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return Entry{}, fmt.Errorf("no %s store entry for %q", kind, query)
+	case 1:
+		return r.readEntry(kind, matches[0])
+	default:
+		return Entry{}, fmt.Errorf("id %q is ambiguous: it matches %d %s entries", query, len(matches), kind)
+	}
+}
+
 // readTombstone reads a tombstone file beside a manifest; ok is false when it
 // does not exist (the undo has not happened).
 func (r *Reader) readTombstone(entryDir, name string) ([]byte, bool) {

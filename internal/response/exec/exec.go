@@ -98,7 +98,12 @@ type Executor interface {
 	Kill(ctx context.Context, p response.ProcessRef, scope response.Scope) (Handle, error)
 
 	Quarantine(ctx context.Context, f response.FileRef) (Handle, error)
-	Restore(ctx context.Context, h Handle) error
+	// Restore reverses a quarantine from its store entry. to is the operator's
+	// -to destination (empty = the manifest's original path); a non-empty to is
+	// bounded by the same allowPaths/never-touch lists the forward path uses and
+	// may not land under the store. The entry is KEPT and a tombstone written, so
+	// a second restore is a clean no-op (Q3).
+	Restore(ctx context.Context, h Handle, to string) error
 
 	Collect(ctx context.Context, p response.ProcessRef) (Handle, error)
 }
@@ -192,6 +197,16 @@ func (c Config) withDefaults() Config {
 // it returns the real executor on Linux and ErrUnsupported elsewhere.
 func New(cfg Config) (Executor, error) {
 	return newExecutor(cfg.withDefaults())
+}
+
+// orOrig renders a restore destination for a log line: the -to path, or
+// "original path" when none was given. Platform-neutral so both the real and
+// the dry-run executors share one wording.
+func orOrig(to string) string {
+	if to == "" {
+		return "original path"
+	}
+	return to
 }
 
 // orderIDCtxKey is the context key under which the drain carries the work order
