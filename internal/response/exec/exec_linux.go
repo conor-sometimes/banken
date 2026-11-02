@@ -160,19 +160,20 @@ func (e *linuxExecutor) identify(p response.ProcessRef) (int, Live, error) {
 		_ = syscall.Close(pidfd)
 		return -1, live, fmt.Errorf("%w: cannot read start time for pid %d: %w", ErrStaleTarget, p.PID, startErr)
 	}
-	if !p.StartTime.IsZero() {
+	switch {
+	case !p.StartTime.IsZero():
 		if d := start.Sub(p.StartTime); d < -identityTick || d > identityTick {
 			_ = syscall.Close(pidfd)
 			return -1, live, fmt.Errorf("%w: start time %s != reference %s", ErrStaleTarget, start, p.StartTime)
 		}
-	} else if !p.EventTime.IsZero() {
+	case !p.EventTime.IsZero():
 		// Unknown start time (auditd/Laurel): a reuser was forked after the
 		// event, so its start time exceeds the event time; refuse it.
 		if start.After(p.EventTime.Add(e.cfg.SkewTolerance)) {
 			_ = syscall.Close(pidfd)
 			return -1, live, fmt.Errorf("%w: start time %s is after event %s + skew", ErrStaleTarget, start, p.EventTime)
 		}
-	} else {
+	default:
 		// No time reference at all (neither StartTime nor EventTime): pid reuse
 		// cannot be excluded, and an exe match alone would not exclude it (a new
 		// process running the same binary at the same path passes the exe bind).
