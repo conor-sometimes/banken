@@ -180,7 +180,15 @@ pkgs.testers.runNixOSTest {
     man = json.loads(machine.succeed(f"cat /var/lib/banken/freeze/{H}/manifest.json"))
     assert man["state"] == "frozen" and man["method"] == "cgroup", f"bad manifest: {man}"
     assert man["order"] == order_v["id"], (man["order"], order_v["id"])
-    assert sorted(man["pids"]) == sorted(v_pids), (man["pids"], v_pids)
+    # The manifest pids are the whole frozen tree: the shell and its long sleep
+    # child at least, plus any transient `sleep 0.01` beat child alive at the
+    # migration snapshot -- that transient child being caught is exactly the
+    # fork-during-migration behaviour scope:tree must have (docs section 4.1), so
+    # v_pids is a SUBSET of man["pids"], not equal. No innocent pid is ever in it.
+    n_frozen = len(man["pids"])
+    assert set(v_pids) <= set(man["pids"]), (man["pids"], v_pids)
+    assert int(i_pid) not in man["pids"] and int(n_pid) not in man["pids"], \
+        f"an innocent/none pid is in the freeze manifest: {man['pids']}"
     for p in v_pids:
         assert man["orig"][str(p)] == orig_cg[p], \
             f"manifest orig[{p}]={man['orig'].get(str(p))!r} != pre-freeze {orig_cg[p]!r}"
@@ -192,7 +200,7 @@ pkgs.testers.runNixOSTest {
         hp = str((a.get("handle") or {}).get("pid"))
         assert n_pid not in (tp, hp), f"N (timestomp->none) has an action line: {a}"
         assert i_pid not in (tp, hp), f"innocent I has an action line: {a}"
-    print(f"[phase A] PASS: tree {H[:8]} frozen ({len(v_pids)} pids), heartbeat stalled, "
+    print(f"[phase A] PASS: tree {H[:8]} frozen ({n_frozen} pids), heartbeat stalled, "
           "innocent beats on, manifest orig recorded; N untouched")
 
     # --- K's tree kill (same scan) left no cgroup behind, and the freeze cgroup
@@ -282,7 +290,7 @@ pkgs.testers.runNixOSTest {
     print("[phase E] PASS: innocent and none-mapped victim untouched, no action lines")
 
     print("\n================ FREEZE ENFORCEMENT SCORECARD ================")
-    print(f"freeze proven: tree frozen (handle {H[:8]}, {len(v_pids)} pids), heartbeat stalled, "
+    print(f"freeze proven: tree frozen (handle {H[:8]}, {n_frozen} pids), heartbeat stalled, "
           "thaw restored cgroups and progress; 0 innocents touched; "
           "0 cgroup dirs leaked over 11 tree kills")
     print("  F7 (idempotent replay -> already-applied, one cgroup): PASS")
