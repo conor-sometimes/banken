@@ -1,0 +1,74 @@
+{
+  "schema": "banken-bench/1",
+  "tool": "banken-bench rulescale",
+  "generated": "2026-11-02T00:50:01.076631062Z",
+  "host": {
+    "hostname": "hokkaido",
+    "os": "linux",
+    "arch": "amd64",
+    "numCpu": 8,
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "kernel": "6.18.59",
+    "goVersion": "go1.26.8"
+  },
+  "sections": [
+    {
+      "category": "rule-scaling",
+      "status": "measured",
+      "note": "match time per event and allocations per event vs rule count. The prefilter makes per-event cost near-flat; allocs/event are constant by design.",
+      "metrics": [
+        {
+          "name": "match-at-40-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 33660,
+            "p50Ns": 49520,
+            "p99Ns": 171151,
+            "maxNs": 632503,
+            "meanNs": 66765,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "allocsPerEvent": 70.012,
+            "ruleCount": 40
+          }
+        },
+        {
+          "name": "match-at-2000-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 47180,
+            "p50Ns": 67100,
+            "p99Ns": 173051,
+            "maxNs": 513753,
+            "meanNs": 70914,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "allocsPerEvent": 70.002,
+            "ruleCount": 2000
+          }
+        },
+        {
+          "name": "match-at-10000-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 104701,
+            "p50Ns": 131541,
+            "p99Ns": 204801,
+            "maxNs": 785654,
+            "meanNs": 136557,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "allocsPerEvent": 70.005,
+            "ruleCount": 10000
+          }
+        }
+      ]
+    }
+  ]
+}

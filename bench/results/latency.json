@@ -1,0 +1,159 @@
+{
+  "schema": "banken-bench/1",
+  "tool": "banken-bench latency",
+  "generated": "2026-11-02T00:49:53.882809328Z",
+  "host": {
+    "hostname": "hokkaido",
+    "os": "linux",
+    "arch": "amd64",
+    "numCpu": 8,
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "kernel": "6.18.59",
+    "goVersion": "go1.26.8"
+  },
+  "sections": [
+    {
+      "category": "detection-latency",
+      "status": "measured",
+      "note": "t3 normalise (mimi parse), t4 prefilter+match, t5 OCSF build+write, and end-to-end t3..t5, against the real 40-rule shipped tree. t1 (sensor capture) and t2 (transport) need the live mimi sensor -- see detection-latency-t1-t2 (pending).",
+      "metrics": [
+        {
+          "name": "t3-normalise-threat",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 31170,
+            "p50Ns": 47451,
+            "p99Ns": 307072,
+            "maxNs": 5348069,
+            "meanNs": 66020,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "line": "threat",
+            "rulesFired": 1
+          }
+        },
+        {
+          "name": "t4-match-threat",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 33830,
+            "p50Ns": 47210,
+            "p99Ns": 137501,
+            "maxNs": 695874,
+            "meanNs": 57433,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "line": "threat",
+            "rulesFired": 1
+          }
+        },
+        {
+          "name": "t5-ocsf-write-threat",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 13880,
+            "p50Ns": 21730,
+            "p99Ns": 83240,
+            "maxNs": 4575975,
+            "meanNs": 27918,
+            "timerOverheadNs": 40
+          },
+          "extra": {
+            "line": "threat",
+            "rulesFired": 1
+          }
+        },
+        {
+          "name": "e2e-t3-t5-threat",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 87270,
+            "p50Ns": 134170,
+            "p99Ns": 699013,
+            "maxNs": 18957334,
+            "meanNs": 175873,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "line": "threat",
+            "rulesFired": 1
+          }
+        },
+        {
+          "name": "t3-normalise-clean",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 21911,
+            "p50Ns": 33650,
+            "p99Ns": 250962,
+            "maxNs": 4977447,
+            "meanNs": 49358,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "line": "clean",
+            "rulesFired": 0
+          }
+        },
+        {
+          "name": "t4-match-clean",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 19820,
+            "p50Ns": 30171,
+            "p99Ns": 103621,
+            "maxNs": 549343,
+            "meanNs": 37742,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "line": "clean",
+            "rulesFired": 0
+          }
+        },
+        {
+          "name": "t5-ocsf-write-clean",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 12210,
+            "p50Ns": 22961,
+            "p99Ns": 72360,
+            "maxNs": 550393,
+            "meanNs": 25803,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "line": "clean",
+            "rulesFired": 0
+          }
+        },
+        {
+          "name": "e2e-t3-t5-clean",
+          "unit": "ns",
+          "stat": {
+            "samples": 20000,
+            "minNs": 44681,
+            "p50Ns": 69521,
+            "p99Ns": 402262,
+            "maxNs": 20220701,
+            "meanNs": 93281,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "line": "clean",
+            "rulesFired": 0
+          }
+        }
+      ]
+    }
+  ]
+}

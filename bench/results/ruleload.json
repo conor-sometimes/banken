@@ -1,0 +1,90 @@
+{
+  "schema": "banken-bench/1",
+  "tool": "banken-bench ruleload",
+  "generated": "2026-11-02T00:50:07.389668153Z",
+  "host": {
+    "hostname": "hokkaido",
+    "os": "linux",
+    "arch": "amd64",
+    "numCpu": 8,
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "kernel": "6.18.59",
+    "goVersion": "go1.26.8"
+  },
+  "sections": [
+    {
+      "category": "rule-load",
+      "status": "measured",
+      "note": "time to compile a rule set into the Aho-Corasick matcher, and the matcher's resident bytes per rule. LoadTree (YAML parse from disk) is measured once for the baseline.",
+      "metrics": [
+        {
+          "name": "loadtree-baseline",
+          "unit": "ns",
+          "stat": {
+            "samples": 25,
+            "minNs": 5573250,
+            "p50Ns": 7175559,
+            "p99Ns": 13902266,
+            "maxNs": 13902266,
+            "meanNs": 8327056,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "ruleCount": 40
+          }
+        },
+        {
+          "name": "compile-at-40-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 25,
+            "minNs": 810454,
+            "p50Ns": 1334388,
+            "p99Ns": 2094251,
+            "maxNs": 2094251,
+            "meanNs": 1346140,
+            "timerOverheadNs": 40
+          },
+          "extra": {
+            "bytesPerRule": 11221,
+            "ruleCount": 40
+          }
+        },
+        {
+          "name": "compile-at-2000-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 25,
+            "minNs": 24289863,
+            "p50Ns": 30940720,
+            "p99Ns": 38900693,
+            "maxNs": 38900693,
+            "meanNs": 31455634,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "bytesPerRule": 4630,
+            "ruleCount": 2000
+          }
+        },
+        {
+          "name": "compile-at-10000-rules",
+          "unit": "ns",
+          "stat": {
+            "samples": 25,
+            "minNs": 141997808,
+            "p50Ns": 157031881,
+            "p99Ns": 205420366,
+            "maxNs": 205420366,
+            "meanNs": 161618496,
+            "timerOverheadNs": 30
+          },
+          "extra": {
+            "bytesPerRule": 4471,
+            "ruleCount": 10000
+          }
+        }
+      ]
+    }
+  ]
+}
