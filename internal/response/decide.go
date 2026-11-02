@@ -34,9 +34,11 @@ var builtinDenyNames = map[string]bool{
 //
 // The order of evaluation is part of the contract (tests depend on it):
 // policy match, min level, trusted source, targetable, denylist, duplicate,
-// rate limit, kill-switch, then mode. Rails before the mode check run first
-// deliberately, so an observe-mode ledger shows exactly which rail would have
-// stopped an enforce-mode action.
+// rate limit, kill-switch, then mode, then not-armed. Rails before the mode
+// check run first deliberately, so an observe-mode ledger shows exactly which
+// rail would have stopped an enforce-mode action; not-armed runs last so an
+// observe-mode host rails as observe-mode and only an armed-off enforce host
+// shows not-armed.
 func Decide(in Input) Decision {
 	a := in.Alert
 	p := in.Policy
@@ -80,6 +82,15 @@ func Decide(in Input) Decision {
 	if p.Mode == ModeObserve {
 		d.Rail = RailObserve
 		d.Reason = fmt.Sprintf("mode=observe: would %s %s", entry.Action, describeTarget(d.Target))
+		return d
+	}
+
+	// not-armed: enforce mode on a host that has not armed enforcement
+	// (response.enforce off). Evaluated after the mode check so observe stays
+	// observe; a not-armed decision is recorded but no order is written.
+	if !in.Armed {
+		d.Rail = RailNotArmed
+		d.Reason = fmt.Sprintf("not-armed: response.enforce is off: would %s %s", entry.Action, describeTarget(d.Target))
 		return d
 	}
 

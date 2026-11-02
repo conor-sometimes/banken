@@ -1,35 +1,36 @@
 // Package respond wires banken's response layer into the alert dispatch point:
 // it is the alert.Responder that, for every dispatched alert, runs the pure
 // decision (internal/response.Decide) against a loaded policy, records the
-// verdict to the ledger, and -- when the policy decided a real action -- hands
-// that action to the executor (internal/response/exec) and records the outcome.
+// verdict to the ledger, and -- when the policy decided a real action -- writes
+// a work order to the spool. It never acts: after the two-process split the
+// only way an action reaches a primitive is a work order the privileged drain
+// re-decides and executes in its own process (docs/design/response-architecture.md).
 //
-// It sits ABOVE both layers on purpose: the decision layer stays pure and never
-// imports the executor, and the executor never imports the alert stream; this
-// orchestrator is the one place that depends on all three, so the dependency
-// arrows below it never cross.
+// This package deliberately does NOT import internal/response/exec. The daemon
+// process holds no capability to kill, freeze, quarantine or neuter; its one
+// lever on the drain is a JSON file the drain re-decides under the same rails.
+// A compromised daemon can request only an action the policy already allows
+// against a target the rails already allow, and that request is on the ledger.
 //
-// # SAFETY: nothing here is armed by default
+// # SAFETY: nothing here is armed, and nothing here acts
 //
-// Decide returns a real (non-none) Action only when the policy mode is enforce
-// and every safety rail passed; in observe mode (the default) it returns none
-// and this responder never calls the executor. Even when it does, the executor
-// is a DRY-RUN unless it was built with Config.Enforce == true, which the NixOS
-// module keeps false on every real host. The only configuration that both
-// decides a kill AND performs it is the throwaway VM integration test. See
-// docs/design/response-actions.md.
+// Decide returns a real (non-none) Action only when the policy mode is enforce,
+// every safety rail passed, AND the responder was built armed (response.enforce
+// on). In observe mode, or on a host that has not armed enforcement, Decide
+// rails (observe-mode / not-armed) and no order is written. Even when an order
+// IS written, nothing happens until the drain runs, and the drain is a dry-run
+// unless its own executor was armed. The three gates (response.enable, policy
+// mode:enforce, response.enforce) are all off by default.
 package respond
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/conor-sometimes/banken/internal/alert"
 	"github.com/conor-sometimes/banken/internal/response"
-	"github.com/conor-sometimes/banken/internal/response/exec"
 )
 
 // Responder implements alert.Responder. One instance serves one banken process;
@@ -39,27 +40,33 @@ type Responder struct {
 	mu       sync.Mutex
 	policy   response.Policy
 	self     response.SelfIdentity
-	exec     exec.Executor
+	spool    *response.Spool
 	ledger   *response.Ledger
+	armed    bool // response.enforce: the Armed input to Decide
 	version  string
+	now      func() time.Time
 	logf     func(string, ...any)
 	seen     []response.Target
 	runUsed  int
 	hourUsed int
 }
 
-// New builds a responder over a loaded policy, an executor and a ledger. logf
-// may be nil (a no-op is used); now may be nil (time.Now).
-func New(p response.Policy, self response.SelfIdentity, ex exec.Executor, led *response.Ledger, version string, logf func(string, ...any)) *Responder {
+// New builds a responder over a loaded policy, a spool and a ledger. armed is
+// the caller's response.enforce (Decide's Armed input): false means the host
+// has not armed enforcement, so an enforce-mode decision rails as not-armed and
+// no order is written. logf may be nil (a no-op is used).
+func New(p response.Policy, self response.SelfIdentity, spool *response.Spool, led *response.Ledger, armed bool, version string, logf func(string, ...any)) *Responder {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
 	return &Responder{
 		policy:  p,
 		self:    self,
-		exec:    ex,
+		spool:   spool,
 		ledger:  led,
+		armed:   armed,
 		version: version,
+		now:     time.Now,
 		logf:    logf,
 	}
 }
@@ -67,8 +74,8 @@ func New(p response.Policy, self response.SelfIdentity, ex exec.Executor, led *r
 // Respond runs for every dispatched alert. It never returns an error that
 // should suppress the alert: a bug here is recovered and logged, because a
 // response layer that can "error out" is one an attacker can make skip. It
-// returns an error only to report a recovered panic to the dispatcher's error
-// collection, which does not stop the sinks.
+// returns an error only to report a recovered panic or a ledger/spool write
+// failure to the dispatcher's error collection, which does not stop the sinks.
 func (r *Responder) Respond(a alert.Alert) (retErr error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -87,14 +94,16 @@ func (r *Responder) Respond(a alert.Alert) (retErr error) {
 		KillSwitch: r.killSwitchPresent(),
 		Budget:     response.Budget{RunUsed: r.runUsed, HourUsed: r.hourUsed},
 		Seen:       append([]response.Target(nil), r.seen...),
+		Armed:      r.armed,
 	}
 	d := response.Decide(in)
 
 	decID, lerr := r.ledger.RecordDecision(a, d, r.policy.Hash(), r.policy.Mode, in.KillSwitch, r.version)
 	if lerr != nil {
 		// A decision we could not record must not then be acted on: an action
-		// without a record is worse than no action. Stop here, report the write.
-		r.logf("response: ledger write failed, not acting: %v", lerr)
+		// without a record is worse than no action. Stop here (no order), report
+		// the write. This is what guarantees a ledger failure writes NO order.
+		r.logf("response: ledger write failed, no order written: %v", lerr)
 		return lerr
 	}
 
@@ -108,64 +117,31 @@ func (r *Responder) Respond(a alert.Alert) (retErr error) {
 		return nil
 	}
 
-	// Committed to acting: count it toward the budget before the call so a
-	// burst cannot outrun the limit even if a call blocks.
+	// Committed to requesting the action: count it toward the run-local budget
+	// before the write so a burst cannot outrun the limit. The drain's own count
+	// from the ledger is the one that binds; this run-local pair exists to avoid
+	// writing duplicate orders within one scan (§2.4).
 	r.runUsed++
 	r.hourUsed++
 
-	h, aerr := r.invoke(d)
-	phase := "executed"
-	errStr := ""
-	if aerr != nil {
-		phase = "failed"
-		errStr = aerr.Error()
+	order := response.Order{
+		Version:  response.OrderVersion,
+		ID:       decID,
+		Time:     r.now().UTC(),
+		Alert:    a,
+		Decision: d,
+		Policy:   r.policy.Hash(),
+		Banken:   r.version,
 	}
-	hi := handleInfo(h)
-	if _, werr := r.ledger.RecordAction(a, d, phase, decID, r.exec.Enforcing(), hi, errStr, r.policy.Hash(), r.version); werr != nil {
-		r.logf("response: action-ledger write failed: %v", werr)
+	if werr := r.spool.Write(order); werr != nil {
+		// The decision is on the ledger; the order could not be written. Surface
+		// it (the dispatcher collects it; the sinks still fire). `respond explain`
+		// will show this decision as "never requested".
+		r.logf("response: spool write failed for decision %s, no order: %v", decID, werr)
+		return werr
 	}
-
-	gate := "dry-run"
-	if r.exec.Enforcing() {
-		gate = "ENFORCE"
-	}
-	if aerr != nil {
-		r.logf("response: %s %s pid %d FAILED [%s]: %v", d.Action, d.Scope, targetPID(d), gate, aerr)
-	} else {
-		r.logf("response: %s %s pid %d -> handle %s [%s]", d.Action, d.Scope, targetPID(d), h.ID, gate)
-	}
+	r.logf("response: %s %s pid %d -> order %s (drain will decide)", d.Action, d.Scope, targetPID(d), decID)
 	return nil
-}
-
-// invoke dispatches a decided action to the executor. The decision layer has
-// already guaranteed the target shape (a process ref for freeze/kill/collect, a
-// file ref for quarantine), so a nil target here is a bug, surfaced as an error.
-func (r *Responder) invoke(d response.Decision) (exec.Handle, error) {
-	ctx := context.Background()
-	switch d.Action {
-	case response.ActionKill:
-		if d.Target.Process == nil {
-			return exec.Handle{}, errors.New("response: kill decision with no process target")
-		}
-		return r.exec.Kill(ctx, *d.Target.Process, d.Scope)
-	case response.ActionFreeze:
-		if d.Target.Process == nil {
-			return exec.Handle{}, errors.New("response: freeze decision with no process target")
-		}
-		return r.exec.Freeze(ctx, *d.Target.Process, d.Scope)
-	case response.ActionCollect:
-		if d.Target.Process == nil {
-			return exec.Handle{}, errors.New("response: collect decision with no process target")
-		}
-		return r.exec.Collect(ctx, *d.Target.Process)
-	case response.ActionQuarantine:
-		if d.Target.File == nil {
-			return exec.Handle{}, errors.New("response: quarantine decision with no file target")
-		}
-		return r.exec.Quarantine(ctx, *d.Target.File)
-	default:
-		return exec.Handle{}, fmt.Errorf("response: unsupported action %q reached executor", d.Action)
-	}
 }
 
 func (r *Responder) killSwitchPresent() bool {
@@ -174,23 +150,6 @@ func (r *Responder) killSwitchPresent() bool {
 	}
 	_, err := os.Stat(r.policy.KillSwitchPath)
 	return err == nil
-}
-
-// handleInfo translates the executor's Handle into the ledger's plain-field
-// HandleInfo, so internal/response never imports internal/response/exec.
-func handleInfo(h exec.Handle) *response.HandleInfo {
-	if h.ID == "" && h.Method == "" && h.PID == 0 {
-		return nil
-	}
-	return &response.HandleInfo{
-		ID:     h.ID,
-		Kind:   h.Kind,
-		PID:    h.PID,
-		Method: h.Method,
-		DryRun: h.DryRun,
-		Undo:   h.Undo,
-		Note:   h.Note,
-	}
 }
 
 func targetPID(d response.Decision) int {

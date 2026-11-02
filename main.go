@@ -31,7 +31,6 @@ import (
 	"github.com/conor-sometimes/banken/internal/ioc"
 	"github.com/conor-sometimes/banken/internal/parser"
 	"github.com/conor-sometimes/banken/internal/response"
-	"github.com/conor-sometimes/banken/internal/response/exec"
 	"github.com/conor-sometimes/banken/internal/response/respond"
 	"github.com/conor-sometimes/banken/internal/sigma"
 )
@@ -125,6 +124,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 			return runReload(args[1:], stdout, stderr)
 		case "status":
 			return runStatus(args[1:], stdout, stderr)
+		case "respond":
+			return runRespond(args[1:], stdout, stderr)
 		}
 	}
 
@@ -765,16 +766,19 @@ func buildConfig(f flags, sources multiFlag) (config.Config, error) {
 }
 
 // setupResponder installs the response layer on the dispatcher when
-// cfg.Response.Enable is set. It loads and validates the operator policy,
-// opens the append-only ledger, and builds the executor.
+// cfg.Response.Enable is set. After the two-process split the daemon only
+// decides and records: it loads and validates the operator policy, opens the
+// append-only ledger, and builds the SPOOL. It does NOT build the executor --
+// the daemon process holds no capability to act, and a decided action reaches a
+// primitive only as a work order the privileged `banken respond drain` unit
+// re-decides and executes. This is why this function (and the daemon's whole
+// scan path) no longer imports internal/response/exec.
 //
-// SAFETY: the executor is armed for REAL enforcement only when
-// cfg.Response.Enforce is true, which the NixOS module keeps false on every
-// real host; the one configuration that sets it true is the throwaway VM
-// integration test. With Enforce false the executor is a dry-run (it records
-// what it would do and touches nothing), and in observe mode the policy never
-// even asks it to act. A bad policy or an executor that cannot be built on
-// this platform is a startup error, never a silent alert-only fallback.
+// SAFETY: the responder writes an order only when the policy mode is enforce
+// AND cfg.Response.Enforce armed the host (the Armed input to Decide). On a host
+// that has not armed enforcement the decision rails as not-armed and no order is
+// written, so nothing can reach the drain. A bad policy is a startup error,
+// never a silent alert-only fallback.
 func setupResponder(disp *alert.Dispatcher, cfg config.Config, stderr io.Writer) error {
 	if !cfg.Response.Enable {
 		return nil
@@ -785,42 +789,52 @@ func setupResponder(disp *alert.Dispatcher, cfg config.Config, stderr io.Writer)
 		return err
 	}
 
-	ledgerDir := cfg.Response.LedgerDir
-	if ledgerDir == "" {
-		ledgerDir = filepath.Join(filepath.Dir(cfg.StatePath), "response")
-	}
+	ledgerDir := responseLedgerDir(cfg)
 	ledger, err := response.NewLedger(ledgerDir)
 	if err != nil {
 		return err
 	}
 
-	ex, err := exec.New(exec.Config{
-		Enforce:              cfg.Response.Enforce,
-		CgroupRoot:           cfg.Response.CgroupRoot,
-		QuarantineDir:        cfg.Response.QuarantineDir,
-		QuarantineAllowPaths: policy.Quarantine.AllowPaths,
-		Logf: func(format string, a ...any) {
-			logAt(stderr, levelWarning, format, a...)
-		},
-	})
+	spoolDir, spoolTmpDir := spoolPaths(cfg)
+	spool, err := response.NewSpool(spoolDir, spoolTmpDir)
 	if err != nil {
-		return fmt.Errorf("banken: response executor: %w", err)
+		return fmt.Errorf("banken: response spool: %w", err)
 	}
 
 	self := response.SelfIdentity{Exe: selfExe()}
-	r := respond.New(policy, self, ex, ledger, version, func(format string, a ...any) {
+	r := respond.New(policy, self, spool, ledger, cfg.Response.Enforce, version, func(format string, a ...any) {
 		logAt(stderr, levelWarning, "banken: "+format, a...)
 	})
 	disp.SetResponder(r)
 
-	gate := "observe/dry-run (nothing acts)"
-	if policy.Mode == response.ModeEnforce && ex.Enforcing() {
-		gate = "ENFORCE: real actions ARMED"
-	} else if policy.Mode == response.ModeEnforce {
-		gate = "enforce policy but executor NOT armed (dry-run)"
+	gate := "observe (decides and records, writes no order)"
+	switch {
+	case policy.Mode == response.ModeEnforce && cfg.Response.Enforce:
+		gate = "ENFORCE ARMED: decided actions are written to the spool for the drain"
+	case policy.Mode == response.ModeEnforce:
+		gate = "enforce policy but NOT armed (rail: not-armed, no order written)"
 	}
-	logAt(stderr, levelWarning, "banken: response layer enabled, mode=%s, %s; ledger %s", policy.Mode, gate, ledgerDir)
+	logAt(stderr, levelWarning, "banken: response layer enabled, mode=%s, %s; ledger %s, spool %s", policy.Mode, gate, ledgerDir, spoolDir)
 	return nil
+}
+
+// responseLedgerDir is the response ledger directory: the configured LedgerDir,
+// else response/ under the state directory.
+func responseLedgerDir(cfg config.Config) string {
+	if cfg.Response.LedgerDir != "" {
+		return cfg.Response.LedgerDir
+	}
+	return filepath.Join(filepath.Dir(cfg.StatePath), "response")
+}
+
+// spoolPaths are the work-order spool and its sibling tmp directory, both under
+// the state directory. They are siblings on one filesystem so the daemon's
+// tmp+fsync+rename is atomic and a path unit's DirectoryNotEmpty never sees a
+// half-written order (§2.2). The daemon (setupResponder) and the helper
+// (runRespondDrain) derive them the same way, so both agree with no option.
+func spoolPaths(cfg config.Config) (dir, tmpDir string) {
+	base := filepath.Dir(cfg.StatePath)
+	return filepath.Join(base, "spool"), filepath.Join(base, "spool.tmp")
 }
 
 // loadResponsePolicy loads the policy from the file path, or parses the inline

@@ -324,6 +324,11 @@ func TestDecide(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// The table is an armed enforce host: the clean enforce cases expect a
+			// real action. The not-armed rail runs only after the mode check, so
+			// setting Armed here leaves every pre-mode rail and the observe case
+			// unchanged; not-armed has its own fixtures in TestNotArmedRail.
+			tt.in.Armed = true
 			got := Decide(tt.in)
 			if got.Action != tt.wantAct {
 				t.Errorf("Action = %q, want %q (reason: %s)", got.Action, tt.wantAct, got.Reason)
@@ -358,9 +363,10 @@ func TestEveryRailReached(t *testing.T) {
 	record := func(in Input) { reached[Decide(in).Rail] = true }
 
 	base := Budget{RunLimit: 3, HourLimit: 10}
-	// RailNone and RailObserve.
-	record(Input{Alert: procAlert(), Policy: enforce, Budget: base})
+	// RailNone (armed enforce), RailObserve and RailNotArmed (enforce, not armed).
+	record(Input{Alert: procAlert(), Policy: enforce, Budget: base, Armed: true})
 	record(Input{Alert: procAlert(), Policy: observe, Budget: base})
+	record(Input{Alert: procAlert(), Policy: enforce, Budget: base, Armed: false})
 	// no-policy-match.
 	noMatch := procAlert()
 	noMatch.Rule, noMatch.Tags = "nope", nil
@@ -391,10 +397,49 @@ func TestEveryRailReached(t *testing.T) {
 	for _, r := range []Rail{
 		RailNone, RailNoPolicyMatch, RailBelowMinLevel, RailUntrustedSource,
 		RailUntargetable, RailDenylist, RailDuplicate, RailRateLimit,
-		RailKillSwitch, RailObserve,
+		RailKillSwitch, RailObserve, RailNotArmed,
 	} {
 		if !reached[r] {
 			t.Errorf("rail %q is never reached by the test corpus", r)
+		}
+	}
+}
+
+// TestNotArmedRail is the §2.5 fixture: under mode:enforce with every rail
+// passed, an unarmed host (Armed=false, i.e. response.enforce off) rails as
+// not-armed with the Intended action preserved and Action=none, so the
+// responder writes no order. Flipping Armed to true on the same input yields
+// the real action. Observe mode is unaffected (it rails earlier, at the mode
+// check), which is the ordering the split depends on.
+func TestNotArmedRail(t *testing.T) {
+	enforce := mustPolicy(t, enforcePolicy)
+	observe := mustPolicy(t, observePolicy)
+	base := Budget{RunLimit: 3, HourLimit: 10}
+
+	unarmed := Decide(Input{Alert: procAlert(), Policy: enforce, Budget: base, Armed: false})
+	if unarmed.Rail != RailNotArmed {
+		t.Fatalf("unarmed enforce: rail = %q, want not-armed (reason: %s)", unarmed.Rail, unarmed.Reason)
+	}
+	if unarmed.Action != ActionNone {
+		t.Errorf("unarmed enforce: action = %q, want none", unarmed.Action)
+	}
+	if unarmed.Intended != ActionFreeze {
+		t.Errorf("unarmed enforce: intended = %q, want freeze (the decided line still names the target)", unarmed.Intended)
+	}
+	if unarmed.Reason == "" {
+		t.Errorf("unarmed enforce: reason is empty; every decision must carry one")
+	}
+
+	armed := Decide(Input{Alert: procAlert(), Policy: enforce, Budget: base, Armed: true})
+	if armed.Rail != RailNone || armed.Action != ActionFreeze {
+		t.Errorf("armed enforce: rail=%q action=%q, want none/freeze", armed.Rail, armed.Action)
+	}
+
+	// Observe rails at the mode check, before not-armed, armed or not.
+	for _, armedFlag := range []bool{false, true} {
+		d := Decide(Input{Alert: procAlert(), Policy: observe, Budget: base, Armed: armedFlag})
+		if d.Rail != RailObserve {
+			t.Errorf("observe (armed=%v): rail = %q, want observe-mode", armedFlag, d.Rail)
 		}
 	}
 }

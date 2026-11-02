@@ -119,8 +119,9 @@ func (l *Ledger) RecordDecision(a alert.Alert, d Decision, policyHash string, mo
 
 // HandleInfo is the executor result the ledger records for an action, carried
 // as plain fields so this package never imports internal/response/exec (the
-// dependency arrow points only the other way). The responder translates the
-// executor's own Handle into this before recording.
+// dependency arrow points only the other way). The drain (and the operator
+// undo commands) translate the executor's own Handle into this before
+// recording.
 type HandleInfo struct {
 	ID     string `json:"id,omitempty"`
 	Kind   Action `json:"kind,omitempty"`
@@ -131,40 +132,86 @@ type HandleInfo struct {
 	Note   string `json:"note,omitempty"`
 }
 
-// actionLine is one action record (executed | failed | skipped) written to the
-// actions-<day>.jsonl file. It references the decision it enacts and records
-// whether real enforcement was armed, so a reader can always tell a real
-// SIGKILL from a dry-run "would kill".
-type actionLine struct {
-	ID         string       `json:"id"`
-	Time       time.Time    `json:"time"`
-	Phase      string       `json:"phase"` // executed | failed | skipped
-	DecisionID string       `json:"decisionId,omitempty"`
-	Alert      alertSummary `json:"alert"`
-	Action     Action       `json:"action"`
-	Scope      Scope        `json:"scope,omitempty"`
-	Target     Target       `json:"target"`
-	Enforced   bool         `json:"enforced"` // executor armed (real) vs dry-run
-	Handle     *HandleInfo  `json:"handle,omitempty"`
-	Error      string       `json:"error,omitempty"`
-	Policy     string       `json:"policy"`
-	Banken     string       `json:"banken,omitempty"`
+// LiveInfo is the live process identity the executor bound before acting
+// (the exe it resolved, the start time it confirmed, the cgroup it saw). Like
+// HandleInfo it is carried as plain fields so this package never imports the
+// executor; the drain translates exec.Live into it. Empty for file actions and
+// for phases that never reached the executor (expired, downgraded, malformed).
+type LiveInfo struct {
+	PID        int       `json:"pid"`
+	StartTime  time.Time `json:"startTime,omitzero"`
+	Exe        string    `json:"exe,omitempty"`
+	CgroupPath string    `json:"cgroupPath,omitempty"`
+	UID        int       `json:"uid"`
+	Masquerade bool      `json:"masquerade,omitempty"`
 }
 
-// RecordAction appends one action line to actions-<day>.jsonl. phase is
-// "executed" (the executor returned no error), "failed" (it did), or "skipped".
-// Like RecordDecision the write is returned, never fatal.
-func (l *Ledger) RecordAction(a alert.Alert, d Decision, phase, decisionID string, enforced bool, h *HandleInfo, errStr, policyHash, version string) (string, error) {
+// actionLine is one action record written to actions-<day>.jsonl by the drain
+// (and later by thaw/restore). Phase is the drain vocabulary of §2.4/§2.6:
+// executed, failed, expired, downgraded, already-applied, recovered, plus
+// thawed and restored for the undo commands. It references the decision it
+// enacts (DecisionID = the order id) and records whether real enforcement was
+// armed, so a reader can always tell a real SIGKILL from a dry-run "would
+// kill".
+type actionLine struct {
+	ID          string       `json:"id"`
+	Time        time.Time    `json:"time"`
+	Phase       string       `json:"phase"`
+	Note        string       `json:"note,omitempty"` // a short reason within a phase, e.g. "malformed", "kill-switch"
+	DecisionID  string       `json:"decisionId,omitempty"`
+	Alert       alertSummary `json:"alert"`
+	Action      Action       `json:"action"`              // what actually happened (the actor's verdict / the undo)
+	Requested   Action       `json:"requested,omitempty"` // what the order asked for, when it differs (downgraded)
+	Scope       Scope        `json:"scope,omitempty"`
+	Target      Target       `json:"target"`
+	Enforced    bool         `json:"enforced"` // executor armed (real) vs dry-run
+	Handle      *HandleInfo  `json:"handle,omitempty"`
+	Live        *LiveInfo    `json:"live,omitempty"`
+	Error       string       `json:"error,omitempty"`
+	Policy      string       `json:"policy"`                // the policy hash the ACTOR decided under
+	OrderPolicy string       `json:"orderPolicy,omitempty"` // the policy hash carried in the order, when it differs
+	Banken      string       `json:"banken,omitempty"`
+}
+
+// ActionRecord is everything an action ledger line carries. The drain and the
+// operator undo commands (thaw/restore) fill it; the responder never does --
+// after the two-process split the responder only records decisions (the
+// decided line plus the order file IS the request, §2.3). A struct, not a long
+// positional signature, because the drain fills a different subset per phase
+// (a downgraded line has no handle; a malformed line has no verdict).
+type ActionRecord struct {
+	Alert       alert.Alert
+	Phase       string
+	Note        string
+	DecisionID  string // the order id (= the decided line id)
+	Action      Action
+	Requested   Action
+	Scope       Scope
+	Target      Target
+	Enforced    bool
+	Handle      *HandleInfo
+	Live        *LiveInfo
+	Error       string
+	Policy      string // the acting policy hash
+	OrderPolicy string // the order's policy hash, when it differs from Policy
+	Version     string
+}
+
+// RecordAction appends one action line to actions-<day>.jsonl. Like
+// RecordDecision the write error is returned, never fatal to the caller.
+func (l *Ledger) RecordAction(rec ActionRecord) (string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := l.now()
 	id := newID(now)
+	a := rec.Alert
 	line := actionLine{
 		ID:         id,
 		Time:       now.UTC(),
-		Phase:      phase,
-		DecisionID: decisionID,
+		Phase:      rec.Phase,
+		Note:       rec.Note,
+		DecisionID: rec.DecisionID,
 		Alert: alertSummary{
 			Rule:    a.Rule,
 			RuleID:  a.RuleID,
@@ -176,14 +223,17 @@ func (l *Ledger) RecordAction(a alert.Alert, d Decision, phase, decisionID strin
 			User:    a.Event.User,
 			Tags:    a.Tags,
 		},
-		Action:   d.Action,
-		Scope:    d.Scope,
-		Target:   d.Target,
-		Enforced: enforced,
-		Handle:   h,
-		Error:    errStr,
-		Policy:   policyHash,
-		Banken:   version,
+		Action:      rec.Action,
+		Requested:   rec.Requested,
+		Scope:       rec.Scope,
+		Target:      rec.Target,
+		Enforced:    rec.Enforced,
+		Handle:      rec.Handle,
+		Live:        rec.Live,
+		Error:       rec.Error,
+		Policy:      rec.Policy,
+		OrderPolicy: rec.OrderPolicy,
+		Banken:      rec.Version,
 	}
 	buf, err := json.Marshal(line)
 	if err != nil {
