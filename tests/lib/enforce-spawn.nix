@@ -99,4 +99,56 @@
         return machine.succeed(
             f"kill -0 {pid} 2>/dev/null && echo yes || echo no"
         ).strip() == "yes"
+
+    # --- the two-process split: the daemon writes orders, the helper drains ---
+    #
+    # After the split the enforcing scan is two hops: `systemctl start
+    # banken.service` (the daemon, a synchronous oneshot) writes work orders to
+    # /var/lib/banken/spool and exits; banken-respond.path then fires
+    # banken-respond.service (the helper) on inotify, which RE-DECIDES each order
+    # and acts. So a scan is not done when the daemon exits -- it is done when the
+    # spool is empty AND the helper is no longer mid-run. enf_scan waits for that,
+    # so the ledger reflects the completed actions before the test reads it.
+
+    def _spool_drained():
+        # spool empty (every order acted/downgraded/expired and unlinked) and the
+        # helper oneshot not currently running.
+        return machine.succeed(
+            'if [ -z "$(ls -A /var/lib/banken/spool 2>/dev/null)" ] '
+            '&& ! systemctl is-active --quiet banken-respond.service; '
+            'then echo drained; else echo busy; fi'
+        ).strip() == "drained"
+
+    def enf_wait_drained():
+        """Block until the spool is empty and the helper is idle."""
+        machine.wait_until_succeeds(
+            'test -z "$(ls -A /var/lib/banken/spool 2>/dev/null)" '
+            '&& ! systemctl is-active --quiet banken-respond.service'
+        )
+
+    def enf_scan():
+        """One enforcing cycle: daemon scan (writes orders) then helper drain."""
+        machine.succeed("systemctl start banken.service")
+        enf_wait_drained()
+
+    _ENF_ORDER_SEQ = [0]
+
+    def enf_order(order):
+        """Write a hand-crafted work order into the spool as root (tmp + rename,
+        like the daemon), returning its id. This forges the helper's one input
+        directly, to exercise its own re-decision rails without needing an audit
+        event (the order IS the forged input; §4.2). `order` is a dict matching
+        the §2.3 shape; if it has no "id", a fresh time-ordered hex one is set."""
+        import json as _json
+        if not order.get("id"):
+            _ENF_ORDER_SEQ[0] += 1
+            # time-ordered-ish: ns timestamp + a sequence, hex, 24 chars.
+            import time as _time
+            order["id"] = f"{int(_time.time()*1e6):016x}{_ENF_ORDER_SEQ[0]:08x}"
+        oid = order["id"]
+        b64 = base64.b64encode(_json.dumps(order).encode()).decode()
+        machine.succeed("mkdir -p /var/lib/banken/spool /var/lib/banken/spool.tmp")
+        machine.succeed(f"printf %s {b64} | base64 -d > /var/lib/banken/spool.tmp/{oid}.json")
+        machine.succeed(f"mv /var/lib/banken/spool.tmp/{oid}.json /var/lib/banken/spool/{oid}.json")
+        return oid
 ''

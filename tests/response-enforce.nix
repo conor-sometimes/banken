@@ -172,7 +172,94 @@ pkgs.testers.runNixOSTest {
 
     machine.wait_for_unit("auditd.service")
     machine.wait_until_succeeds("auditctl -l | grep -q banken-exec")
-    machine.succeed("systemctl start banken.service")  # drain boot-time events
+    machine.wait_for_unit("banken-respond.path")  # the helper's trigger is up
+    enf_scan()  # drain boot-time events (daemon writes orders, helper drains)
+
+    def action_lines():
+        out = machine.succeed("cat /var/lib/banken/response/actions-*.jsonl 2>/dev/null || true")
+        return [json.loads(l) for l in out.splitlines() if l.strip()]
+
+    # ================= §4.2 BOUNDARY PHASE: the split is real =================
+    # Cheap assertions, run once before the scorecard, that the two-process
+    # least-privilege split is in force. (1) each unit's capability boundary is
+    # EXACTLY as specified in §2.1 -- the daemon holds only CAP_DAC_READ_SEARCH
+    # and cannot see other processes (ProtectProc=invisible); the helper holds
+    # the act set. (2) a forged work order can only LOWER what happens: one for a
+    # rule the policy does not map is downgraded; one for a mapped rule but a
+    # mismatched image is refused by the live identity rail (ErrStaleTarget). The
+    # innocent targeted by both stays alive. These are the spool-poisoning tests
+    # enforcement-testing.md 4.8 calls the single most important protocol test.
+    from datetime import datetime, timezone
+
+    def unit_val(unit, prop):
+        return machine.succeed(f"systemctl show -p {prop} --value {unit}").strip()
+
+    def cap_set(unit):
+        v = unit_val(unit, "CapabilityBoundingSet")
+        return set(v.split()) if v else set()
+
+    daemon_caps = cap_set("banken.service")
+    assert daemon_caps == {"cap_dac_read_search"}, \
+        f"daemon CapabilityBoundingSet = {sorted(daemon_caps)}, want exactly [cap_dac_read_search]"
+    assert unit_val("banken.service", "ProtectProc") == "invisible", \
+        f"daemon ProtectProc = {unit_val('banken.service','ProtectProc')!r}, want invisible"
+    helper_caps = cap_set("banken-respond.service")
+    want_helper = {"cap_kill", "cap_sys_ptrace", "cap_dac_read_search",
+                   "cap_dac_override", "cap_fowner", "cap_linux_immutable"}
+    assert helper_caps == want_helper, \
+        f"helper CapabilityBoundingSet = {sorted(helper_caps)}, want {sorted(want_helper)}"
+    assert unit_val("banken-respond.service", "ProtectProc") == "default", \
+        f"helper ProtectProc = {unit_val('banken-respond.service','ProtectProc')!r}, want default"
+    print(f"[boundary] capability split OK: daemon={sorted(daemon_caps)} helper={sorted(helper_caps)}")
+
+    # A live innocent (a sleeping bash shell) is the target of both forged orders;
+    # its live exe is the real bash, so a forged image can never match it.
+    bnd_innocent = enf_spawn({"name": "bnd_innocent", "carrier": "shell", "trigger": "echo boundary"})
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    def forged_order(rule, image):
+        pid = int(bnd_innocent)
+        proc = {"pid": pid, "image": image, "user": "alice"}
+        return {
+            "version": 1, "time": now_iso, "policy": "sha256:forged", "banken": "test",
+            "alert": {
+                "time": now_iso, "kind": "sigma", "rule": rule, "level": "high",
+                "source": "auditd", "message": "forged boundary order",
+                "event": {"time": now_iso, "source": "auditd", "image": image,
+                          "user": "alice", "pid": pid},
+            },
+            "decision": {
+                "intended": "kill", "action": "kill", "reason": "forged",
+                "target": {"process": proc}, "scope": "process",
+            },
+        }
+
+    # order A: a rule the policy does not map -> the helper's own Decide says
+    # no-policy-match, so the forged kill is DOWNGRADED to none; untouched.
+    oid_dg = enf_order(forged_order("no_such_rule_xyz", "/run/enf/bnd_innocent/bash"))
+    # order B: a mapped rule (reverse_shell -> kill) but an image that is NOT the
+    # innocent's live exe -> the helper's Decide passes and identify() refuses
+    # with ErrStaleTarget (live exe != recorded image); untouched.
+    forged_img = "/nix/store/0000000000000000000000000000000-forged/bin/bash"
+    oid_stale = enf_order(forged_order("reverse_shell", forged_img))
+    enf_wait_drained()
+
+    bnd = {}
+    for a in action_lines():
+        if a.get("decisionId") in (oid_dg, oid_stale):
+            bnd[a["decisionId"]] = a
+    assert bnd.get(oid_dg, {}).get("phase") == "downgraded", \
+        f"forged unmapped-rule order: want phase downgraded, got {bnd.get(oid_dg)}"
+    assert bnd.get(oid_stale, {}).get("phase") == "failed", \
+        f"forged mismatched-image order: want phase failed (stale), got {bnd.get(oid_stale)}"
+    assert enf_alive(bnd_innocent), \
+        f"BOUNDARY: innocent pid {bnd_innocent} was KILLED by a forged order"
+    assert bnd_innocent not in {str((bnd[oid_stale].get('handle') or {}).get('pid'))} or \
+        bnd[oid_stale]["phase"] == "failed", "forged kill must not have executed"
+    print(f"[boundary] forged orders: {oid_dg[:8]} downgraded, {oid_stale[:8]} "
+          f"failed ({(bnd[oid_stale].get('error') or '')[:60]}); innocent {bnd_innocent} alive")
+    machine.succeed(f"kill -9 {bnd_innocent} 2>/dev/null || true")
+    print("[boundary] PASS: capability split exact; forged orders downgraded/stale; 0 innocents touched")
 
     # Spawn every long-running victim first (interleaved), then a barrier so all
     # victim execves are on disk before the single enforcing scan.
@@ -200,12 +287,10 @@ pkgs.testers.runNixOSTest {
     machine.succeed("auditctl -m ENFORCE_READY")
     machine.wait_until_succeeds("grep -q ENFORCE_READY /var/log/audit/audit.log")
 
-    # THE enforcing scan: detect -> Decide -> executor, synchronous.
-    machine.succeed("systemctl start banken.service")
-
-    def action_lines():
-        out = machine.succeed("cat /var/lib/banken/response/actions-*.jsonl 2>/dev/null || true")
-        return [json.loads(l) for l in out.splitlines() if l.strip()]
+    # THE enforcing scan: the daemon decides and writes orders, the helper
+    # (banken-respond.service) re-decides and lands the real pidfd kill. enf_scan
+    # waits for the spool to empty and the helper to go idle.
+    enf_scan()
 
     acts = action_lines()
     killed_pids = {}   # pid -> action line for a REAL executed pidfd kill

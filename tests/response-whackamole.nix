@@ -108,7 +108,10 @@ pkgs.testers.runNixOSTest {
         machine.wait_until_succeeds(f"grep -q {tag} /var/log/audit/audit.log")
 
     def scan():
-        machine.succeed("systemctl start banken.service")
+        # After the two-process split a scan is the daemon writing orders AND the
+        # helper draining them: enf_scan waits for the spool to empty and the
+        # helper to go idle, so the kill now lands from banken-respond.service.
+        enf_scan()
 
     def action_lines():
         out = machine.succeed("cat /var/lib/banken/response/actions-*.jsonl 2>/dev/null || true")
@@ -129,7 +132,7 @@ pkgs.testers.runNixOSTest {
 
     machine.wait_for_unit("auditd.service")
     machine.wait_until_succeeds("auditctl -l | grep -q banken-exec")
-    machine.succeed("systemctl start banken.service")  # drain boot-time events
+    enf_scan()  # drain boot-time events (daemon + helper)
 
     # ---- the should-kill victim shapes (verified offline to trip their rule) ----
     KILL = [
