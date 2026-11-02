@@ -105,9 +105,10 @@ gosec:
 vulncheck:
 	govulncheck ./...
 
-# The one test command: every package, race on, no caching, with the fuzz
-# smoke and rapid deep sweep run first.
-test: fuzz property-deep
+# The unit suite: every package, race on, no caching, with the fuzz
+# smoke and rapid deep sweep run first. `just default` runs this; `just test`
+# runs the whole battery on top of it.
+unit: fuzz property-deep
 	gotestsum --format pkgname -- ./... -race -count=1
 
 cover:

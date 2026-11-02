@@ -44,3 +44,10 @@ linters:
       - path: internal/alert/ocsf\.go$
         linters:
           - tagliatelle
+      # ECS (Elastic Common Schema) field names are snake_case by
+      # specification (command_line, working_directory, ...), exactly as OCSF
+      # above. The ECS mapper spells Elastic's schema, so it is exempt from the
+      # camelCase rule for the same reason.
+      - path: internal/alert/ecs\.go$
+        linters:
+          - tagliatelle
