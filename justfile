@@ -226,8 +226,14 @@ profile out="bench/profiles" benchtime="3s":
 
 # Short fuzz run against every Fuzz* target in every package, discovered via
 # `go test -list` (not hardcoded, so a new target is picked up
-# automatically). {{fuzztime}} per target (default 5s).
-fuzz fuzztime="5s":
+# automatically). A COUNT budget ({{fuzztime}} = executions per target), not a
+# wall-clock duration: a time budget (the old 5s) races go test's own context
+# deadline under CI/box load and fails the target with "context deadline
+# exceeded" though no crasher was found, so a loaded runner turns a clean smoke
+# red (hit three times in one day across unrelated PRs). A count is
+# deterministic and load-independent. This is the per-commit smoke; the deep
+# time-based campaign is nightly (.github/workflows/fuzz.yml).
+fuzz fuzztime="2000x":
 	#!/bin/sh
 	set -eu
 	for pkg in $(go list ./...); do
