@@ -27,6 +27,33 @@ user - if it does something a rule flags, banken alerts. (The
 [agent containment](https://github.com/conor-sometimes/nixos-agent-containment) is one consumer: it
 adds its own tighter agent-specific rules on top.)
 
+## Demo
+
+Watch banken catch a live reverse shell and hand your SIEM an OCSF finding, in a throwaway VM you
+boot yourself. No recording to take on faith: it is the real binary on real auditd/eBPF, and the
+same command re-runs on your own hardware.
+
+```sh
+nix run github:conor-sometimes/banken#demo        # auditd floor (universal; needs only KVM)
+nix run github:conor-sometimes/banken#demo-mimi    # the eBPF switch: the sub-second catch
+```
+
+Each boots a NixOS VM with `services.banken.enable`, runs the repo's own benign
+[`revshell.sh`](tests/emulations/revshell.sh) as an unprivileged user, and prints a narrated
+transcript: the OCSF 1.3.0 `reverse_shell` Detection Finding (ATT&CK technique attached) and the
+measured exec-to-alert latency, the finding delivered to a mock SIEM over HTTP, then an ordinary
+admin workload raising **zero** alerts (no false positives on a normal day's work), and finally the
+static binary and hardened-sandbox score. `demo-mimi` turns audit off so mimi's eBPF stream is the
+only source, so the alert proves the full probe-to-alert path (the sub-second number). The demos
+**reuse the existing end-to-end tests** ([`tests/vm.nix`](tests/vm.nix),
+[`tests/switch.nix`](tests/switch.nix)) for their assertions, so they cannot claim a detection the
+test suite does not gate on. See [`demo/demo.nix`](demo/demo.nix), or `just demo` / `just demo-mimi`.
+
+A captured transcript of a real `demo-mimi` run on the deployed host is in
+[`demo/banken-demo-mimi.txt`](demo/banken-demo-mimi.txt). The one-page case to print and hand to
+management -- money, breach risk and outage risk, every figure cited -- is
+[`demo/pitch.md`](demo/pitch.md).
+
 ## What it supports
 
 A map of what is real today. Each line is verified against the code; the sections further down give

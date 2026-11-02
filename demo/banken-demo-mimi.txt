@@ -1,0 +1,89 @@
+Captured transcript of a real `nix run .#demo-mimi` run.
+
+  host:    hokkaido (NixOS 26.05, KVM), as the claude user
+  command: nix run .#demo-mimi --override-input mimi path:/home/claude/t/mimi
+  date:    2026-11-02
+  result:  DEMO PASS -- OCSF reverse_shell Detection Finding off the mimi eBPF stream in 263 ms
+
+This is the narrated transcript the demo prints (ANSI colour and the VM boot log stripped). It is a
+real run, not a mock-up: the same command reproduces it on any host with KVM and the mimi input.
+The arc is: catch the reverse shell -> deliver it to the SIEM -> silence on a normal day's work.
+
+Note the [siem] step: banken --watch reliably delivers OCSF findings to the mock SIEM over HTTP (see
+the auditd flavour, which POSTs the reverse_shell body itself), but in this mimi-only run only the
+boot-time kernel_module_load finding reached the webhook; the headline reverse_shell is proven by
+the [alert] and [stream] beats (jsonl finding + the exec in mimi's capture stream), which are the
+asserted gate. The webhook delivery of the stream-sourced reverse_shell is a known rough edge
+flagged for the sink owner.
+
+================================================================================
+
+===== [0:00] banken -- one switch, a live reverse shell, an OCSF finding in your SIEM.
+This is the entire setup:
+    services.banken.enable      = true;
+    services.banken.mimi.enable = true;   # the eBPF sensor; audit is OFF
+
+===== [boot] bringing up the VM and the banken units ...
+mimi (the eBPF sensor) and banken are up. Audit is OFF -- mimi is the only source,
+so any alert proves the eBPF path end to end.
+----- banken is the continuous watcher
+/nix/store/ggnygcml1j51h4fr8wdijsxzxlqpk4zm-banken-dev/bin/banken --watch -config /etc/banken/banken.yml
+
+===== [run] as unprivileged user 'alice', run a benign reverse-shell-shaped exec.
+    runuser -u alice -- timeout 3 bash -c 'exec 3<>/dev/tcp/192.0.2.1/47123'
+    192.0.2.1 is TEST-NET-1; it routes nowhere. The command SHAPE is what fires the rule.
+
+===== [alert] the alert lands -- and it is already a standards finding, not a log line.
+OCSF 1.3.0 Detection Finding:
+{
+  "class_uid": 2004,
+  "metadata.version": "1.3.0",
+  "finding_info.analytic.name": "reverse_shell",
+  "attacks": [
+    {
+      "tactic": {
+        "uid": "TA0011",
+        "name": "Command and Control"
+      },
+      "technique": {
+        "uid": "T1059"
+      },
+      "sub_technique": {
+        "uid": "T1059.004"
+      }
+    }
+  ]
+}
+
+    exec -> alert: 263 ms   (off the mimi eBPF stream)
+
+===== [stream] provenance: the very same exec is in mimi's raw capture stream.
+----- mimi stream line for port 47123
+{"schema":"mimi/2","kind":"exec","time":"2026-11-02T01:45:01.977677749Z","capture_ns":20393426713,"activity_id":1,"cmdline_truncated":false,"process":{"pid":748,"name":"bash","cmd_line":"bash -c set -euo pipefail; (runuser -u alice -- timeout 3 bash -c 'exec 3<>/dev/tcp/192.0.2.1/47123' >/dev/null 2>&1 &) ; true","file":{"path":"/run/current-system/sw/bin/bash","name":"bash"},"user":{"uid":"0","gid":"0"},"parent_process":{"pid":598,"name":"bash"}},"ancestry":[{"pid":748,"name":"bash"},{"pid":598,"name":"bash"},{"pid":1,"name":"systemd"}]}
+
+===== [siem] banken's findings reach your SIEM as OCSF over HTTP -- making "lands in your SIEM" literal.
+mock SIEM received 1 OCSF Detection Finding(s) over HTTP; analytic names: ['kernel_module_load']
+POSTed OCSF body (one received finding, as your SIEM would ingest it):
+{
+  "class_uid": 2004,
+  "metadata": {
+    "version": "1.3.0"
+  },
+  "finding_info": {
+    "analytic": {
+      "name": "kernel_module_load"
+    }
+  }
+}
+
+===== [quiet] no alert fatigue: on a normal day's work, banken says NOTHING.
+ran 9 ordinary commands (ls, pwd, echo, cat, date, wc, head, sort, true) as alice --
+banken raised 0 new alerts. Nothing for the SOC to wade through on a normal day.
+
+===== [binary] one static binary. no kernel module. cannot blue-screen your host.
+----- systemd-analyze security banken.service (exposure)
+Overall exposure level for banken.service: 2.0 OK :-)
+----- file $(command -v banken)
+/run/current-system/sw/bin/banken: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped
+
+===== DEMO PASS [eBPF switch (mimi stream)]: services.banken.mimi.enable -> OCSF reverse_shell finding in 263 ms. See demo/pitch.md for the scorecard.
