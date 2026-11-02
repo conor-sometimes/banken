@@ -52,9 +52,19 @@ the detail and how each claim is checked. In-progress items are marked as such, 
 
 - The SigmaHQ Linux rule set, pinned at release `r2026-07-01` (all 210 rules load and evaluate),
   plus banken's own rules organised by ATT&CK tactic and account-scoped agent rules in `rules/agent/`.
-- IOC lists (`ioc/*.txt`): filename, process and command-line IOCs today (hash and network IOCs
-  follow their sources).
+- Sigma evaluated natively: field modifiers `contains` / `startswith` / `endswith` / `re` / `cidr` /
+  `all`, plain-value equality, `*`/`?` wildcards, keyword (field-less) selections, and conditions of
+  `and` / `or` / `not` / parens with `N of ...` / `all of ...`. Not yet: `base64`/`base64offset` and
+  the Windows transforms (`utf16`/`wide`/`windash`), per-logsource routing (every rule is evaluated
+  against every event today), Sigma correlation/aggregation rules, and null (field-absent) matches --
+  a rule using any of these is reported at load with the file and reason, never silently dropped.
+- IOC lists (`ioc/*.txt`): the matcher types each indicator by shape and matches filename/path, IP
+  (IPv4/IPv6) and domain (exact or dot-suffix) indicators against the Image, CommandLine,
+  TargetFilename and CurrentDirectory fields. Hash indicators are not yet a kind. No baseline feeds
+  ship in the binary -- drop your own `ioc/*.txt` into a rules dir.
 - Optional rules shipped-but-off, with an observe mode that records without paging.
+- An Aho-Corasick literal prefilter makes match time independent of the rule count, fuzz-proven to
+  only ever over-admit, never miss a detection.
 - ATT&CK coverage is **measured** by a live Atomic Red Team range, not a self-reported number.
 
 **Platform:** Linux hosts with systemd only (the security model is the systemd sandbox). Installed
@@ -66,6 +76,24 @@ Debian 13, Ubuntu 24.04, openSUSE Leap 16, Arch.
 Findings (validated by the OCSF project's own validator), ECS 8.11.0, OTLP export, and ATT&CK
 Navigator layer export. Aspirational ones (YARA, STIX/TAXII, SBOM/SLSA) are listed as planned, not
 supported.
+
+**Configuration surface:** every setting is both a CLI flag and a NixOS option (the module writes the
+YAML the binary reads), so nothing is reachable only one way.
+
+- **CLI flags:** `-config`, `-rules`, `-optional`, `-observe`, `-state`, `-source type:path`
+  (repeatable), `-watch`, `-follow`, `-interval`, `-journal`, `-jsonl-dir`, `-jsonl-format`
+  (`banken`|`ocsf`|`ecs`), `-jsonl-retention`, `-webhook-url-file`, `-webhook-style`
+  (`generic`|`slack`|`discord`|`ntfy`|`ocsf`), `-otlp-endpoint`, `-version`.
+- **NixOS module (`services.banken`):** `enable`, `package`, `interval`, `sources`
+  (`[{type,path}]`, type `laurel`/`auditd`/`generic`/`mimi`/`sysmon`), `extraRules`, `optionalRules`,
+  `observeRules`; `mimi.{enable,streamPath}`; `sysmon.{enable,fromJournal,journalIdentifier,
+  bridgePath,logPath}`; `audit.{enable,watchPaths}`; and the sinks `alerts.journal.enable`,
+  `alerts.jsonl.{enable,dir,retentionDays,format}`, `alerts.webhook.{enable,urlFile,url,style}`,
+  `alerts.otlp.{enable,endpoint,headers}`.
+- **Run modes:** one-shot (timer-driven auditd floor, the default), `--watch` (continuous: scans the
+  floor on `--interval` and follows any live sensor stream in one process), and `--follow` (one
+  sensor source as a push stream, capture-to-match latency logged). A bare `banken` with no source
+  configured auto-detects the host's Laurel or raw audit log.
 
 ## How it works
 
@@ -163,8 +191,10 @@ parsers likewise. The Sysmon parser is written, fuzzed and wired into the NixOS 
 end-to-end run against Microsoft's real `sysmonforlinux` binary is still being built, so treat Sysmon
 as validated-in-progress rather than proven. The journald and syslog parsers exist only as stubs
 behind the same interface (they drain their input and emit nothing) so slotting the real logic in
-later touches nothing else. **IOC coverage follows the sources:** file, process and command-line IOCs
-work against the auditd sources today; hash and network IOCs arrive with the eBPF / network sources.
+later touches nothing else. **IOC kinds:** filename/path, IP and domain indicators are matched today
+(against the Image, CommandLine, TargetFilename and CurrentDirectory fields of whatever source is in
+use); hash indicators are not yet a kind, and a dedicated network source adds the destination fields
+that make IP/domain feeds bite hardest. No baseline feeds ship -- bring your own `ioc/*.txt`.
 
 ## Rules
 
