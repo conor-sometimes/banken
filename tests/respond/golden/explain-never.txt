@@ -1,0 +1,7 @@
+decision d0aaaaaaaaaaaaaaaaaaaaaa   2026-11-02 06:30:00   policy sha256:9f2c   mode enforce   armed yes
+  alert    reverse_shell (high, auditd) at 2026-11-02 06:29:40  pid 7000 ppid 6000 user carol
+           image /tmp/.z/sh   cmd ""   tags -
+  entry    freeze-revshell -> intended freeze (tree)
+  rails    none fired   masquerade: no
+  verdict  freeze tree of pid 7000
+action   never requested (no order found; the daemon may have crashed between the decision and the order)

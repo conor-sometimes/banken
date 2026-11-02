@@ -1,0 +1,22 @@
+{
+  "id": "c3c3c3c3c3c3c3c3c3c3c3c3",
+  "version": 1,
+  "order": "d0c3c3c3c3c3c3c3c3c3c3c3",
+  "state": "held",
+  "origPath": "/tmp/.x/payload",
+  "method": "rename",
+  "stat": {
+    "dev": 2049,
+    "ino": 100,
+    "mode": 33261,
+    "uid": 1000,
+    "gid": 1000,
+    "size": 49152,
+    "mtime": "2026-11-02T06:00:00Z",
+    "nlink": 1
+  },
+  "sha256": "abcd1234ef5678900000000000000000000000000000000000000000abcd1234",
+  "immutable": true,
+  "time": "2026-11-02T06:12:05Z",
+  "bootId": "boot-1111"
+}

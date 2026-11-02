@@ -1,0 +1,9 @@
+ID        KIND        STATE                                      TARGET                          USER   RULE                  WHEN
+a1a1a1a1  freeze      frozen (2 pids)                            pid 4242 /tmp/.x/sh             alice  reverse_shell         2026-11-02 06:12:03
+c3c3c3c3  quarantine  held sha256 ok                             /tmp/.x/payload 48 KiB rename   alice  exec_from_tmp         2026-11-02 06:12:04
+d4d4d4d4  quarantine  held CHANGED (was 11111111, now 22222222)  /tmp/.x/payload2 12 KiB rename  alice  exec_from_tmp         2026-11-02 06:12:05
+e5e5e5e5  quarantine  TAMPERED (mode 0755, immutable 0)          /dev/shm/x.so 12 KiB neuter     alice  exec_from_tmp         2026-11-02 06:12:06
+b8b8b8b8  kill        killed (pidfd)                             pid 4300 /run/enf/cat           alice  credential_file_read  2026-11-02 06:12:07
+b2b2b2b2  freeze      thawed 06:40:00                            pid 4242 /tmp/.x/sh             alice  reverse_shell         2026-11-02 06:12:08
+f6f6f6f6  freeze      lost (reboot)                              pid 5000 /tmp/.y/sh             bob    reverse_shell         2026-11-02 06:12:09
+a7a7a7a7  quarantine  lost (inode replaced)                      /tmp/.x/payload3 8 KiB rename   alice  exec_from_tmp         2026-11-02 06:12:10
