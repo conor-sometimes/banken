@@ -629,7 +629,7 @@ func (c *checker) detection() {
 	host, _ := os.Hostname()
 	var badOCSF, unjournalled []string
 	for _, family := range c.families() {
-		c.scan() // drain any inter-family or concurrent-service activity so only this family's own
+		c.scan()                                                    // drain any inter-family or concurrent-service activity so only this family's own
 		before, beforeJ := len(alertLines()), len(c.journal("err")) // events count toward it
 		auditBefore := auditLineN()
 		out := c.runFamily(family)

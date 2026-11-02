@@ -24,7 +24,8 @@ import (
 // caller can log or aggregate a real end-to-end number rather than assert "should be fast". It
 // returns when ctx is cancelled.
 func (e *Engine) StreamFollow(ctx context.Context, p parser.Parser, path, statePath string,
-	onLatency func(ev event.Event, latency time.Duration, alerts int)) error {
+	onLatency func(ev event.Event, latency time.Duration, alerts int),
+) error {
 	cursor, _ := LoadCursor(statePath)
 
 	drain := func() {

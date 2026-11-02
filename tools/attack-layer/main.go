@@ -53,7 +53,7 @@ func main() {
 		dirs = []string{"rules"}
 	}
 
-	counts := map[string]int{}   // technique id -> number of rules
+	counts := map[string]int{}        // technique id -> number of rules
 	rulesFor := map[string][]string{} // technique id -> rule names
 	for _, dir := range dirs {
 		// #nosec G703 -- walks an operator-supplied rule tree; this is a dev
@@ -107,13 +107,19 @@ func main() {
 	}
 
 	l := layer{
-		Name:        "banken coverage",
-		Versions:    map[string]string{"attack": "15", "navigator": "5.0.0", "layer": "4.5"},
-		Domain:      "enterprise-attack",
-		Description: fmt.Sprintf("ATT&CK techniques banken detects, generated from its Sigma rules (%d techniques, %d rules).", len(ids), func() int { n := 0; for _, c := range counts { n += c }; return n }()),
-		Techniques:  techs,
-		Gradient:    gradient{Colors: []string{"#ffffff", "#66b1ff", "#1f6fd0"}, MinValue: 0, MaxValue: top},
-		Sorting:     3, // descending by score
+		Name:     "banken coverage",
+		Versions: map[string]string{"attack": "15", "navigator": "5.0.0", "layer": "4.5"},
+		Domain:   "enterprise-attack",
+		Description: fmt.Sprintf("ATT&CK techniques banken detects, generated from its Sigma rules (%d techniques, %d rules).", len(ids), func() int {
+			n := 0
+			for _, c := range counts {
+				n += c
+			}
+			return n
+		}()),
+		Techniques: techs,
+		Gradient:   gradient{Colors: []string{"#ffffff", "#66b1ff", "#1f6fd0"}, MinValue: 0, MaxValue: top},
+		Sorting:    3, // descending by score
 	}
 
 	enc := json.NewEncoder(os.Stdout)
@@ -122,5 +128,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "attack-layer:", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "attack-layer: %d techniques across %d rules\n", len(ids), func() int { n := 0; for _, c := range counts { n += c }; return n }())
+	fmt.Fprintf(os.Stderr, "attack-layer: %d techniques across %d rules\n", len(ids), func() int {
+		n := 0
+		for _, c := range counts {
+			n += c
+		}
+		return n
+	}())
 }
