@@ -62,7 +62,7 @@ func runCheck(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	rules, problems := loadRules(splitComma(f.rules))
+	rules, problems, _ := loadRules(splitComma(f.rules), false)
 	for _, p := range problems {
 		logAt(stderr, levelErr, "banken: rule error: %s", p.Error())
 	}

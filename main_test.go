@@ -225,7 +225,7 @@ func TestRunEmptyDiskRulesUsesEmbeddedBaseline(t *testing.T) {
 // on-disk rule dir at all, the binary still loads its embedded baseline, so
 // detection works out of the box.
 func TestLoadRulesEmbeddedBaseline(t *testing.T) {
-	rules, problems := loadRules(nil)
+	rules, problems, _ := loadRules(nil, false)
 	for _, p := range problems {
 		t.Errorf("unexpected rule problem: %v", p)
 	}
@@ -238,7 +238,7 @@ func TestLoadRulesEmbeddedBaseline(t *testing.T) {
 // name as a baseline rule replaces it (operators extend/override the
 // baseline), and a new on-disk rule is added.
 func TestLoadRulesDiskOverridesEmbedded(t *testing.T) {
-	base, _ := loadRules(nil)
+	base, _, _ := loadRules(nil, false)
 	baseByName := map[string]bool{}
 	for _, r := range base {
 		baseByName[r.Name] = true
@@ -256,7 +256,7 @@ func TestLoadRulesDiskOverridesEmbedded(t *testing.T) {
 	writeRule(t, filepath.Join(dir, victim+".yml"), "title: OVERRIDDEN\ndetection:\n  s:\n    Image: /x\n  condition: s\n")
 	writeRule(t, filepath.Join(dir, "brand_new_rule.yml"), "title: New\ndetection:\n  s:\n    Image: /y\n  condition: s\n")
 
-	got, problems := loadRules([]string{dir})
+	got, problems, _ := loadRules([]string{dir}, false)
 	for _, p := range problems {
 		t.Errorf("unexpected rule problem: %v", p)
 	}
@@ -280,7 +280,7 @@ func TestLoadRulesDiskOverridesEmbedded(t *testing.T) {
 // explicit name activate them, and an enable name that is no optional rule is
 // reported as unknown (a likely typo).
 func TestSelectActiveOptional(t *testing.T) {
-	all, _ := loadRules(nil)
+	all, _, _ := loadRules(nil, false)
 	var optional []string
 	for _, r := range all {
 		if r.Optional {
@@ -382,7 +382,7 @@ func TestSelectActiveOptional(t *testing.T) {
 // normal paging alert when enabled, and fires a recorded-but-not-paged
 // (Observed) alert when in observe mode -- same event, three dispositions.
 func TestOptionalRuleEndToEnd(t *testing.T) {
-	all, _ := loadRules(nil)
+	all, _, _ := loadRules(nil, false)
 	ev := event.Event{Image: "/usr/bin/nc", CommandLine: "nc -lvnp 4444 -e /bin/bash", Source: "laurel", User: "1000"}
 
 	netcatHit := func(active []*sigma.Rule) (hit bool, observed bool) {
@@ -432,7 +432,7 @@ func writeRule(t *testing.T, path, body string) {
 // shrinks. A clean event (no detection) is benchmarked alongside as the common
 // case.
 func BenchmarkDetectionLatency(b *testing.B) {
-	rules, _ := loadRules(nil)
+	rules, _, _ := loadRules(nil, false)
 	eng := engine.New(rules, nil, nil)
 	p := parser.Registry()["laurel"]
 

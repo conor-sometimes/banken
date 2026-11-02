@@ -114,8 +114,15 @@ func logAt(w io.Writer, level int, format string, a ...any) {
 
 func run(args []string, stdout, stderr io.Writer) error {
 	// Subcommands. The default (no subcommand) is the one-shot scan.
-	if len(args) > 0 && args[0] == "check" {
-		return runCheck(args[1:], stdout, stderr)
+	if len(args) > 0 {
+		switch args[0] {
+		case "check":
+			return runCheck(args[1:], stdout, stderr)
+		case "reload":
+			return runReload(args[1:], stdout, stderr)
+		case "status":
+			return runStatus(args[1:], stdout, stderr)
+		}
 	}
 
 	fs := flag.NewFlagSet("banken", flag.ContinueOnError)
@@ -195,6 +202,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 	for _, name := range cs.sel.unknown {
 		logAt(stderr, levelWarning, "banken: %q is named in optionalRules/observeRules but is not an optional rule; it will not run (check the spelling)", name)
 	}
+	// Audit baseline overrides at startup too, with the same reporting the
+	// reload path uses, so a shadowing rule is visible from the first run.
+	logOverrides(cs.overrides, stderr)
 	// Threat-intel feeds (STIX/MISP files, TAXII collections) normalise into the
 	// same set as the flat rules/ioc lists. A feed that fails loads nothing and
 	// is warned about; the run goes on with whatever loaded (never-die).
@@ -226,6 +236,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 	logAt(stderr, levelInfo, "banken %s: %d rules, %d indicators, %d source(s)",
 		version, len(cs.rules), cs.iocs.Len(), len(cfg.Sources))
+
+	// Record the set this process loaded, so `banken status` can report the live
+	// rule version from the first run, before any refresh (no-op if no state dir).
+	recordRefresh(cfg, refreshStartup, "", cs, stderr)
 
 	if f.follow {
 		return follow(eng, cfg, stderr)
@@ -299,6 +313,13 @@ func scanSources(eng *engine.Engine, sources []config.Source, statePath string, 
 func watch(eng *engine.Engine, cfg config.Config, interval time.Duration, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Record our pid so `banken reload` can find us and SIGHUP us (the operator
+	// never needs the pid). Non-fatal: a reload can still be sent by hand or via
+	// systemctl if the pidfile cannot be written.
+	if err := writePidFile(cfg); err != nil {
+		logAt(stderr, levelWarning, "banken: could not write pidfile (banken reload will not find this daemon): %v", err)
+	}
+	defer removePidFile(cfg)
 	// SIGHUP is the reload trigger (systemctl reload banken -> ExecReload = kill
 	// -HUP). It is deliberately a separate Notify channel, not part of the
 	// stop-context above, so a reload never stops the daemon. A buffered channel
@@ -422,6 +443,10 @@ func follow(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := writePidFile(cfg); err != nil {
+		logAt(stderr, levelWarning, "banken: could not write pidfile (banken reload will not find this daemon): %v", err)
+	}
+	defer removePidFile(cfg)
 	logAt(stderr, levelInfo, "banken: following %s %s as a continuous stream", src.Type, src.Path)
 	onLatency := func(_ event.Event, latency time.Duration, alerts int) {
 		if alerts > 0 {
@@ -435,27 +460,61 @@ func follow(eng *engine.Engine, cfg config.Config, stderr io.Writer) error {
 	return nil
 }
 
+// ruleOverride records an on-disk rule shadowing an embedded-baseline rule of
+// the same filename. An override can weaken detection (a never-matching rule
+// pushed under a baseline rule's name blinds it), so every one is audited at
+// each load -- named in the journal and the refresh status file -- rather than
+// happening silently (docs/design/rule-refresh.md section 8). Blocked is set
+// when protectBaseline refused the override and kept the baseline.
+type ruleOverride struct {
+	name           string // rule name (shared filename, minus extension)
+	winnerPath     string // the rule file that won (the disk rule, or the baseline if blocked)
+	overriddenPath string // the embedded-baseline rule file that was (or would have been) shadowed
+	blocked        bool   // protectBaseline refused this override; the baseline was kept
+}
+
 // loadRules loads the embedded baseline rule tree and then any on-disk rule
 // dirs that exist, with on-disk rules overriding the baseline on a name
 // clash. A missing on-disk dir is not an error -- the embedded baseline means
 // detection works with nothing on disk (the zero-fiddle goal).
-func loadRules(dirs []string) ([]*sigma.Rule, []sigma.RuleError) {
+//
+// It also returns, as its third value, every on-disk rule that overrides a
+// baseline rule by filename. When protectBaseline is true such an override is
+// refused: the baseline rule is kept and the override is recorded as blocked,
+// so a pushed rule can never silently shadow and weaken a baseline detection.
+func loadRules(dirs []string, protectBaseline bool) ([]*sigma.Rule, []sigma.RuleError, []ruleOverride) {
 	base, problems := sigma.LoadFS(embeddedRules, "rules")
 	byName := make(map[string]*sigma.Rule, len(base))
+	basePath := make(map[string]string, len(base))
 	for _, r := range base {
 		byName[r.Name] = r
+		basePath[r.Name] = r.Path
 	}
 	disk, dprobs := sigma.LoadTree(existingDirs(dirs)...)
 	problems = append(problems, dprobs...)
+	var overrides []ruleOverride
 	for _, r := range disk {
-		byName[r.Name] = r // on-disk wins
+		if bp, isBaseline := basePath[r.Name]; isBaseline {
+			ov := ruleOverride{name: r.Name, winnerPath: r.Path, overriddenPath: bp}
+			if protectBaseline {
+				// Refuse the override: keep the baseline, record it blocked, and
+				// do NOT overwrite the map entry.
+				ov.winnerPath = bp
+				ov.blocked = true
+				overrides = append(overrides, ov)
+				continue
+			}
+			overrides = append(overrides, ov)
+		}
+		byName[r.Name] = r // on-disk wins (unless blocked above)
 	}
 	out := make([]*sigma.Rule, 0, len(byName))
 	for _, r := range byName {
 		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, problems
+	sort.Slice(overrides, func(i, j int) bool { return overrides[i].name < overrides[j].name })
+	return out, problems, overrides
 }
 
 // optionalSet turns the configured optionalRules list into a lookup. "*"

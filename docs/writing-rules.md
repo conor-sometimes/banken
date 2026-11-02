@@ -19,6 +19,8 @@ A rule's directory is just organisation - banken loads every `*.yml`/`*.yaml` un
 The embedded baseline is compiled into the binary, so detection works with nothing on disk. Any
 on-disk tree (`-rules DIR` or `rules:` in the config) is loaded on top; a rule whose filename
 matches a baseline rule's **replaces** it, so you extend or override the defaults without losing them.
+Every such baseline override is logged at load and recorded in the refresh status file (see below), so
+a rule that shadows a baseline detection is never silent; `refresh.protectBaseline` forbids it outright.
 
 ## Sigma: the supported subset
 
@@ -139,3 +141,21 @@ Two ways:
   `NAME.expect-<rule>.json` must fire that rule; `NAME.expect-none.json` must fire nothing.
   `go test ./...` runs them (and the coverage gate requires every rule to have one), so a rule ships
   with proof it does - and doesn't - fire.
+
+## Refreshing rules at runtime (no redeploy)
+
+Rules do not have to be baked into the binary or the config. A directory listed under `refreshDirs:`
+is read live: a running daemon rebuilds its whole rule set on a reload, and a one-shot run reads it on
+its next scan. The loop:
+
+```sh
+banken check /var/lib/banken-rules   # preflight: compile the tree, non-zero exit on any bad rule
+banken reload                        # SIGHUP the daemon -> validate-all-then-swap (no restart)
+banken status                        # confirm: last refresh, outcome, rules loaded, failures
+```
+
+A refresh is safe by construction: a bad rule file is reported and skipped (the good rules load), and
+a whole-set failure -- an empty tree, or one over the resource-guard caps (`refresh.maxRules`,
+`refresh.maxPatternBytes`) -- keeps the previously-good set rather than blinding the host. The full
+fleet workflow (a git rules repo, the puller, provenance) is the [new-threat
+scenario](scenarios/new-threat.md), designed in [rule-refresh](design/rule-refresh.md).

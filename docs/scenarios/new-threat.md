@@ -9,8 +9,10 @@ the design in [docs/design/rule-refresh.md](design/rule-refresh.md); read that f
 This is the first page under `docs/scenarios/`. banken had no scenario convention before, so this
 directory is the home for task-shaped "I need to do X" walkthroughs; add siblings here as they come up.
 
-Status note: runtime rule refresh is a **proposed** feature (see the design doc). The parts that exist
-today are called out inline; the refresh and fleet-pull parts describe the intended UX.
+Status note: runtime rule refresh is **implemented** -- `refreshDirs`, `banken reload`, `banken
+status`, the resource guard and the NixOS puller (`services.banken.refresh`) all exist. The one piece
+still landing is recording the pulled commit SHA in the status file and a scrapeable metrics endpoint;
+those are called out inline where they appear.
 
 ## What you need once (setup)
 
@@ -109,20 +111,21 @@ banken check /var/lib/banken-rules && systemctl reload banken
 
 ```sh
 banken status
-#   last refresh: 2026-11-02T11:48:03Z  outcome: swapped  loaded: 214  failed: 0
-#   source: git@fleet/banken-rules  commit: 4f1c2ab   (matches what you pushed)
+#   last refresh: 2026-11-02T11:48:03Z  outcome: swapped  loaded: 214  failed: 0  indicators: 37
+#   dirs: [/etc/banken/rules /var/lib/banken-rules]
+#   (recording the pulled commit SHA here is the next addition)
 
 banken check -image /dev/shm/.cache 'cat /etc/shadow'
 #   -> the rule fires, compiled from the exact on-disk tree the daemon just loaded
 ```
 
-Two confirmations: `banken status` shows the loaded commit matches your push and your rule is not in
-the failed list; `banken check` against the host's tree proves the rule compiles and fires there. When
-the real activity happens, the alert reaches your configured sink (journal / webhook / jsonl / OTLP)
-like any other detection.
+Two confirmations: `banken status` shows the refresh swapped in and your rule is not in the failed
+list; `banken check` against the host's tree proves the rule compiles and fires there. When the real
+activity happens, the alert reaches your configured sink (journal / webhook / jsonl / OTLP) like any
+other detection.
 
-Across the fleet, a dashboard scraping banken's metrics shows every host's loaded commit and
-last-refresh age, so you can see the whole fleet converge on the new commit.
+A fleet-wide dashboard of every host's loaded commit and last-refresh age is the planned next step,
+once banken records the pulled commit and exposes a scrapeable metrics endpoint.
 
 ## If the rule turns out wrong
 

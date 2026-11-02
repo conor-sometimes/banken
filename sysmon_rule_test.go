@@ -71,7 +71,7 @@ func TestSysmonReverseShellFires(t *testing.T) {
 	}
 
 	// Match against the full shipped (embedded baseline) ruleset and show reverse_shell fires.
-	rules, _ := loadRules(nil)
+	rules, _, _ := loadRules(nil, false)
 	var hit bool
 	for _, a := range engine.New(rules, nil, nil).Match(ev) {
 		if a.Rule == "reverse_shell" {

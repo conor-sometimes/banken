@@ -22,5 +22,12 @@ Start with the [project README](../README.md) for the overview. These pages go d
 - **[Testing](testing.md)** - the test surface: table tests, never-die contracts, the fuzz
   campaign, the emulation VM test, and CI. Read this for how claims are gated.
 
+Task-shaped walkthroughs live under `scenarios/`:
+
+- **[New threat detected](scenarios/new-threat.md)** - write a rule for a threat you just read
+  about and have the whole fleet detecting it within minutes, with no binary redeploy: the runtime
+  rule-refresh loop (`refreshDirs`, the puller, `banken reload`, `banken status`) end to end. The
+  design behind it is [rule-refresh](design/rule-refresh.md).
+
 Everything here describes the current code. If a page and the code disagree, the code wins - please
 open an issue.

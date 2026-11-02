@@ -114,6 +114,35 @@ repo. Set the URL inline (`url:` / NixOS `alerts.webhook.url`) only for a genuin
 receiver. See the CLI flags with `banken -h` for one-off overrides (`-source type:path`,
 `-jsonl-dir`, `-jsonl-format`, `-webhook-url-file`, `--watch`, …).
 
+## Runtime rule refresh
+
+A directory under `refreshDirs:` is read live, without a redeploy: unlike `rules:` (and NixOS
+`extraRules`, which are copied into the Nix store), a `refreshDir` is a plain runtime path. Point it
+at an externally-managed or git-cloned rules dir.
+
+```yaml
+refreshDirs: [/var/lib/banken-rules]   # read live; highest precedence; NOT store-baked on NixOS
+refresh:
+  protectBaseline: false   # true forbids a disk rule overriding an embedded-baseline rule
+  maxRules: 50000          # resource-guard caps: an over-cap refresh keeps the old set
+  maxPatternBytes: 8388608 # 8 MiB of literal patterns
+```
+
+Triggering a refresh:
+
+- `banken reload` -- finds the running daemon (its pidfile in the state dir) and sends it SIGHUP; the
+  daemon validates the whole new tree and swaps it in atomically, never dropping the good set on a
+  bad rule. `systemctl reload banken` does the same via the unit's `ExecReload`. (A one-shot timer
+  deployment has no daemon to signal; it reads the dir on its next scan.)
+- `banken check <dir>` -- preflight a tree (non-zero exit on any bad rule) before you push or reload.
+- `banken status` -- read the refresh status file (`/var/lib/banken/refresh-status.json`): last
+  refresh time, outcome (`swapped` / `kept-old` / `startup`), rules loaded, per-file failures, and
+  any baseline overrides. This is how you confirm a pushed rule actually went live on a host.
+
+The full fleet loop -- a git rules repo pulled to every host and applied within minutes -- is the
+[new-threat scenario](scenarios/new-threat.md); the design is [rule-refresh](design/rule-refresh.md).
+On NixOS the module wires all of it (below).
+
 ## Sandbox
 
 `packaging/systemd/banken.service` runs the scan locked down: `NoNewPrivileges`,
@@ -131,3 +160,11 @@ config at `/etc/banken/banken.yml`, the unit (this section's hardening, plus no 
 webhook is on), the timer, and by default auditd with banken's audit rules (`audit.enable`,
 `audit.watchPaths`). `services.banken.enable = true` is the whole setup; see the README's
 [Use (NixOS)](../README.md#use-nixos) for options. `tests/vm.nix` proves the module end to end.
+
+For the fleet rule-refresh loop, `services.banken.refresh` wires it in full: set `refresh.enable`
+and `refresh.repo` and the module clones the rules repo to `refresh.dir` (a runtime path, not the
+store), adds it to `refreshDirs`, and runs a dedicated, unprivileged `banken-rules-pull` timer that
+pulls, optionally verifies the signed HEAD (`refresh.verify`), preflights with `banken check`, and --
+on success -- reloads the running daemon. The puller is the only component with git and the network;
+the banken daemon stays network-free in its sandbox and only reads the checkout. `refreshDirs` can
+also be set directly to point at a dir you manage yourself, with no puller.

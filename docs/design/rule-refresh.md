@@ -1,7 +1,14 @@
 # Design: runtime-refreshable rules
 
-Status: **proposal, not implemented.** Nothing in this document exists in the tree yet. It is written
-to be built from. Where it names code, it names what is there today (file:line) and what would change.
+Status: **implemented.** This document was the design; the feature now exists in the tree. The engine
+swaps its rule set atomically behind an `atomic.Pointer` (`internal/engine/engine.go` `SetRules`), a
+SIGHUP (or `banken reload`) triggers validate-all-then-swap (`reload.go`), `banken check <dir>`
+preflights a tree (`check.go`), the resource guard bounds a refresh (`guard.go`), every baseline
+override is audited and `refresh.protectBaseline` can forbid it (`main.go` `loadRules`), each refresh
+writes `refresh-status.json` read by `banken status` (`status.go`), and the NixOS module wires the
+fleet puller + timer + `ExecReload` (`module.nix` `services.banken.refresh`). Still open: recording the
+pulled commit SHA in the status file, and the scrapeable metrics endpoint (section 9) -- both noted
+inline. The sections below are the rationale; they still read as the plan they were built from.
 
 ## The one scenario this is built around
 

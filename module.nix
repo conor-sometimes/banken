@@ -27,11 +27,26 @@ let
   # tails the syslog file Sysmon's events land in directly.
   sysmonSourcePath = if cfg.sysmon.fromJournal then cfg.sysmon.bridgePath else cfg.sysmon.logPath;
 
+  # The fleet rules checkout is in refreshDirs when the puller is on, so the
+  # daemon reads it live; it is a plain runtime path (a string), never a store
+  # input, which is the whole point -- a rule change costs a git pull, not a
+  # rebuild. Operator-supplied refreshDirs come first, the puller's dir last.
+  refreshDirs = cfg.refreshDirs ++ lib.optional cfg.refresh.enable cfg.refresh.dir;
+
   settings = {
     rules = [ "/etc/banken/rules" ] ++ map (p: "${p}") cfg.extraRules; # interpolation copies the tree to the store
+    inherit refreshDirs;
     optionalRules = cfg.optionalRules;
     observeRules = cfg.observeRules;
     statePath = "/var/lib/banken/cursor.json";
+    # Refresh governance (the resource guard + baseline protection). These are
+    # daemon-side knobs, independent of whether the puller is enabled; they also
+    # apply to a one-shot run that reads a manually-managed refreshDir.
+    refresh = {
+      protectBaseline = cfg.refresh.protectBaseline;
+      maxRules = cfg.refresh.maxRules;
+      maxPatternBytes = cfg.refresh.maxPatternBytes;
+    };
     # With a live sensor on, banken follows its stream as a source (added here so it needs no manual
     # sources entry): mimi's OCSF stream as a `mimi` source, and/or Sysmon-for-Linux as a `sysmon`
     # source tailing the syslog file or the journal bridge. The sensors themselves are brought up below.
@@ -62,6 +77,53 @@ let
       };
     };
   };
+
+  # The fleet rules puller: the ONLY piece with git and the network. It pulls the
+  # rules repo into the runtime checkout, optionally verifies the signed HEAD,
+  # preflights the tree with `banken check` (non-zero on any bad rule), and --
+  # only on success -- lets the reload unit SIGHUP the daemon. On any failure it
+  # rolls the checkout back to the previous commit and exits non-zero, so a
+  # broken or unverified push never reaches the running daemon. banken itself
+  # stays network-free and git-free in its strict sandbox; this is deliberately a
+  # separate, unprivileged identity (docs/design/rule-refresh.md sections 7, 8).
+  pullScript = pkgs.writeShellScript "banken-rules-pull" ''
+    set -euo pipefail
+    dir=${lib.escapeShellArg cfg.refresh.dir}
+    repo=${lib.escapeShellArg cfg.refresh.repo}
+    git=${pkgs.git}/bin/git
+    banken=${lib.getExe cfg.package}
+
+    if [ -d "$dir/.git" ]; then
+      old="$("$git" -C "$dir" rev-parse HEAD 2>/dev/null || true)"
+      "$git" -C "$dir" fetch --prune --depth 1 origin
+      "$git" -C "$dir" reset --hard FETCH_HEAD
+    else
+      old=""
+      "$git" clone --depth 1 "$repo" "$dir"
+    fi
+
+    rollback() {
+      if [ -n "$old" ]; then
+        echo "banken-rules-pull: rolling back to $old" >&2
+        "$git" -C "$dir" reset --hard "$old"
+      fi
+    }
+
+    ${lib.optionalString cfg.refresh.verify ''
+      if ! "$git" -C "$dir" verify-commit HEAD; then
+        echo "banken-rules-pull: HEAD is not a verified signed commit; refusing refresh" >&2
+        rollback
+        exit 1
+      fi
+    ''}
+
+    if ! "$banken" check "$dir"; then
+      echo "banken-rules-pull: preflight failed; keeping the previous rules" >&2
+      rollback
+      exit 1
+    fi
+    echo "banken-rules-pull: refreshed $dir to $("$git" -C "$dir" rev-parse --short HEAD)"
+  '';
 in
 {
   options.services.banken = {
@@ -111,6 +173,95 @@ in
         embedded baseline and /etc/banken/rules. Each path is a directory
         copied into the Nix store; point it at your own rules dir.
       '';
+    };
+
+    refreshDirs = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "/var/lib/banken-rules" ];
+      description = ''
+        Runtime-refreshable rule directories. Unlike extraRules these are plain
+        on-disk paths (strings), NOT copied into the Nix store, so a rule change
+        there needs no rebuild: the daemon re-reads them on a reload (SIGHUP /
+        `banken reload`), and a one-shot run reads them on its next scan. They
+        load at the highest precedence (above the baseline and extraRules). Point
+        this at an externally-managed or cloned rules dir; set
+        services.banken.refresh to have the module clone and pull one for you.
+      '';
+    };
+
+    refresh = {
+      enable = lib.mkEnableOption ''
+        the fleet rules puller: a separate, unprivileged systemd timer that git-pulls a rules repo
+        into `dir` (a runtime path, never the store), verifies and preflights it, and reloads the
+        running daemon with no binary redeploy. `dir` is added to refreshDirs automatically. The
+        puller is the ONLY component with git and the network; the banken daemon stays network-free
+        in its sandbox and only reads the checkout
+      '';
+      repo = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        example = "https://github.com/your-org/banken-rules.git";
+        description = ''
+          Git URL of the fleet rules repo the puller clones and pulls. A private repo needs
+          credentials the operator provides to the banken-rules-pull.service (e.g. a deploy key via
+          a systemd credential and GIT_SSH_COMMAND); the module does not embed secrets.
+        '';
+      };
+      dir = lib.mkOption {
+        type = lib.types.str;
+        default = "/var/lib/banken-rules";
+        description = ''
+          The on-disk checkout path. Owned by the dedicated `banken-rules` puller user and
+          world-readable; the banken daemon (root) only reads it. Added to refreshDirs when
+          refresh.enable is set. NOT copied into the Nix store.
+        '';
+      };
+      interval = lib.mkOption {
+        type = lib.types.str;
+        default = "5min";
+        example = "1min";
+        description = "How often the puller pulls + preflights + reloads (systemd time span).";
+      };
+      verify = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Require a verified signed HEAD (`git verify-commit HEAD`) before accepting a refresh; a
+          failed verification rolls the checkout back and refuses the reload. The design's fleet
+          default is on, but it needs git commit signing and an allowed-signers / GPG keyring set up
+          for the puller user, so it defaults OFF here -- turn it on once provenance keys are wired,
+          and treat the rules repo's push access as production access regardless (section 8).
+        '';
+      };
+      protectBaseline = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Forbid an on-disk rule from overriding an embedded-baseline rule by filename: the override
+          is refused (baseline kept) and logged, so a pushed rule cannot silently shadow and weaken a
+          baseline detection. Overrides are always audited to the journal and the refresh status file
+          whether or not this is set; this makes them a hard error. Applies to every refreshDir, not
+          only the puller's.
+        '';
+      };
+      maxRules = lib.mkOption {
+        type = lib.types.ints.unsigned;
+        default = 50000;
+        description = ''
+          Resource guard: the maximum rules a refresh may load. A tree over the cap is a whole-set
+          failure (the old set is kept), so a pathological or hostile push cannot exhaust memory or
+          blind the host. Generous by default.
+        '';
+      };
+      maxPatternBytes = lib.mkOption {
+        type = lib.types.ints.unsigned;
+        default = 8388608; # 8 MiB
+        description = ''
+          Resource guard: the maximum total bytes of literal match patterns across a refresh, with
+          the same whole-set-failure semantics as maxRules. Bounds the matcher build a refresh does.
+        '';
+      };
     };
 
     optionalRules = lib.mkOption {
@@ -334,6 +485,9 @@ in
     } {
       assertion = cfg.alerts.otlp.enable -> cfg.alerts.otlp.endpoint != "";
       message = "services.banken.alerts.otlp.enable needs alerts.otlp.endpoint.";
+    } {
+      assertion = cfg.refresh.enable -> cfg.refresh.repo != "";
+      message = "services.banken.refresh.enable needs refresh.repo (the fleet rules repo URL to pull).";
     }];
 
     environment.systemPackages = [ cfg.package ];
@@ -380,6 +534,10 @@ in
         # built-in scan interval for the floor; services.banken.interval drives the timer, no-sensor.)
         Type = if streamEnabled then "exec" else "oneshot";
         ExecStart = "${lib.getExe cfg.package}${lib.optionalString streamEnabled " --watch"} -config /etc/banken/banken.yml";
+        # `systemctl reload banken` refreshes the rule set live (validate-all-then-swap in the
+        # daemon). Only the long-running daemon can be reloaded; the one-shot timer model has nothing
+        # to SIGHUP, so a refresh there is just the next scan reading the new dir (no reload unit).
+        ExecReload = lib.mkIf streamEnabled "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
         Restart = lib.mkIf streamEnabled "on-failure";
         RestartSec = lib.mkIf streamEnabled 2;
         StateDirectory = "banken";
@@ -431,6 +589,87 @@ in
         OnBootSec = "1min";
         OnUnitActiveSec = cfg.interval;
         AccuracySec = "5s";
+      };
+    };
+
+    # --- fleet rule refresh: the puller (git + network), its timer, and the reload step ---
+    #
+    # The checkout dir is owned by a dedicated, unprivileged `banken-rules` user: it is the only
+    # identity with git and network, and it never touches the audit log, the cursor, or the detection
+    # daemon. banken (root) merely reads the dir. See docs/design/rule-refresh.md sections 7-8.
+    users.users.banken-rules = lib.mkIf cfg.refresh.enable {
+      isSystemUser = true;
+      group = "banken-rules";
+      description = "banken fleet rules puller";
+      home = cfg.refresh.dir;
+    };
+    users.groups.banken-rules = lib.mkIf cfg.refresh.enable { };
+    systemd.tmpfiles.rules = lib.mkIf cfg.refresh.enable [
+      "d ${cfg.refresh.dir} 0755 banken-rules banken-rules -"
+    ];
+
+    # The puller: pull -> (verify) -> preflight -> (on success) reload. Unprivileged, network-facing,
+    # hardened as far as a git+network job allows. A failure rolls the checkout back and exits
+    # non-zero, so the running daemon never sees a broken or unverified tree.
+    systemd.services.banken-rules-pull = lib.mkIf cfg.refresh.enable {
+      description = "Pull the fleet rules repo and refresh banken";
+      documentation = [ "https://github.com/conor-sometimes/banken" ];
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      # Only reload when there is a long-running daemon to SIGHUP (a sensor is on). On the one-shot
+      # timer model the next scan picks up the new dir, so no reload step is wired.
+      unitConfig = lib.mkIf streamEnabled { OnSuccess = "banken-rules-reload.service"; };
+      serviceConfig = {
+        Type = "oneshot";
+        User = "banken-rules";
+        Group = "banken-rules";
+        ExecStart = pullScript;
+        OOMScoreAdjust = -900;
+        NoNewPrivileges = true;
+        ProtectSystem = "strict";
+        ReadWritePaths = [ cfg.refresh.dir ];
+        ProtectHome = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectKernelLogs = true;
+        ProtectControlGroups = true;
+        ProtectClock = true;
+        ProtectHostname = true;
+        ProtectProc = "invisible";
+        RestrictNamespaces = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
+        LockPersonality = true;
+        SystemCallArchitectures = "native";
+        SystemCallFilter = [ "@system-service" ];
+        SystemCallErrorNumber = "EPERM";
+        UMask = "0022"; # the checkout is world-readable (0755 dir); banken reads it
+      };
+      environment = { HOME = cfg.refresh.dir; };
+    };
+
+    systemd.timers.banken-rules-pull = lib.mkIf cfg.refresh.enable {
+      description = "Pull the fleet rules repo every ${cfg.refresh.interval}";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "2min";
+        OnUnitActiveSec = cfg.refresh.interval;
+        AccuracySec = "10s";
+        Persistent = true;
+      };
+    };
+
+    # The reload step: a tiny root one-shot that SIGHUPs the daemon via its ExecReload. Kept separate
+    # from the puller so the network/git half stays unprivileged; this half has no network and no git,
+    # only the privilege to reload one unit. Wired only when a daemon exists to reload.
+    systemd.services.banken-rules-reload = lib.mkIf (cfg.refresh.enable && streamEnabled) {
+      description = "Reload banken after a successful rules pull";
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${config.systemd.package}/bin/systemctl reload banken.service";
       };
     };
 
