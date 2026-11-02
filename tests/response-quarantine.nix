@@ -40,8 +40,10 @@
 let
   spawnLib = import ./lib/enforce-spawn.nix;
 
-  # exec_from_tmp (level high) -> quarantine the image. maxFileBytes 1 MiB so the
-  # sparse-file phase is quick and the cap is visibly exercised. allowPaths is
+  # exec_from_tmp (level high) -> quarantine the image. maxFileBytes 10 MiB: above
+  # the ~1.2 MiB bash-copy payloads (so their sha256 is recorded and restore can
+  # assert it) and far below the 2 GiB sparse file of phase E (so the cap is
+  # still visibly exercised there). allowPaths is
   # the quarantine.md 4.1 default, matching the module's quarantine.allowPaths
   # (and thus the helper unit's ReadWritePaths): the drain's startup subset check
   # passes and the sandbox lets the real renames/neuters land.
@@ -56,7 +58,7 @@ let
       perHour: 50000
     quarantine:
       allowPaths: [/tmp, /var/tmp, /dev/shm, /home, /root, /opt]
-      maxFileBytes: 1048576
+      maxFileBytes: 10485760
     actions:
       - name: quar-exec-from-tmp
         rules: [exec_from_tmp]
@@ -226,9 +228,11 @@ pkgs.testers.runNixOSTest {
     rwp = machine.succeed(
         "systemctl show -p ReadWritePaths --value banken-respond.service"
     ).strip()
+    # entries are '-' prefixed (ignore-if-absent), so strip the marker to compare.
+    rwp_paths = {tok.lstrip("-") for tok in rwp.split()}
     for p in ["/tmp", "/dev/shm"]:
-        assert p in rwp.split(), f"helper ReadWritePaths {rwp!r} must include {p} (phases A/B act there)"
-    assert "/etc" not in rwp.split(), f"helper ReadWritePaths {rwp!r} must NOT include /etc (never acted on)"
+        assert p in rwp_paths, f"helper ReadWritePaths {rwp!r} must include {p} (phases A/B act there)"
+    assert "/etc" not in rwp_paths, f"helper ReadWritePaths {rwp!r} must NOT include /etc (never acted on)"
     print(f"[agreement] helper ReadWritePaths = {rwp} (grants /tmp + /dev/shm, excludes /etc)")
 
     # ======================== PHASE A: rename quarantine ========================
@@ -413,7 +417,7 @@ pkgs.testers.runNixOSTest {
     assert_attrs("/etc/passwd", etc_pre, "phase E /etc/passwd")
     print("[phase E] /etc/passwd -> downgraded (never-touch), untouched")
 
-    # 2 GiB sparse, cap 1 MiB: moved but recorded unhashed, fast.
+    # 2 GiB sparse, over the 10 MiB cap: moved but recorded unhashed, fast.
     machine.succeed("rm -f /tmp/q/big && truncate -s 2G /tmp/q/big")
     import time as _t
     t0 = _t.time()
