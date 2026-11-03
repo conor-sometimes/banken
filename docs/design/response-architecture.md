@@ -1,12 +1,16 @@
 # Response architecture - the privileged split, the operator CLI, and the freeze/quarantine proofs
 
 Status: **implementation design, not implemented.** Written 2026-11-02 against the tree on
-`distro-matrix-mimi` (the executor at `internal/response/exec/exec_linux.go`, the in-process
-responder at `internal/response/respond/responder.go`, the KILL proof at
-`tests/response-enforce.nix`). Nothing here is built; no code is changed by this doc.
+`distro-matrix-mimi`. Three parts of that tree matter here:
 
-This is the third design pass on the response subsystem and it is deliberately narrower than the
-first two. `response-actions.md` is the spec (the decision layer, the primitives, the rails);
+- the executor at `internal/response/exec/exec_linux.go`
+- the in-process responder at `internal/response/respond/responder.go`
+- the KILL proof at `tests/response-enforce.nix`
+
+Nothing here is built. No code is changed by this doc.
+
+This is the third design pass on the response subsystem, and it is deliberately narrower than the
+first two. `response-actions.md` is the spec: the decision layer, the primitives, the rails.
 `enforcement-testing.md` and `quarantine.md` are the adversarial reads of the executor as built
 (findings F1-F12, Q1-Q13). This doc takes the three things Conor named as the frontier and turns
 them into one build plan:
@@ -16,13 +20,21 @@ them into one build plan:
 2. the **operator CLI** `banken respond list | explain | thaw | restore`;
 3. the **freeze and quarantine enforcement proofs** under KVM, mirroring the kill proof.
 
-Where this doc and the spec disagree, this doc wins and says so in place (there are three such
-points: no `requested` ledger phase, the freeze store, and the `not-armed` rail). Where the code at
-this tree already closes a finding (F1, F2, F3 and F9 are in `identify()` and `Collect()` today),
-the proof merely has to keep it closed.
+Where this doc and the spec disagree, this doc wins and says so in place. There are three such
+points:
 
-Read first, in this order: `response-actions.md` sections 3.5, 8 and 9; `quarantine.md` sections 3,
-5 and 10; `enforcement-testing.md` sections 2, 4.7, 5.1 and 5.2.
+- no `requested` ledger phase
+- the freeze store
+- the `not-armed` rail
+
+Where the code at this tree already closes a finding (F1, F2, F3 and F9 are in `identify()` and
+`Collect()` today), the proof merely has to keep it closed.
+
+Read these first, in this order:
+
+- `response-actions.md` sections 3.5, 8 and 9
+- `quarantine.md` sections 3, 5 and 10
+- `enforcement-testing.md` sections 2, 4.7, 5.1 and 5.2
 
 The one-sentence shape: **the daemon decides and writes a work order; a tiny privileged unit
 re-decides from its own copy of the policy, re-checks the live target, acts, and records; every
@@ -67,10 +79,10 @@ operator (root shell):
 ```
 
 Three layers, three inputs. The daemon's `Decide` runs on the alert it parsed from untrusted
-bytes. The helper's `Decide` runs on the alert carried in the order, against a policy the daemon
-never touched, with a kill-switch the daemon never stat'ed. The executor's rails run on the live
-pid or inode. A compromised daemon can lie about an alert; it cannot change what the policy maps
-that lie to, cannot bypass a rail, and cannot touch anything itself.
+bytes. The helper's `Decide` runs on the alert carried in the order. It uses a policy the daemon
+never touched, and a kill-switch the daemon never stat'ed. The executor's rails run on the live
+pid or inode. A compromised daemon can lie about an alert. It cannot change what the policy maps
+that lie to. It cannot bypass a rail. And it cannot touch anything itself.
 
 ---
 
@@ -96,54 +108,67 @@ Two units, one binary, two subcommand paths that never meet in one process.
 | network | as today | `PrivateNetwork=true`, `RestrictAddressFamilies=AF_UNIX` (it has no reason to speak) |
 | exists when | `services.banken.enable` | `services.banken.response.enable && services.banken.response.enforce` |
 
-Why each helper capability: `CAP_KILL` for `pidfd_send_signal` to another uid's process;
-`CAP_SYS_PTRACE` for `readlink /proc/<pid>/exe` and `/proc/<pid>/environ` of another uid
-(`PTRACE_MODE_READ`); `CAP_DAC_OVERRIDE` to traverse and write a `0700` home directory on the
-rename path; `CAP_FOWNER` to rename or `fchmod` a file another uid owns in a sticky directory
-(`/tmp`); `CAP_LINUX_IMMUTABLE` for the neuter path and for clearing the bit on restore;
-`CAP_DAC_READ_SEARCH` to read the policy and ledger whatever their mode. `CAP_NET_ADMIN` stays
-ungranted until `isolate` exists.
+Why each helper capability:
 
-The set is fixed, not derived from the policy. The spec (section 8) floated deriving it (no
-quarantine entry, no `CAP_LINUX_IMMUTABLE`); the module cannot parse the operator's policy YAML
-and a second "which actions are on" option would be a second place to get wrong. A kill-only host
-carries three file capabilities it never uses, in a unit whose only input is a root-owned spool.
-That is a small, named rough edge; the knob can come later if the trade changes.
+- `CAP_KILL` for `pidfd_send_signal` to another uid's process
+- `CAP_SYS_PTRACE` for `readlink /proc/<pid>/exe` and `/proc/<pid>/environ` of another uid
+  (`PTRACE_MODE_READ`)
+- `CAP_DAC_OVERRIDE` to traverse and write a `0700` home directory on the rename path
+- `CAP_FOWNER` to rename or `fchmod` a file another uid owns in a sticky directory (`/tmp`)
+- `CAP_LINUX_IMMUTABLE` for the neuter path and for clearing the bit on restore
+- `CAP_DAC_READ_SEARCH` to read the policy and ledger whatever their mode
+
+`CAP_NET_ADMIN` stays ungranted until `isolate` exists.
+
+The set is fixed, not derived from the policy. The spec (section 8) floated deriving it, dropping
+`CAP_LINUX_IMMUTABLE` when there is no quarantine entry. But the module cannot parse the operator's
+policy YAML, and a second "which actions are on" option would be a second place to get wrong. A
+kill-only host carries three file capabilities it never uses, in a unit whose only input is a
+root-owned spool. That is a small, named rough edge. The knob can come later if the trade changes.
 
 **Honest residual, and the item that closes it.** Both units run as uid 0 today. A uid-0 process
 with `CAP_KILL` removed from its bounding set can still signal any process whose real uid is 0
-(`kill(2)` permission is uid-equality OR `CAP_KILL`), and can `chmod` any root-owned file without
-`CAP_FOWNER`. So after the split a daemon RCE cannot touch alice's reverse shell or alice's dropped
-payload, cannot write a cgroup, cannot set an immutable bit, cannot `pidfd_open` (syscall filter)
-and cannot see other users' `/proc` entries; it CAN still signal a root process by plain pid. The
-boundary becomes complete when the daemon stops being root: `User=banken` with
-`AmbientCapabilities=CAP_DAC_READ_SEARCH` (the one capability it has ever needed, to read root's
-audit log). That is build item 10, kept separate because it touches ownership of every state file
-and must be proven on the real distro matrix, not just the VM. Until it lands the README says
-"the daemon holds no capability to act on another user's process or file"; after it lands the
+(`kill(2)` permission is uid-equality OR `CAP_KILL`). It can also `chmod` any root-owned file
+without `CAP_FOWNER`.
+
+So after the split, a daemon RCE cannot:
+
+- touch alice's reverse shell or alice's dropped payload
+- write a cgroup
+- set an immutable bit
+- `pidfd_open` (syscall filter)
+- see other users' `/proc` entries
+
+It CAN still signal a root process by plain pid.
+
+The boundary becomes complete when the daemon stops being root: `User=banken` with
+`AmbientCapabilities=CAP_DAC_READ_SEARCH`, the one capability it has ever needed, to read root's
+audit log. That is build item 10. It is kept separate because it touches ownership of every state
+file and must be proven on the real distro matrix, not just the VM. Until it lands, the README says
+"the daemon holds no capability to act on another user's process or file". After it lands, the
 README says "the daemon cannot act on any process or file".
 
 ### 2.2 IPC: an on-disk spool, not a socket
 
-The spec chose a spool and a `.path` unit. This doc keeps that choice after weighing a Unix socket
-with a socket-activated helper, because the spool wins on every axis that matters here:
+The spec chose a spool and a `.path` unit. This doc keeps that choice. It weighed a Unix socket
+with a socket-activated helper, but the spool wins on every axis that matters here:
 
-- **Durability is free.** A work order is a file; a daemon crash after the rename loses nothing, a
-  helper crash mid-order leaves the order for the next run. A socket needs the daemon to hold
+- **Durability is free.** A work order is a file. A daemon crash after the rename loses nothing. A
+  helper crash mid-order leaves the order for the next run. A socket would need the daemon to hold
   unacknowledged requests and retry, which is state in the process we trust least.
-- **Both daemon shapes work unchanged.** The one-shot scan (timer) writes orders and exits; the
+- **Both daemon shapes work unchanged.** The one-shot scan (timer) writes orders and exits. The
   `--watch` daemon writes orders and continues. Neither waits. A socket would need the one-shot to
-  block on a reply or fire-and-forget over a connection, which is the spool with extra steps.
-- **It is auditable with `ls`.** An order in flight is a file an operator can read; a connection is
+  block on a reply, or to fire-and-forget over a connection, which is the spool with extra steps.
+- **It is auditable with `ls`.** An order in flight is a file an operator can read. A connection is
   not. `tamper_banken` already watches `/var/lib/banken`.
-- **No protocol.** No framing, no fd passing, no connection lifecycle, no version handshake beyond
-  one integer in the JSON. The helper's entire input surface is one JSON document per order.
-- **The result channel already exists.** The daemon never needs a synchronous answer: it recorded
-  `decided`; the helper records `executed`/`failed`. `list` and `explain` join the two by id.
+- **No protocol.** No framing. No fd passing. No connection lifecycle. The only version handshake
+  is one integer in the JSON. The helper's entire input surface is one JSON document per order.
+- **The result channel already exists.** The daemon never needs a synchronous answer. It recorded
+  `decided`, and the helper records `executed`/`failed`. `list` and `explain` join the two by id.
 
-The cost is latency: the path unit fires on inotify when the order lands (microseconds) and
+The cost is latency. The path unit fires on inotify when the order lands (microseconds), and
 systemd starts a oneshot (tens to a couple of hundred ms). Against a 2 min scan interval that is
-noise; against mimi's capture-to-match path it is the next thing to measure, and
+noise. Against mimi's capture-to-match path it is the next thing to measure, and
 `enforcement-testing.md` section 4.1 already plans the histogram.
 
 Paths (all under `StateDirectory=banken`, `0700 root`):
@@ -153,9 +178,9 @@ Paths (all under `StateDirectory=banken`, `0700 root`):
 /var/lib/banken/spool.tmp/      the daemon writes here, fsyncs, then renames into spool/
 ```
 
-The tmp directory is a sibling, not a dotfile or subdirectory inside `spool/`, because
-`DirectoryNotEmpty` counts any entry: a half-written order inside `spool/` would make the path
-unit fire a drain that finds nothing to do and fire again, for as long as the tmp file lives.
+The tmp directory is a sibling, not a dotfile or subdirectory inside `spool/`. This is because
+`DirectoryNotEmpty` counts any entry. A half-written order inside `spool/` would make the path
+unit fire a drain that finds nothing to do, then fire again, for as long as the tmp file lives.
 `rename(2)` between two directories on one filesystem is atomic, so the helper only ever sees
 complete orders.
 
@@ -174,38 +199,41 @@ complete orders.
 ```
 
 The alert is carried whole because `Decide` is pure over `(alert, policy, ...)` and the helper
-must be able to run it; a Decision alone is a conclusion the helper would have to trust. The
-`decision` field is what the helper compares its own verdict against; it is never acted on
-directly. `policy` is for the record: the helper always loads the policy from disk, and when the
+must be able to run it. A Decision alone is a conclusion the helper would have to trust. The
+`decision` field is what the helper compares its own verdict against. It is never acted on
+directly. `policy` is for the record. The helper always loads the policy from disk, and when the
 hashes differ the ledger shows which policy decided and which policy acted.
 
-`version` is checked first; an unknown version is `failed: malformed` (the order is unlinked after
-the ledger line, never left to wedge the queue).
+`version` is checked first. An unknown version is `failed: malformed`. The order is unlinked after
+the ledger line, never left to wedge the queue.
 
 ### 2.4 The drain: re-validation is the trust model
 
-`banken respond drain` is `internal/response/drain` (new package) plus the subcommand. It imports
-`internal/response` (for `Decide`, `Policy`, `Ledger`) and `internal/response/exec`; the daemon's
-`internal/response/respond` stops importing `exec` entirely. After this change no code path in the
-daemon process links the executor's mutating methods to a call site; `internal/response` still
+`banken respond drain` is `internal/response/drain` (a new package) plus the subcommand. It imports
+`internal/response` (for `Decide`, `Policy`, `Ledger`) and `internal/response/exec`. The daemon's
+`internal/response/respond` stops importing `exec` entirely. After this change, no code path in the
+daemon process links the executor's mutating methods to a call site. `internal/response` still
 imports neither.
 
-Startup, before any order is read (fail closed; any failure exits non-zero and touches nothing):
+Startup, before any order is read. It fails closed: any failure exits non-zero and touches nothing.
 
 1. Load `banken.yml`, load the policy from `response.policyFile` / `response.policy` with the same
    `loadResponsePolicy` the daemon uses. The helper never reads a policy out of an order.
 2. Check `policy.quarantine.allowPaths` against `response.quarantineAllowPaths` from `banken.yml`
    (the list the module also rendered into the unit's `ReadWritePaths`, section 2.8). A policy path
-   not under a sandbox path is a startup error naming both, because the alternative is a rename
-   that fails with EROFS at the first real alert, which is the silent-disarm failure
+   not under a sandbox path is a startup error that names both. The alternative is a rename that
+   fails with EROFS at the first real alert, which is the silent-disarm failure
    `enforcement-testing.md` section 5.6 warns about.
 3. Open the ledger. Build the executor with `Enforce: cfg.Response.Enforce`, `AllowRoot:
    policy.AllowRoot`, the store dirs, `QuarantineAllowPaths: policy.Quarantine.AllowPaths`,
    `MaxFileBytes: policy.Quarantine.MaxFileBytes`.
-4. **Recovery pass** over the stores: a quarantine manifest with `method: pending` is finished or
-   rolled back (section 2.7); a freeze manifest with `state: pending` has its pids checked and is
-   finalised or tombstoned; an empty `banken.quarantine/<id>` cgroup dir with a thawed/killed
-   handle is removed (F8's second half). Each repair is a ledger line (`recovered`).
+4. **Recovery pass** over the stores:
+   - a quarantine manifest with `method: pending` is finished or rolled back (section 2.7)
+   - a freeze manifest with `state: pending` has its pids checked and is finalised or tombstoned
+   - an empty `banken.quarantine/<id>` cgroup dir with a thawed/killed handle is removed (F8's
+     second half)
+
+   Each repair is a ledger line (`recovered`).
 
 Then, until the spool is empty:
 
@@ -229,24 +257,29 @@ Then, until the spool is empty:
      policy maps to `freeze` or to nothing.
    - dispatch to the executor exactly as `respond.invoke` does today; `executed` or `failed` with
      the handle or the error (`ErrStaleTarget`, `ErrGone`, `ErrDenied` are good outcomes to see).
-   - unlink the order. A failure to unlink is the one error that exits the drain non-zero: it
-     cannot be made idempotent by force, and the unit's `StartLimitBurst` (section 2.8) stops the
+   - unlink the order. A failure to unlink is the one error that exits the drain non-zero. It
+     cannot be made idempotent by force. The unit's `StartLimitBurst` (section 2.8) stops the
      path unit from spinning on it while the journal says why.
 
-The budget note: the daemon still counts its run-local `runUsed`/`hourUsed` and dedupes on `Seen`
-(it must, to avoid writing duplicate orders), but the helper's count from the actions ledger is
-the one that binds. Two counters, one authority.
+A note on the budget. The daemon still counts its run-local `runUsed`/`hourUsed` and dedupes on
+`Seen`, which it must do to avoid writing duplicate orders. But the helper's count from the actions
+ledger is the one that binds. Two counters, one authority.
 
-What the helper's `SelfIdentity` is: its own exe realpath, which is the same binary as the daemon,
-so "target is banken itself" still holds for both processes.
+The helper's `SelfIdentity` is its own exe realpath. That is the same binary as the daemon, so
+"target is banken itself" still holds for both processes.
 
 ### 2.5 The `not-armed` rail: enforcement stays OFF across the split
 
-Today the three gates are: `response.enable` (the responder exists), `mode: enforce` in the policy
-(`Decide` returns a real action), `response.enforce` (the executor is armed; otherwise the call is
-a dry-run that verifies the target and records `dryRun: true`). After the split the daemon can no
-longer dry-run (it cannot `pidfd_open`, cannot read other users' `/proc`), and the helper must not
-exist on a host that has not armed enforcement. So the third gate moves up into the decision:
+Today there are three gates:
+
+- `response.enable` - the responder exists
+- `mode: enforce` in the policy - `Decide` returns a real action
+- `response.enforce` - the executor is armed; otherwise the call is a dry-run that verifies the
+  target and records `dryRun: true`
+
+After the split the daemon can no longer dry-run: it cannot `pidfd_open`, and cannot read other
+users' `/proc`. And the helper must not exist on a host that has not armed enforcement. So the
+third gate moves up into the decision:
 
 ```go
 // types.go
@@ -255,11 +288,11 @@ RailNotArmed Rail = "not-armed"
 Armed bool `json:"armed"`   // the caller's response.enforce; false = decided, never requested
 ```
 
-`Decide` evaluates it last, after the mode check, so an observe-mode host still shows
-`observe-mode` and an enforce-mode host without `response.enforce` shows `not-armed: response.enforce
-is off: would kill pid 4242 (/tmp/.x/sh)`. The daemon writes no order when a rail fired (any
-rail), and `response.enforce` is both the daemon's `Armed` input and the module's switch for the
-helper units, so the three states are:
+`Decide` evaluates it last, after the mode check. So an observe-mode host still shows
+`observe-mode`. An enforce-mode host without `response.enforce` shows `not-armed: response.enforce
+is off: would kill pid 4242 (/tmp/.x/sh)`. The daemon writes no order when any rail fired.
+`response.enforce` is both the daemon's `Armed` input and the module's switch for the helper units.
+So the three states are:
 
 | `response.enable` | policy `mode` | `response.enforce` | decided line | order | helper unit |
 | --- | --- | --- | --- | --- | --- |
@@ -268,16 +301,16 @@ helper units, so the three states are:
 | true | enforce | false | `rail: not-armed` | no | no |
 | true | enforce | true | `action: kill` | yes | yes |
 
-What is lost against today: the dry-run executor's live `Verify` on a not-armed host (the ledger
-had the live exe and start time in a `dryRun: true` handle). That was never an operator-facing
-promise; the decided line still carries the target, and `banken respond explain <id> -verify`
-(section 3.3) runs the same `Verify` on demand. The `Config.Enforce` gate inside the executor
-stays as a second belt: a drain started by hand with `response.enforce: false` in the config is a
-dry-run that prints what it would do, which is also how the drain's own unit tests run.
+One thing is lost against today: the dry-run executor's live `Verify` on a not-armed host. The
+ledger had the live exe and start time in a `dryRun: true` handle. That was never an
+operator-facing promise. The decided line still carries the target, and `banken respond explain
+<id> -verify` (section 3.3) runs the same `Verify` on demand. The `Config.Enforce` gate inside the
+executor stays as a second belt. A drain started by hand with `response.enforce: false` in the
+config is a dry-run that prints what it would do, which is also how the drain's own unit tests run.
 
-The module assertion from `enforcement-testing.md` section 5.4 becomes checkable with no VM: the
+The module assertion from `enforcement-testing.md` section 5.4 becomes checkable with no VM. The
 rendered config for a default `services.banken.response.enable = true` contains no
-`banken-respond.service` and `response.enforce: false`.
+`banken-respond.service`, and `response.enforce: false`.
 
 ### 2.6 Failure and restart semantics
 
@@ -302,8 +335,8 @@ line or a `recovered` line, written by the only process that could know.**
 
 ### 2.7 Stores: manifest first, tombstone on undo
 
-The quarantine store from `quarantine.md` section 3.1 is kept and the same shape is given to
-freeze, so `list`, `thaw` and `restore` have one thing to learn:
+The quarantine store from `quarantine.md` section 3.1 is kept, and the same shape is given to
+freeze. So `list`, `thaw` and `restore` have one thing to learn:
 
 ```
 /var/lib/banken/freeze/<id>/manifest.json      written BEFORE migrating pids; 0400 after finalise
@@ -314,8 +347,8 @@ freeze, so `list`, `thaw` and `restore` have one thing to learn:
 /var/lib/banken/evidence/<id>/manifest.json    written first; then the /proc snapshot files
 ```
 
-`Handle.ID` is the store id and the directory name; `Handle.Undo` becomes the same id (today it is
-a JSON blob for freeze and a directory path for quarantine; both go). Thaw and restore find
+`Handle.ID` is the store id and the directory name. `Handle.Undo` becomes the same id. Today it is
+a JSON blob for freeze and a directory path for quarantine; both go. Thaw and restore find
 everything they need in the store, so the ledger is a record, not a database the undo depends on.
 A `dryRun` handle has no store entry, and `thaw`/`restore` on one say so.
 
@@ -336,15 +369,15 @@ Freeze manifest (new):
 }
 ```
 
-`bootId` matters for freeze: a cgroup does not survive a reboot, so `list` shows a frozen handle
-from a previous boot as `lost (reboot)` and `thaw` on it writes the tombstone without touching
-anything. The quarantine manifest gains `order` and `version` and otherwise follows `quarantine.md`
-section 3.5 (`inUse`, `owner`, `xattrs` and the rest are Q5/Q8 and stay out of this plan; the
+`bootId` matters for freeze. A cgroup does not survive a reboot. So `list` shows a frozen handle
+from a previous boot as `lost (reboot)`, and `thaw` on it writes the tombstone without touching
+anything. The quarantine manifest gains `order` and `version`, and otherwise follows `quarantine.md`
+section 3.5. `inUse`, `owner`, `xattrs` and the rest are Q5/Q8 and stay out of this plan. The
 fields this plan's proofs need are `method`, `origPath`, `stat` with `dev`+`ino`, `sha256`,
-`immutable`, `order`).
+`immutable`, and `order`.
 
-Idempotency key = the order id in the manifest. Freeze gains a second key for F7: before creating
-a cgroup, the executor reads `/proc/<pid>/cgroup` of the target; if it is already under
+The idempotency key is the order id in the manifest. Freeze gains a second key for F7. Before
+creating a cgroup, the executor reads `/proc/<pid>/cgroup` of the target. If it is already under
 `CgroupRoot`, the existing id is the handle and no second cgroup is made.
 
 ### 2.8 NixOS module wiring
@@ -359,11 +392,13 @@ New options under `services.banken.response`:
 
 Changed behaviour:
 
-- `response.enforce` no longer touches `banken.service` at all. The `lib.optionals cfg.response.enforce
-  [ "CAP_KILL" "CAP_SYS_PTRACE" ]`, the `ProtectProc` flip and the pidfd syscall additions are
-  removed; the daemon unit is byte-identical whether enforcement is armed or not. This is the
-  whole point and the module test asserts it (`nix eval` of both configs, compare the rendered
-  `banken.service`).
+- `response.enforce` no longer touches `banken.service` at all. Three things are removed:
+  - the `lib.optionals cfg.response.enforce [ "CAP_KILL" "CAP_SYS_PTRACE" ]`
+  - the `ProtectProc` flip
+  - the pidfd syscall additions
+
+  The daemon unit is byte-identical whether enforcement is armed or not. This is the whole point,
+  and the module test asserts it (`nix eval` of both configs, compare the rendered `banken.service`).
 - `response.enforce` now emits `banken-respond.service` and `banken-respond.path`, with the unit
   properties of section 2.1 and:
 
@@ -383,36 +418,36 @@ banken-respond.service: Type=oneshot
                         SystemCallArchitectures=native, SystemCallErrorNumber=EPERM, UMask=0077
 ```
 
-`StartLimitBurst=5` in 60 s: a drain that fails five times in a minute (unreadable policy, an
-order it cannot unlink) stops being retried until the operator looks; the number is the systemd
-default shape, not a tuned constant, and it is in the unit so the journal names the rate limit.
+`StartLimitBurst=5` in 60 s. A drain that fails five times in a minute stops being retried until
+the operator looks - an unreadable policy, or an order it cannot unlink. The number is the systemd
+default shape, not a tuned constant. It is in the unit so the journal names the rate limit.
 
-- Assertions: `response.enforce -> response.enable`; every `quarantine.allowPaths` entry is
-  absolute and not under a never-touch prefix (the same check `ParsePolicy` makes, so the module
-  fails at `nixos-rebuild` rather than the helper failing at start).
-- `tests/vm.nix` and every non-enforce configuration render no helper unit; the existing enforce
+- Assertions: `response.enforce -> response.enable`; and every `quarantine.allowPaths` entry is
+  absolute and not under a never-touch prefix. That is the same check `ParsePolicy` makes, so the
+  module fails at `nixos-rebuild` rather than the helper failing at start.
+- `tests/vm.nix` and every non-enforce configuration render no helper unit. The existing enforce
   VM tests set `response.enforce = true` and get both units.
 
-Ordering between the units: none is needed. The daemon writes orders whether or not the helper is
-up; the path unit catches up when it is. The helper does not need the daemon at all (an operator
-can drop an order in by hand, which the proofs use).
+No ordering between the units is needed. The daemon writes orders whether or not the helper is up,
+and the path unit catches up when it is. The helper does not need the daemon at all. An operator
+can drop an order in by hand, which the proofs use.
 
 ### 2.9 What the split buys
 
 - **A daemon RCE cannot directly kill, freeze, quarantine or neuter.** The process that parses
-  untrusted audit bytes, sensor streams, rule files and threat-intel feeds holds one capability,
-  and it is a read capability. Its only lever on the helper is a JSON file that is re-decided
-  under rails it does not control. The worst it can do is request an action the policy already
-  allows against a target the rails already allow, and that request is on the ledger with the
+  untrusted input - audit bytes, sensor streams, rule files, threat-intel feeds - holds one
+  capability, and it is a read capability. Its only lever on the helper is a JSON file that is
+  re-decided under rails it does not control. The worst it can do is request an action the policy
+  already allows, against a target the rails already allow. That request is on the ledger with the
   alert it claimed.
 - **The surface that holds capabilities is small and auditable.** `banken respond drain` is the
   drain loop, the policy loader, `Decide`, and `exec_linux.go`. It reads one JSON shape, the
   policy, and `/proc`. It never sees a log line.
 - **The chain of custody has two identities.** The journal shows `banken.service` deciding and
-  `banken-respond.service` acting, from different unit cgroups; `tamper_banken` and the audit
+  `banken-respond.service` acting, from different unit cgroups. `tamper_banken` and the audit
   trail distinguish the requester from the actor.
 - **Dry-run stops being a code path that touches real primitives inside the daemon.** The
-  `not-armed` rail is a string on a ledger line; the daemon has nothing left to accidentally arm.
+  `not-armed` rail is a string on a ledger line. The daemon has nothing left to accidentally arm.
 
 What it does not buy (section 2.1): protection of uid-0 targets from a uid-0 daemon, until item 10.
 
@@ -437,11 +472,14 @@ What it does not buy (section 2.1): protection of uid-0 targets from a uid-0 dae
 
 ## 3. The operator CLI: `banken respond`
 
-All five subcommands share: `-config` (default `/etc/banken/banken.yml`, to find the state dir,
-the policy and the stores), `-json` (one JSON object per record on stdout, for scripts; the human
-table otherwise), exit code 0 for "done or already done", 1 for "refused or failed, reason on
-stderr", 2 for usage. Ids are the 24-hex handle or decision ids; a unique prefix of at least 8
-characters is accepted (the `quarantine.md` section 5 listing shows 8).
+All five subcommands share these:
+
+- `-config` (default `/etc/banken/banken.yml`, to find the state dir, the policy and the stores)
+- `-json` (one JSON object per record on stdout, for scripts; the human table otherwise)
+- exit code 0 for "done or already done", 1 for "refused or failed, reason on stderr", 2 for usage
+
+Ids are the 24-hex handle or decision ids. A unique prefix of at least 8 characters is accepted
+(the `quarantine.md` section 5 listing shows 8).
 
 Which of them need privilege:
 
@@ -454,13 +492,17 @@ Which of them need privilege:
 | `drain` | everything | the helper unit (section 2) |
 
 `thaw` and `restore` run the executor **in-process under the operator's root shell**, not through
-the spool. The reasons: they are synchronous and interactive (the operator wants the result on
-their terminal); the operator's `sudo` already is the privilege boundary, and routing an undo
-through the path unit would add an undo-order type, a wait, and nothing to the trust model (an
-undo is the safe direction). They use the same `exec` package and the same store code the drain
-uses, so there is one implementation of "reverse this handle", and they write the same ledger
-file the drain writes (one `write(2)` per line with `O_APPEND`, so two writers never interleave
-within a line; the per-day file split was about the daemon vs the helper and still holds).
+the spool. There are two reasons:
+
+- They are synchronous and interactive: the operator wants the result on their terminal.
+- The operator's `sudo` is already the privilege boundary. Routing an undo through the path unit
+  would add an undo-order type and a wait, and nothing to the trust model. An undo is the safe
+  direction.
+
+They use the same `exec` package and the same store code the drain uses. So there is one
+implementation of "reverse this handle". They write the same ledger file the drain writes: one
+`write(2)` per line with `O_APPEND`, so two writers never interleave within a line. The per-day
+file split was about the daemon vs the helper and still holds.
 
 `list` and `explain` never call a mutating method and never need the helper. On a Mac (`go test
 ./...`) they work on a fixture ledger and store under `t.TempDir()`.
@@ -506,9 +548,9 @@ the manifest verbatim.
 banken respond explain <decision-id | handle-id> [-verify] [-json]
 ```
 
-Accepts either id. From a decision id it finds the `decided` line and every action line with that
-`decisionId`; from a handle id it finds the `executed` line and walks back to its decision. It then
-prints the chain in the order it happened:
+It accepts either id. From a decision id, it finds the `decided` line and every action line with
+that `decisionId`. From a handle id, it finds the `executed` line and walks back to its decision.
+It then prints the chain in the order it happened:
 
 ```
 decision 0189f3b2c9d1e4a7b8c0d1e2   2026-11-02T06:12:03Z   policy sha256:9f2c..   mode enforce   armed yes
@@ -524,18 +566,22 @@ action   0189f3b3..   executed by banken-respond   06:12:03.418   policy sha256:
   state now: frozen (2 pids)                           <- from the store + cgroup.events, as list
 ```
 
-For a refused action the `rails` line names the rail and reason verbatim from the ledger; for a
-`downgraded` action both verdicts are shown; for a `failed` one the error string. The "identity
-bound" line comes from `Handle.Exe`/`Handle.StartTime` plus the live fields the executor records
-(the drain writes `live` into the action line as the spec section 9 says; today's `RecordAction`
-gains that field). `-verify` additionally runs `Executor.Verify` on the decision's `ProcessRef`
-right now and prints `verify now: ErrGone` or the live identity, so an operator can answer "is it
-still there" without `ps`. `-verify` is the one read that needs `CAP_SYS_PTRACE`; without it the
-subcommand is pure file reading.
+The outcome lines vary by action:
 
-For a decided line whose action is not `none` but has no action line and no spool entry: `never
-requested (no order found; the daemon may have crashed between the decision and the order)`.
-With an order still in the spool: `requested, not yet drained (order in spool for 3s)`.
+- a refused action: the `rails` line names the rail and reason verbatim from the ledger
+- a `downgraded` action: both verdicts are shown
+- a `failed` action: the error string
+
+The "identity bound" line comes from `Handle.Exe`/`Handle.StartTime` plus the live fields the
+executor records. The drain writes `live` into the action line as the spec section 9 says, and
+today's `RecordAction` gains that field. `-verify` additionally runs `Executor.Verify` on the
+decision's `ProcessRef` right now, and prints `verify now: ErrGone` or the live identity. So an
+operator can answer "is it still there" without `ps`. `-verify` is the one read that needs
+`CAP_SYS_PTRACE`. Without it the subcommand is pure file reading.
+
+A decided line whose action is not `none`, but has no action line and no spool entry, prints
+`never requested (no order found; the daemon may have crashed between the decision and the order)`.
+With an order still in the spool, it prints `requested, not yet drained (order in spool for 3s)`.
 
 ### 3.3 `thaw`
 
@@ -558,9 +604,9 @@ banken respond thaw <handle-id>
 5. Write `thawed.json` (time, operator uid from `SUDO_UID` if set else the real uid, per-pid
    outcome), ledger `thawed` referencing the handle and the decision id, print one line per pid.
 
-Idempotent by the tombstone; a second thaw is step 1. The thaw never signals or moves a pid it
-did not find in its own cgroup, so a pid reused after the frozen process was killed by someone
-else is never touched.
+It is idempotent by the tombstone, and a second thaw is step 1. The thaw never signals or moves a
+pid it did not find in its own cgroup. So a pid reused after the frozen process was killed by
+someone else is never touched.
 
 ### 3.4 `restore`
 
@@ -586,56 +632,68 @@ banken respond restore <handle-id> [-to PATH]
 4. Write `restored.json` (time, operator uid, destination, the checks that passed) and **keep the
    manifest and the directory** (Q3). Ledger `restored`.
 
-Round-trip property the proof asserts: content, mode (including setuid/setgid/sticky), uid, gid,
-mtime and `user.*` xattrs identical to the pre-quarantine values; `ino` unchanged (rename keeps
-the inode; neuter never left it).
+The round-trip property the proof asserts: these are identical to the pre-quarantine values:
+
+- content
+- mode (including setuid/setgid/sticky)
+- uid
+- gid
+- mtime
+- `user.*` xattrs
+
+`ino` is unchanged too: rename keeps the inode, and neuter never left it.
 
 ### 3.5 `drain`
 
-Documented in section 2.4; listed here because it is a subcommand of the same dispatch. It is not
-for operators to run by hand except in a test or to re-run recovery (`banken respond drain` with an
-empty spool runs the recovery pass and exits 0).
+It is documented in section 2.4. It is listed here because it is a subcommand of the same
+dispatch. It is not for operators to run by hand, except in a test or to re-run recovery. `banken
+respond drain` with an empty spool runs the recovery pass and exits 0.
 
 ---
 
 ## 4. Enforcement proofs under KVM: freeze and quarantine
 
-Same shape as `tests/response-enforce.nix`: a throwaway VM with `response.enforce = true`, a
-policy that maps named rules to the action under test, victims the test spawns as `alice`, one
-audit barrier, one scan, then assertions on the live system and the ledger. Same honesty: every
-victim is self-spawned; nothing real is touched; the real host stays unarmed. Both new tests
-register in `flake.nix` `checks.x86_64-linux` as `response-freeze` and `response-quarantine`, run
-with `nix-build tests/<name>.nix` on hokkaido (KVM).
+Same shape as `tests/response-enforce.nix`:
+
+- a throwaway VM with `response.enforce = true`
+- a policy that maps named rules to the action under test
+- victims the test spawns as `alice`
+- one audit barrier, one scan
+- then assertions on the live system and the ledger
+
+Same honesty. Every victim is self-spawned. Nothing real is touched. The real host stays unarmed.
+Both new tests register in `flake.nix` `checks.x86_64-linux` as `response-freeze` and
+`response-quarantine`. They run with `nix-build tests/<name>.nix` on hokkaido (KVM).
 
 ### 4.1 Harness changes (`tests/lib/enforce-spawn.nix`)
 
 - `enf_scan()`: `systemctl start banken.service`, then `wait_until_succeeds` on "the spool is
   empty and `banken-respond.service` is inactive". Every call site of the bare `systemctl start`
-  in the enforce and whack-a-mole tests switches to it; without the wait both existing proofs
+  in the enforce and whack-a-mole tests switches to it. Without the wait, both existing proofs
   would read the ledger before the helper has acted.
 - a heartbeat carrier: `carrier: "beat"` is the shell carrier whose stay-alive tail is
   `while :; do echo . >> /tmp/hb_<name>; sleep 0.01; done` instead of `sleep 100000 ; :`. The
   file's size is the ground truth for "making progress": it grows, or it does not. The `sleep`
   forks a child every 10 ms, which is exactly the fork-during-migration shape `scope: tree` must
-  catch (the loop is frozen the instant the shell is; an already-forked `sleep` finishes on its
-  own and exits, which is correct and recorded).
+  catch. The loop is frozen the instant the shell is. An already-forked `sleep` finishes on its
+  own and exits, which is correct and recorded.
 - `enf_tree(name, ...)`: a shell victim that also starts a long `sleep` child and records both
   pids, for tree assertions.
 - `enf_order(alert_json, decision_json)`: writes a hand-crafted work order into
   `/var/lib/banken/spool/` as root (tmp + rename, like the daemon), returns its id. This is how the
   proofs exercise the helper's own rails without needing an audit event that would name a device
-  node or a forged rule: the order IS the forged input.
+  node or a forged rule. The order IS the forged input.
 - `hb_size(name)`, `hb_stalled(name, settle_ms, window_ms)`: read the size, wait the settle (so
   in-flight writes from a `sleep` that was mid-exit land), read again, wait the window, compare.
-  `settle_ms = 200`, `window_ms = 1000`; both are named constants in the harness with this
+  `settle_ms = 200`, `window_ms = 1000`. Both are named constants in the harness with this
   sentence beside them.
 
 ### 4.2 The boundary phase (added to `tests/response-enforce.nix`)
 
 Cheap assertions that the split is real, run once before the scorecard:
 
-- `systemctl show -p CapabilityBoundingSet banken.service` is exactly `cap_dac_read_search`;
-  `systemctl show -p ProtectProc banken.service` is `invisible`; the same for
+- `systemctl show -p CapabilityBoundingSet banken.service` is exactly `cap_dac_read_search`.
+  `systemctl show -p ProtectProc banken.service` is `invisible`. The same for
   `banken-respond.service` lists the section 2.1 set and `default`.
 - a forged order (via `enf_order`) asking `kill` for the innocent's pid under a rule name the
   policy does not map -> ledger `downgraded`, innocent alive. A second forged order asking `kill`
@@ -643,21 +701,32 @@ Cheap assertions that the split is real, run once before the scorecard:
   `Decide` passes (the image is not a protected name) and `identify()` refuses with
   `ErrStaleTarget: live exe != image` -> innocent alive. These are the spool-poisoning tests
   `enforcement-testing.md` 4.8 called the single most important protocol test.
-- the daemon unit cannot write a cgroup: `systemd-run --wait -p ProtectControlGroups=yes` is not
-  needed; the rendered property is asserted above and `tests/vm.nix`'s module eval test asserts
+- the daemon unit cannot write a cgroup. `systemd-run --wait -p ProtectControlGroups=yes` is not
+  needed: the rendered property is asserted above, and `tests/vm.nix`'s module eval test asserts
   the unit is byte-identical with enforce on and off.
 
 ### 4.3 `tests/response-freeze.nix`
 
-Policy: `reverse_shell -> freeze (scope: tree)`, `pipe_to_shell -> kill (scope: tree)`, an entry
-mapping `timestomp -> none`, `minLevel: high`, `allowRoot: false`, generous rate limits.
+Policy:
 
-Victims: `V` = beat carrier tripping `reverse_shell` plus a long `sleep` child (tree of two);
-`I` = beat carrier tripping nothing (the innocent, must keep beating); `N` = a victim tripping
-`timestomp` (maps to none, must be untouched); `K` = tree victim tripping `pipe_to_shell`.
+- `reverse_shell -> freeze (scope: tree)`
+- `pipe_to_shell -> kill (scope: tree)`
+- an entry mapping `timestomp -> none`
+- `minLevel: high`
+- `allowRoot: false`
+- generous rate limits
 
-Before the scan: record `/proc/<pid>/cgroup` for every pid of `V` (the `orig` the thaw must restore),
-and stop `banken-respond.path` so the scan's orders sit in the spool.
+Victims:
+
+- `V` = beat carrier tripping `reverse_shell` plus a long `sleep` child (tree of two)
+- `I` = beat carrier tripping nothing (the innocent, must keep beating)
+- `N` = a victim tripping `timestomp` (maps to none, must be untouched)
+- `K` = tree victim tripping `pipe_to_shell`
+
+Before the scan, do two things:
+
+- record `/proc/<pid>/cgroup` for every pid of `V` (the `orig` the thaw must restore)
+- stop `banken-respond.path` so the scan's orders sit in the spool
 
 Phase A, the freeze lands and really stops the tree:
 
@@ -697,38 +766,50 @@ Phase D, tree kill leaves no cgroup behind (F8):
   shows only `H` (then nothing after phase C). Then spawn ten more `K`-shaped trees, scan, and
   assert the directory is empty: ten EBUSY opportunities, zero leaks.
 
-Phase E, collateral: `I` and `N` alive at the end, no action lines for either; the scorecard
-prints `freeze proven: tree frozen, heartbeat stalled, thaw restored cgroups and progress; 0
-innocents touched; 0 cgroup dirs leaked over 11 tree kills`.
+Phase E, collateral. `I` and `N` are alive at the end, with no action lines for either. The
+scorecard prints `freeze proven: tree frozen, heartbeat stalled, thaw restored cgroups and
+progress; 0 innocents touched; 0 cgroup dirs leaked over 11 tree kills`.
 
-What the VM does not prove here and the unit tests do: `TestFreezeIdempotent` (two `Freeze` calls
-on one live tree return one handle), `TestThawTwice`, `TestFreezeManifestFirst` (store dir
-unwritable -> no migration happens), the SIGSTOP fallback (`TestFreezeThawSigstop` exists), and
-`TestKillTreeWaitsForPopulatedZero` with a child that exits slowly.
+What the VM does not prove here, and the unit tests do:
+
+- `TestFreezeIdempotent` (two `Freeze` calls on one live tree return one handle)
+- `TestThawTwice`
+- `TestFreezeManifestFirst` (store dir unwritable -> no migration happens)
+- the SIGSTOP fallback (`TestFreezeThawSigstop` exists)
+- `TestKillTreeWaitsForPopulatedZero` with a child that exits slowly
 
 ### 4.4 `tests/response-quarantine.nix`
 
-Policy: `exec_from_tmp -> quarantine (target: image)`, `quarantine.allowPaths` at the default,
-`quarantine.maxFileBytes: 1048576` (1 MiB, so the sparse-file phase is quick and the cap is
-visibly exercised), `minLevel: high`, `allowRoot: false`.
+Policy:
 
-Why `target: image` and a transient dropper: on the auditd floor an execve event carries no
-`TargetFilename` (`internal/parser/auditd.go` sets it only for non-exec PATH records, by design),
-so the one file an exec alert names is its own image. A victim that executes a payload from
-scratch and **exits** is the dropper story `quarantine.md` section 1 tells: the process is gone
-at drain time (`ErrGone` would be the process outcome) and the file is what is left to act on.
-It also sidesteps the in-use rail (Q5, not in this plan) honestly rather than by setting
-`inUse: proceed`.
+- `exec_from_tmp -> quarantine (target: image)`
+- `quarantine.allowPaths` at the default
+- `quarantine.maxFileBytes: 1048576` (1 MiB, so the sparse-file phase is quick and the cap is
+  visibly exercised)
+- `minLevel: high`
+- `allowRoot: false`
 
-Fixtures the test prepares as `alice`: `P1 = /tmp/q/payload` (a copy of `bash`, mode `0755`,
-`mtime` set to a known value with `touch -d`, a `user.banken-test` xattr set with `setfattr`, the
-`attr` package in the VM); `S1 = /tmp/q/innocent` beside it (the sibling that must not change);
-`P2 = /dev/shm/q/payload` and `S2 = /dev/shm/q/innocent` the same on tmpfs; `F = /tmp/q/fifo`
-(`mkfifo`); `L = /tmp/q/link -> /home/alice/secret`; `B = /tmp/q/big`, a 2 GiB sparse file
-(`truncate -s 2G`). `/tmp` in the NixOS test VM is on the root filesystem (same device as
-`/var/lib`), `/dev/shm` is tmpfs: the two payloads take the rename and the neuter paths with no
-test-specific mount tricks, and the test asserts `stat -c %d` differs between `/dev/shm/q` and
-`/var/lib/banken` before relying on it.
+Why `target: image` and a transient dropper? On the auditd floor an execve event carries no
+`TargetFilename` (`internal/parser/auditd.go` sets it only for non-exec PATH records, by design).
+So the one file an exec alert names is its own image. A victim that executes a payload from scratch
+and **exits** is the dropper story `quarantine.md` section 1 tells. The process is gone at drain
+time (`ErrGone` would be the process outcome), and the file is what is left to act on. It also
+sidesteps the in-use rail (Q5, not in this plan) honestly, rather than by setting `inUse: proceed`.
+
+Fixtures the test prepares as `alice`:
+
+- `P1 = /tmp/q/payload` (a copy of `bash`, mode `0755`, `mtime` set to a known value with
+  `touch -d`, a `user.banken-test` xattr set with `setfattr`, the `attr` package in the VM)
+- `S1 = /tmp/q/innocent` beside it (the sibling that must not change)
+- `P2 = /dev/shm/q/payload` and `S2 = /dev/shm/q/innocent`, the same on tmpfs
+- `F = /tmp/q/fifo` (`mkfifo`)
+- `L = /tmp/q/link -> /home/alice/secret`
+- `B = /tmp/q/big`, a 2 GiB sparse file (`truncate -s 2G`)
+
+`/tmp` in the NixOS test VM is on the root filesystem (same device as `/var/lib`), and `/dev/shm`
+is tmpfs. So the two payloads take the rename and the neuter paths with no test-specific mount
+tricks. The test asserts `stat -c %d` differs between `/dev/shm/q` and `/var/lib/banken` before
+relying on it.
 
 Before the scan, record for `P1` and `P2`: `sha256sum`, `stat -c '%i %f %u %g %Y %h'`, the xattr.
 
@@ -776,8 +857,8 @@ Phase D, restore refuses to clobber, and `-to`:
   replaced`; the new file is untouched (mode and content as created). The ledger records the
   refusal.
 
-Phase E, the guards, via forged orders (`enf_order`; each order carries an `exec_from_tmp` alert
-whose `image` is the path under test, so the helper's `Decide` and the executor both see it):
+Phase E, the guards, via forged orders. Each `enf_order` carries an `exec_from_tmp` alert whose
+`image` is the path under test, so the helper's `Decide` and the executor both see it.
 
 - `image: /dev/null` -> `downgraded` (the helper's `Decide` says `untargetable: under never-touch
   /dev`, Q14) and `/dev/null` is still a character device with mode `0666`. A second forged order
@@ -803,23 +884,23 @@ Phase F, manifest-first (Q2) end to end:
   order copied back in, and it succeeds. The crash-injection variant (exit between the rename and
   the finalise, then recover from `pending`) is the unit test `TestQuarantineRecoverPending`.
 
-Phase G, collateral and the scorecard: `S1`, `S2`, `F`, `L`'s target and `/dev/null` unchanged;
-no action line names any of them (except the deliberate `S2` round trip in phase E, which is
-asserted restored). Print `quarantine proven: rename and neuter landed on the fstat'd inode, store
-neutered, manifest-first held under an unwritable store, restore round-tripped byte-identical and
-refused to clobber; guards held for /dev, FIFO, symlink, /etc, 2 GiB sparse`.
+Phase G, collateral and the scorecard. `S1`, `S2`, `F`, `L`'s target and `/dev/null` are
+unchanged. No action line names any of them, except the deliberate `S2` round trip in phase E,
+which is asserted restored. Print `quarantine proven: rename and neuter landed on the fstat'd
+inode, store neutered, manifest-first held under an unwritable store, restore round-tripped
+byte-identical and refused to clobber; guards held for /dev, FIFO, symlink, /etc, 2 GiB sparse`.
 
 ### 4.5 What the VM proofs leave to unit tests, said plainly
 
-- the fstat-to-rename / fstat-to-neuter swap race (Q1's actual race) needs a hook between the
-  steps; `TestQuarantineSwapRaceRename` and `TestQuarantineSwapRaceNeuter` inject one (a
+- the fstat-to-rename and fstat-to-neuter swap race (Q1's actual race) needs a hook between the
+  steps. `TestQuarantineSwapRaceRename` and `TestQuarantineSwapRaceNeuter` inject one (a
   package-level `var beforeAct func()` the test sets), swap the directory entry, and assert
-  `ErrStaleTarget`, the swapped-in file untouched, no store entry. The VM asserts the inode
+  `ErrStaleTarget`, the swapped-in file untouched, and no store entry. The VM asserts the inode
   identity end to end, which is the observable consequence.
 - crash injection in the drain (`os.Exit` after the act, before the ledger line, then re-run):
   `TestDrainCrashAfterActIsAlreadyApplied` with a fake executor whose store write is real.
-- the `not-armed` rail: fixtures in `decide_test.go`; a module eval test that the default config
-  renders no helper unit.
+- the `not-armed` rail: fixtures in `decide_test.go`, plus a module eval test that the default
+  config renders no helper unit.
 - the `allowPaths` subset check at drain startup: `TestDrainRefusesPolicyOutsideSandbox`.
 
 ---
@@ -838,22 +919,34 @@ refused to clobber; guards held for /dev, FIFO, symlink, /etc, 2 GiB sparse`.
 | Q6 sha256 has no size cap (`:407`, `:864`) | `io.Copy` over the whole file, dry-run included | `quarantine.maxFileBytes` (policy, default 256 MiB per `quarantine.md` 3.2): over the cap, `sha256: "unhashed: <size>"`, the file is still taken; `list`'s re-hash honours the same cap | item 5 | `TestQuarantineUnhashedOverCap` (sparse 1 TiB); quarantine VM phase E |
 | Q14 `/dev` not in never-touch (`:52`, `policy.go:105`) | a device node is caught only by the `S_IFREG` check | add `/dev` to the one shared never-touch list with a `/dev/shm` carve-out, in `internal/response` (exported) and used by `exec`; the intent is in the list, not in a side effect of `fstat` | item 3 (shared lists) | `TestNeverTouchDevWithShmCarveOut`, `TestQuarantineRefusesDevNode`; quarantine VM phase E |
 
-Not in this plan, named so nobody looks for them here: Q5 (owner / root-owned / in-use rails), Q7
-(already covered by the store neutering in item 5's manifest finalise), Q8 (manifest fields beyond
-what the proofs need), Q9 (YARA), Q10/F12 (composites), Q11 is this doc's section 3 minus `purge`
-and `show` (`show` is `explain -json`; `purge` waits for Q9), Q12/Q13 (emulation keep mode), F1-F6
-and F10-F11 (`enforcement-testing.md` owns them; F1-F3 are closed in this tree and the existing
-whack-a-mole and enforce proofs keep them closed through the split).
+Not in this plan, named so nobody looks for them here:
+
+- Q5 (owner / root-owned / in-use rails)
+- Q7 (already covered by the store neutering in item 5's manifest finalise)
+- Q8 (manifest fields beyond what the proofs need)
+- Q9 (YARA)
+- Q10/F12 (composites)
+- Q11 is this doc's section 3 minus `purge` and `show` (`show` is `explain -json`; `purge` waits
+  for Q9)
+- Q12/Q13 (emulation keep mode)
+- F1-F6 and F10-F11 (`enforcement-testing.md` owns them; F1-F3 are closed in this tree and the
+  existing whack-a-mole and enforce proofs keep them closed through the split)
 
 ---
 
 ## 6. Build sequence
 
-Ordered so the split lands first (items 1-2 ship together as one PR; the second is the module half
-of the first), the shared lists land before the stores that use them, each F/Q fix lands with the
-code the matching proof then verifies, the read-only CLI lands before the privileged one, and the
-proofs land last against a shape that no longer moves. Every item is one worker brief: goal,
-files, what to prove, what it closes. A worker keeps its own Taskwarrior list per the house rule.
+The order follows a few rules:
+
+- the split lands first (items 1-2 ship together as one PR; the second is the module half of the
+  first)
+- the shared lists land before the stores that use them
+- each F/Q fix lands with the code the matching proof then verifies
+- the read-only CLI lands before the privileged one
+- the proofs land last, against a shape that no longer moves
+
+Every item is one worker brief: its goal, its files, what to prove, and what it closes. A worker
+keeps its own Taskwarrior list per the house rule.
 
 1. **The spool, the work order, the drain, and the `not-armed` rail.** Goal: the daemon stops
    calling the executor; a work order is the only way an action reaches a primitive. Files:
@@ -966,10 +1059,14 @@ files, what to prove, what it closes. A worker keeps its own Taskwarrior list pe
     proofs PASS. Closes: the residual; after this the README can say the daemon cannot act on any
     process or file.
 
-Not scheduled here, in the order they would come next: Q5 (the owner/root-owned/in-use rails, which
-the proofs' transient dropper deliberately does not need), the time-to-kill histogram over the
-spool path (`enforcement-testing.md` 4.1, which now has a second hop to measure), the weekly
-observe canary on hokkaido (5.4 layer 3), and `purge` once YARA writes `yara.json`.
+Not scheduled here, in the order they would come next:
+
+- Q5 (the owner/root-owned/in-use rails, which the proofs' transient dropper deliberately does not
+  need)
+- the time-to-kill histogram over the spool path (`enforcement-testing.md` 4.1, which now has a
+  second hop to measure)
+- the weekly observe canary on hokkaido (5.4 layer 3)
+- `purge` once YARA writes `yara.json`
 
 ---
 
@@ -983,7 +1080,7 @@ observe canary on hokkaido (5.4 layer 3), and `purge` once YARA writes `yara.jso
 2. **Item 10 timing.** The daemon-drops-root change is where the boundary becomes complete, and it
    is the item most likely to surface a hidden root assumption on a distro. Land it right after
    item 2 (so the proofs run against the final shape) or last (so the proofs are not blocked on
-   the distro matrix)? This doc puts it last; say if you want it earlier.
+   the distro matrix)? This doc puts it last. Say if you want it earlier.
 3. **`thaw`/`restore` in-process vs via the spool.** Section 3 argues in-process under the
    operator's root shell. The alternative (an undo order the helper drains) gives one code path
    that ever holds capabilities at the cost of an undo-order type and a wait. The trust model does
