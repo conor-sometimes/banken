@@ -204,4 +204,4 @@ Pre-alpha, past the floor. Enforcement is off by default.
 
 ## Licence
 
-MIT (see [LICENSE](LICENSE)). Rules are plain Sigma. Copy them out with `git subtree split rules/` if you want them without the binary.
+MIT. See [LICENSE](LICENSE).
