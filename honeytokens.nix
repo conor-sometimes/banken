@@ -142,6 +142,52 @@ let
       - attack.t1552.001
   '';
 
+  # Ransomware canaries. Decoy DOCUMENTS watched for MODIFICATION, not reads. No
+  # real task edits these files, so a write to one is a process encrypting user
+  # files (ransomware). Same subsystem as the credential decoys above, with a
+  # write/attribute watch (-p wa) and its own key instead of a read watch.
+  canaryNames = [
+    "000-IMPORTANT-do-not-delete.docx"
+    "budget-2026.xlsx"
+    "passwords.kdbx"
+    "family-photos.zip"
+  ];
+  canarySrc = pkgs.writeText "banken-canary.txt"
+    "banken ransomware canary. A decoy document that nothing legitimate edits. If this file was modified or renamed, a process is encrypting user files.\n";
+  canaryDecoys = lib.optionals cfg.canary.enable
+    (lib.concatMap (dir: map (n: "${dir}/${n}") canaryNames) cfg.canary.dirs);
+
+  # The ransomware rule, generated from exactly the canary paths planted. Same
+  # TargetFilename shape as the honeytoken rule, so no new engine behaviour: any
+  # write to a canary fires critical.
+  ransomwareRule = pkgs.writeText "banken-ransomware-canary.yml" ''
+    title: Ransomware canary file modified
+    id: 7a4b3c2d-0e1f-4a5b-9c8d-1e2f3a4b5c6d
+    status: stable
+    description: >
+      A banken-planted canary document was modified or renamed. No real task edits
+      these files, so a write is a process encrypting user files (ransomware), caught
+      as it starts sweeping a directory. Seeded by services.banken.honeytokens.canary.
+    references:
+      - https://attack.mitre.org/techniques/T1486/
+      - https://d3fend.mitre.org/technique/d3f:DecoyFile/
+    author: banken
+    logsource:
+      product: linux
+      category: process_creation
+    detection:
+      canary:
+        TargetFilename:
+    ${lib.concatMapStringsSep "\n" (p: "      - ${p}") canaryDecoys}
+      condition: canary
+    falsepositives:
+      - A backup job rewriting a canary. The watch is write/attribute only (-p wa).
+    level: critical
+    tags:
+      - attack.impact
+      - attack.t1486
+  '';
+
 in
 {
   options.services.banken.honeytokens = {
@@ -183,6 +229,28 @@ in
       '';
     };
 
+    canary = {
+      enable = lib.mkEnableOption ''
+        ransomware canaries: plant decoy documents and alert on any WRITE to them.
+        Nothing legitimate edits these files, so a write is a process encrypting
+        user files. Pairs with the generated ransomware-canary detection rule
+      '';
+
+      dirs = lib.mkOption {
+        type = lib.types.listOf lib.types.path;
+        default = [ cfg.home ];
+        defaultText = lib.literalExpression "[ config.services.banken.honeytokens.home ]";
+        example = lib.literalExpression ''[ "/home/alice/Documents" "/srv/share" ]'';
+        description = ''
+          Directories to plant canary documents in and watch for writes. The default
+          is the decoy user's home. Point it at real document directories (a user's
+          Documents, a file share) to catch an encryptor the moment it sweeps one;
+          the canaries are owned by the honeytoken user and the never-clobber guard
+          still applies, so no real file is touched.
+        '';
+      };
+    };
+
   } // lib.mapAttrs
     (t: _: {
       enable = lib.mkEnableOption "the ${t} honeytoken decoy (${catalog.${t}.rel}), planted under the honeytoken home and watched for reads";
@@ -191,8 +259,8 @@ in
 
   config = lib.mkIf (cfg.enable && config.services.banken.enable) {
     assertions = [{
-      assertion = enabledTypes != [ ];
-      message = "services.banken.honeytokens.enable is on but no decoy type is enabled (set e.g. services.banken.honeytokens.aws.enable = true).";
+      assertion = enabledTypes != [ ] || cfg.canary.enable;
+      message = "services.banken.honeytokens.enable is on but nothing is planted: enable a credential decoy (e.g. services.banken.honeytokens.aws.enable = true) or the ransomware canary (services.banken.honeytokens.canary.enable = true).";
     }];
 
     # The locked decoy account: no login, no password, a home for the bait.
@@ -215,7 +283,11 @@ in
     # never overwritten. `d` ensures each decoy's parent directory exists.
     systemd.tmpfiles.rules =
       (map (d: "d ${builtins.dirOf d.path} 0700 ${cfg.user} ${cfg.group} -") decoys)
-      ++ (map (d: "C ${d.path} ${d.mode} ${cfg.user} ${cfg.group} - ${d.src}") decoys);
+      ++ (map (d: "C ${d.path} ${d.mode} ${cfg.user} ${cfg.group} - ${d.src}") decoys)
+      # Canary documents: a 0755 parent (a user's Documents dir is browsable) and a
+      # 0644 decoy copied only if absent (never-clobber). Watched for writes below.
+      ++ (map (p: "d ${builtins.dirOf p} 0755 ${cfg.user} ${cfg.group} -") canaryDecoys)
+      ++ (map (p: "C ${p} 0644 ${cfg.user} ${cfg.group} - ${canarySrc}") canaryDecoys);
 
     # Load the read-watch for each decoy AFTER auditd is up and the decoys exist,
     # via auditctl directly. The declarative security.audit.rules load at auditd
@@ -223,7 +295,7 @@ in
     # dropped. Adding the watches here guarantees they attach to files that exist.
     # Keyed so banken sees them and real credentials (no key) are never watched.
     systemd.services.banken-honeytoken-watch = {
-      description = "Load banken honeytoken audit read-watches";
+      description = "Load banken honeytoken + ransomware-canary audit watches";
       wantedBy = [ "multi-user.target" ];
       after = [ "auditd.service" "systemd-tmpfiles-setup.service" ];
       requires = [ "auditd.service" ];
@@ -231,15 +303,21 @@ in
         Type = "oneshot";
         RemainAfterExit = true;
       };
-      script = lib.concatMapStringsSep "\n"
-        (p: "${pkgs.audit}/bin/auditctl -w ${p} -p r -k banken-honeytoken")
-        decoyPaths;
+      # Read-watch (-p r) on each credential decoy; write/attribute-watch (-p wa) on
+      # each canary document. Separate keys so banken tells the two apart.
+      script = lib.concatStringsSep "\n" (
+        (map (p: "${pkgs.audit}/bin/auditctl -w ${p} -p r -k banken-honeytoken") decoyPaths)
+        ++ (map (p: "${pkgs.audit}/bin/auditctl -w ${p} -p wa -k banken-canary") canaryDecoys)
+      );
     };
 
-    # Ship the generated detection rule to banken as an extra rule dir.
+    # Ship the generated detection rules to banken as an extra rule dir. Each rule
+    # is written only when it has decoys, so a canary-only (or decoy-only) config
+    # never ships a rule with an empty TargetFilename list.
     services.banken.extraRules = [ (pkgs.runCommand "banken-honeytoken-rules" { } ''
       mkdir -p $out
-      cp ${honeytokenRule} $out/honeytoken-decoy.yml
+      ${lib.optionalString (enabledTypes != [ ]) "cp ${honeytokenRule} $out/honeytoken-decoy.yml"}
+      ${lib.optionalString cfg.canary.enable "cp ${ransomwareRule} $out/ransomware-canary.yml"}
     '') ];
   };
 }

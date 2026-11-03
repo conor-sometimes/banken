@@ -1,8 +1,18 @@
 # VM test for services.banken.honeytokens. Boots a real NixOS guest with banken
-# + honeytokens enabled, and proves the whole chain: decoys are planted (inert,
-# right owner/mode), the audit read-watch is loaded, a read of a decoy fires
-# honeytoken_access (critical) through banken, a real credential's read does NOT,
-# and the overwrite guard never clobbers an existing file.
+# + honeytokens enabled, and proves the whole chain for both decoy kinds:
+#
+#   Credential decoys (read-triggered):
+#     - decoys are planted (inert, right owner/mode)
+#     - the audit read-watch is loaded
+#     - a read of a decoy fires honeytoken_access (critical) through banken
+#     - a real credential's read does NOT trip the watch
+#     - the overwrite guard never clobbers an existing file
+#
+#   Ransomware canaries (write-triggered):
+#     - canary documents are planted (inert, right owner/mode)
+#     - the audit write-watch is loaded
+#     - WRITING a canary fires the ransomware alert (critical) through banken
+#     - merely READING a canary does NOT (the watch is -p wa, not -p r)
 #
 # Run: nix build .#checks.x86_64-linux.honeytokens  (or via flake check)
 { pkgs ? import <nixpkgs> { }, banken ? pkgs.callPackage ../package.nix { } }:
@@ -27,6 +37,7 @@ pkgs.testers.runNixOSTest {
         ssh.enable = true;
         env.enable = true;
         docker.enable = true; # enabled so the guard test exercises a real pre-existing file
+        canary.enable = true; # plant ransomware canary documents under the decoy home
       };
     };
 
@@ -97,5 +108,36 @@ pkgs.testers.runNixOSTest {
         machine.succeed("sleep 2")
         after = ht_alerts()
         assert before == after, f"honeytoken alerts changed on a real-cred read ({before} -> {after}); the watch is not scoped to the decoys"
+
+    with subtest("ransomware canaries are planted, inert, owned by the decoy user"):
+        for p in ["/var/lib/banken-decoy/000-IMPORTANT-do-not-delete.docx",
+                  "/var/lib/banken-decoy/budget-2026.xlsx",
+                  "/var/lib/banken-decoy/passwords.kdbx"]:
+            machine.succeed(f"test -f {p}")
+            machine.succeed(f"stat -c '%U %a' {p} | grep -x 'banken-decoy 644'")
+        machine.succeed("grep -q 'ransomware canary' /var/lib/banken-decoy/budget-2026.xlsx")
+
+    with subtest("the canary write-watch is loaded in auditd"):
+        machine.succeed("auditctl -l | grep banken-canary")
+
+    with subtest("writing a canary fires the ransomware alert (critical) through banken"):
+        # an encryptor sweeps the directory and rewrites a document
+        machine.succeed("echo ENCRYPTED >> /var/lib/banken-decoy/budget-2026.xlsx")
+        machine.succeed("sleep 2")
+        machine.succeed("systemctl start banken.service")
+        machine.wait_until_succeeds(
+            "grep -rli -e 'canary' -e 'ransomware' /var/log/banken/ 2>/dev/null", timeout=30
+        )
+
+    with subtest("merely READING a canary does NOT fire the ransomware alert"):
+        def canary_alerts():
+            return machine.succeed("grep -rhi -e canary -e ransomware /var/log/banken/ 2>/dev/null | wc -l").strip()
+        before = canary_alerts()
+        machine.succeed("cat /var/lib/banken-decoy/passwords.kdbx >/dev/null")
+        machine.succeed("sleep 2")
+        machine.succeed("systemctl start banken.service")
+        machine.succeed("sleep 2")
+        after = canary_alerts()
+        assert before == after, f"ransomware alerts changed on a canary READ ({before} -> {after}); the watch is not write-only (-p wa)"
   '';
 }
