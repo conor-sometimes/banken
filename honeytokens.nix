@@ -110,26 +110,6 @@ let
 
   decoyPaths = map (d: d.path) decoys;
 
-  # A seed script that installs each decoy ONLY if the target does not already
-  # exist (the never-clobber guard), owned by the decoy user, with its mode. It
-  # also makes parent dirs. install -D -b ... would backup; we must not touch an
-  # existing file at all, so we test first.
-  seedScript = pkgs.writeShellScript "banken-honeytoken-seed" ''
-    set -eu
-    install_decoy() {
-      target="$1"; src="$2"; mode="$3"
-      if [ -e "$target" ]; then
-        echo "banken-honeytoken: $target exists, leaving it untouched (never clobber a real file)"
-        return 0
-      fi
-      ${pkgs.coreutils}/bin/install -D -m "$mode" -o ${cfg.user} -g ${cfg.group} "$src" "$target"
-      echo "banken-honeytoken: planted $target"
-    }
-    ${lib.concatMapStringsSep "\n"
-      (d: ''install_decoy ${lib.escapeShellArg d.path} ${d.src} ${d.mode}'')
-      decoys}
-  '';
-
   # The detection rule, generated from exactly the decoy paths planted. Reuses the
   # proven TargetFilename match (same shape as rules/agent/honeytoken_access.yml),
   # so no new engine behaviour is needed: any read of a decoy fires critical.
@@ -228,21 +208,33 @@ in
     };
     users.groups = lib.mkIf (cfg.createUser) { ${cfg.group} = { }; };
 
-    # Seed the decoys at boot, never clobbering an existing file.
-    systemd.services.banken-honeytoken-seed = {
-      description = "Seed banken honeytoken decoys";
+    # Plant the decoys EARLY via tmpfiles, before auditd loads its rules, so the
+    # read-watch attaches to a file that exists. tmpfiles `C` copies the decoy
+    # from its store source ONLY if the target does not exist yet -- that is the
+    # never-clobber guard, as a documented systemd guarantee: a real credential is
+    # never overwritten. `d` ensures each decoy's parent directory exists.
+    systemd.tmpfiles.rules =
+      (map (d: "d ${builtins.dirOf d.path} 0700 ${cfg.user} ${cfg.group} -") decoys)
+      ++ (map (d: "C ${d.path} ${d.mode} ${cfg.user} ${cfg.group} - ${d.src}") decoys);
+
+    # Load the read-watch for each decoy AFTER auditd is up and the decoys exist,
+    # via auditctl directly. The declarative security.audit.rules load at auditd
+    # start, which races the decoy planting: a -w on a not-yet-existing file is
+    # dropped. Adding the watches here guarantees they attach to files that exist.
+    # Keyed so banken sees them and real credentials (no key) are never watched.
+    systemd.services.banken-honeytoken-watch = {
+      description = "Load banken honeytoken audit read-watches";
       wantedBy = [ "multi-user.target" ];
-      after = [ "local-fs.target" ];
+      after = [ "auditd.service" "systemd-tmpfiles-setup.service" ];
+      requires = [ "auditd.service" ];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
-        ExecStart = seedScript;
       };
+      script = lib.concatMapStringsSep "\n"
+        (p: "${pkgs.audit}/bin/auditctl -w ${p} -p r -k banken-honeytoken")
+        decoyPaths;
     };
-
-    # Read-watch each decoy, keyed so banken sees it and real credentials (no key)
-    # are never watched. The key also lets a key-based rule match path-independently.
-    security.audit.rules = lib.mkAfter (map (p: "-w ${p} -p r -k banken-honeytoken") decoyPaths);
 
     # Ship the generated detection rule to banken as an extra rule dir.
     services.banken.extraRules = [ (pkgs.runCommand "banken-honeytoken-rules" { } ''
