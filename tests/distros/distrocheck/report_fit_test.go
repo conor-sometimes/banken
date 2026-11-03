@@ -27,16 +27,16 @@ func TestFitReport(t *testing.T) {
 		Checks: checks,
 	}
 
-	const cap = report.DiskSize
-	got := fitReport(r, cap)
+	const limit = report.DiskSize
+	got := fitReport(r, limit)
 
 	// 1. It fits, with room for emit's newline.
 	data, err := json.Marshal(got)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if len(data)+1 > cap {
-		t.Fatalf("report is %d bytes, over the %d-byte disk", len(data)+1, cap)
+	if len(data)+1 > limit {
+		t.Fatalf("report is %d bytes, over the %d-byte disk", len(data)+1, limit)
 	}
 
 	// 2. It is still valid JSON the host can parse.

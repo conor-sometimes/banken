@@ -24,7 +24,7 @@ func TestDescendants(t *testing.T) {
 	got := descendants(ppidOf, 100)
 
 	want := []int{100, 101, 102, 103}
-	var keys []int
+	keys := make([]int, 0, len(got))
 	for p := range got {
 		keys = append(keys, p)
 	}
