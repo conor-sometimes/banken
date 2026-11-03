@@ -93,7 +93,7 @@ No action.
 ## MITRE ATT&CK v20: the one with real adoption value
 
 ATT&CK v20.0 shipped 2026-10-13 and is current (v19.2 ran
-2026-04-28..2026-10-12). Two things matter for banken:
+2026-04-28..2026-10-12). Three things matter for banken:
 
 1. **Stale Navigator layer version.** `tools/attack-layer/main.go` line 111
    hardcodes `Versions: {"attack": "15", "navigator": "5.0.0", "layer": "4.5"}`.
