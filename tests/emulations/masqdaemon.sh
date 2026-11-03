@@ -9,13 +9,17 @@
 # signal; nothing harmful runs. See ./README.md.
 #
 # Imitates: rules/defense-evasion/masquerading.yml - ATT&CK T1036.005 Match Legitimate Name or Location
-# Expected rules: masquerading
+# Expected rules: masquerading, exec_from_tmp (it execs a binary from the /tmp scratch dir)
 set -u
 # mktemp under /tmp so the Image path has the world-writable prefix the rule keys on.
 work=$(mktemp -d /tmp/masq.XXXXXX) || exit 0
 trap 'rm -rf "$work" 2>/dev/null' EXIT
 
-true_bin=$(command -v true 2>/dev/null) || exit 0
+# type -P (not `command -v`): `true` is a shell builtin, so `command -v true` prints "true", not a
+# filesystem path -- `cp true ...` would then fail and the exec branches below would silently never
+# run. type -P forces a PATH search for the real binary to copy and exec.
+true_bin=$(type -P true 2>/dev/null) || exit 0
+[ -n "$true_bin" ] || exit 0
 
 # --- TTP: copy a shell into a scratch dir under a daemon name -> masquerading (shell_copy) ---
 # This is the signal that does NOT depend on /tmp being exec-able: the `cp /bin/sh .../crond` argv
