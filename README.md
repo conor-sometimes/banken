@@ -95,7 +95,11 @@ flowchart TD
     class HITOMI soon;
 ```
 
-hitomi is dashed because it is in build. mimi ships today. A systemd timer drives the pass. `--watch` follows a live sensor stream instead. The engine internals and the two-process response split are in [docs/architecture.md](docs/architecture.md).
+The diagram dashes hitomi because it is still in build.
+
+A systemd timer drives each pass. Run `--watch` to follow a live sensor stream instead.
+
+Engine internals and the two-process response split: [docs/architecture.md](docs/architecture.md).
 
 ## Sources and outputs
 
@@ -113,11 +117,9 @@ One parser per source, all behind one interface. Each normalises to the event th
 Outputs are pluggable sinks. Use any combination:
 
 - **journal** - the system journal
-- **jsonl** - one file per day, in native / OCSF / ECS
+- **jsonl** - findings to a daily file, as native, OCSF or ECS
 - **webhook** - generic, Slack, Discord, ntfy, or OCSF
 - **OTLP/HTTP** - to an OpenTelemetry collector
-
-Every alert flows through one dispatch point.
 
 ## Install
 
@@ -142,7 +144,7 @@ services.banken = {
 };
 ```
 
-Every setting is both a NixOS option and a CLI flag. Nothing is reachable only one way.
+Every setting is both a NixOS option and a CLI flag, so you can set it from your Nix config or on the command line.
 
 ## Rules
 
