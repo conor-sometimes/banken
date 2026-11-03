@@ -138,8 +138,6 @@ banken evaluates the common Sigma modifiers, wildcards, keyword selections, and 
 
 ## Standards
 
-"Validated" means an independent tool checks banken's output. "Measured" means a public test suite is run against it.
-
 | Standard | What banken does | How it is checked |
 | --- | --- | --- |
 | [Sigma](https://sigmahq.io) | Compiles Sigma natively | 210/210 SigmaHQ Linux rules load; agrees with pySigma on 182/182 |
