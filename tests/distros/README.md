@@ -71,7 +71,7 @@ Each report captures this for context. None of it is scored:
 - whether the distro ships a `-a task,never` rule (it turns syscall auditing off)
 - the exposure score
 
-## banken + mimi (M1-M5)
+## banken + mimi
 
 The base matrix tests banken on the plain auditd floor. The mimi stage adds its eBPF sensor on top.
 
@@ -85,7 +85,7 @@ This proves the sensor-to-brain integration on real vendor kernels. Not just the
 banken's flake stays decoupled from mimi:
 
 - `nix run .#distro-matrix` runs the auditd floor only, no sensors.
-- [`default.nix`](default.nix) takes an optional `mimiBundle`. Set it, and the payload carries the mimi bundle and [`mimicheck.sh`](mimicheck.sh). Then `distrocheck` runs M1-M5.
+- Set [`default.nix`](default.nix)'s optional `mimiBundle`, and the mimi stage runs.
 
 A small throwaway flake supplies the bundle and calls `default.nix`:
 
@@ -106,7 +106,7 @@ distro-matrix = pkgs.callPackage (banken + "/tests/distros/default.nix") {
 
 mimi is built dynamically. A fully static glibc build isn't possible with proc-macro crates on one triple. So the bundle ships its interpreter and libraries beside the binary. The guest runs mimi as root, so it has the capabilities and DAC access the probe needs.
 
-## banken + Sysmon-for-Linux (S1-S5)
+## banken + Sysmon-for-Linux
 
 The Sysmon stage proves the other sensor: Microsoft's own `sysmonforlinux`, installed the real way in the guest.
 
@@ -118,7 +118,14 @@ The Sysmon stage proves the other sensor: Microsoft's own `sysmonforlinux`, inst
 - triggers a reverse-shell-shaped `/dev/tcp` exec as the test user
 - checks banken detects `reverse_shell` off the `sysmon` source
 
-Sysmon logs via syslog. journald captures it under the identifier `sysmon`. A small bridge runs `journalctl -o cat -t sysmon -f`, appending those entries to a file banken tails. Same shape as `module.nix`'s `services.banken.sysmon`.
+Sysmon's log reaches banken in a few hops:
+
+- Sysmon logs via syslog.
+- journald captures it under the identifier `sysmon`.
+- a `journalctl -o cat -t sysmon -f` bridge appends those lines to a file.
+- banken tails that file.
+
+Same shape as `module.nix`'s `services.banken.sysmon`.
 
 The stage is conditional on where Microsoft ships `sysmonforlinux`:
 
@@ -130,9 +137,9 @@ If a served package manager still lacks the repo, `sysmoncheck.sh` prints `SYSMO
 It rides with the sensor matrix:
 
 - `nix run .#distro-matrix-mimi` ships `sysmoncheck.sh` and the mimi bundle.
-- `nix run .#distro-matrix` carries neither. It stays banken-raw (A-E only).
+- `nix run .#distro-matrix` carries neither. It runs the auditd floor only.
 
-Sysmon loads its own eBPF probe off the kernel's BTF, like mimi. A kernel with no BTF fails S2 honestly.
+Sysmon loads its own eBPF probe off the kernel's BTF, like mimi. A kernel with no BTF fails that stage honestly.
 
 ## Network
 
