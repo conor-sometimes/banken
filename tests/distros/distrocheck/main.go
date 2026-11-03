@@ -238,6 +238,14 @@ func (c *checker) run() {
 // is killed (an emulation's curl or nc would otherwise outlive its shell),
 // and WaitDelay stops the wait for output a straggler still holds open.
 func (c *checker) sh(timeout time.Duration, name string, args ...string) (string, error) {
+	out, _, err := c.shPID(timeout, name, args...)
+	return out, err
+}
+
+// shPID is sh that also returns the launched process's pid (valid after the
+// process has exited). B1's identity-based attribution roots a family's process
+// subtree at the pid of its launcher, so the family runner needs this.
+func (c *checker) shPID(timeout time.Duration, name string, args ...string) (string, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- running the distro's tools is this program's job, in a throwaway VM
@@ -252,10 +260,14 @@ func (c *checker) sh(timeout time.Duration, name string, args ...string) (string
 		}
 	}
 	out, err := cmd.CombinedOutput()
-	if ctx.Err() != nil {
-		return string(out), fmt.Errorf("%s: timed out after %s", name, timeout)
+	pid := 0
+	if cmd.Process != nil {
+		pid = cmd.Process.Pid
 	}
-	return string(out), err
+	if ctx.Err() != nil {
+		return string(out), pid, fmt.Errorf("%s: timed out after %s", name, timeout)
+	}
+	return string(out), pid, err
 }
 
 // shIn is sh in a working directory.
@@ -272,10 +284,17 @@ func (c *checker) shIn(dir string, timeout time.Duration, name string, args ...s
 // bare runuser PATH omits on openSUSE and Fedora, so the exec never happens and the rule
 // never fires. Finding the binary is part of faithfully emulating the act.
 func (c *checker) asUser(command string) string {
-	const loginPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-	out, _ := c.sh(time.Minute, "runuser", "-u", testUser, "--", "bash", "-c",
-		"export PATH="+loginPath+":$PATH; "+command)
+	out, _ := c.asUserPID(command)
 	return out
+}
+
+// asUserPID is asUser that also returns the runuser process's pid. A family's
+// emulation runs under this pid, so B1 roots the family's audit subtree here.
+func (c *checker) asUserPID(command string) (string, int) {
+	const loginPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	out, pid, _ := c.shPID(time.Minute, "runuser", "-u", testUser, "--", "bash", "-c",
+		"export PATH="+loginPath+":$PATH; "+command)
+	return out, pid
 }
 
 func have(cmd string) bool {
@@ -336,6 +355,21 @@ func auditLineN() int {
 		return 0
 	}
 	return len(nonEmpty(string(data)))
+}
+
+// auditSince returns the audit log text from line n onward, the window a
+// family's process subtree is built from (auditProcTree reads its SYSCALL
+// records for pid/ppid).
+func auditSince(n int) string {
+	data, err := os.ReadFile(auditLog) //nolint:gosec // the audit log, inside the test VM
+	if err != nil {
+		return ""
+	}
+	lines := nonEmpty(string(data))
+	if n > len(lines) {
+		n = len(lines)
+	}
+	return strings.Join(lines[n:], "\n")
 }
 
 // auditExecsSince names the distinct programs exec'd since line n (from SYSCALL records' exe=...),
@@ -630,10 +664,10 @@ func (c *checker) timerFires() {
 // its replay fixture).
 const emulSkip = "BANKEN-EMUL-SKIP"
 
-func (c *checker) runFamily(family string) string {
-	out := c.asUser("bash " + filepath.Join(c.seed, "emulations", family+".sh"))
+func (c *checker) runFamily(family string) (string, int) {
+	out, launcher := c.asUserPID("bash " + filepath.Join(c.seed, "emulations", family+".sh"))
 	time.Sleep(time.Second) // let auditd write the family's records
-	return out
+	return out, launcher
 }
 
 // detection (B1, C1, C2): with the jsonl sink on (config at the default path,
@@ -669,7 +703,7 @@ func (c *checker) detection() {
 		c.drainQuiescent()
 		before, beforeJ := len(alertLines()), len(c.journal("err"))
 		auditBefore := auditLineN()
-		out := c.runFamily(family)
+		out, launcher := c.runFamily(family)
 		if strings.Contains(out, emulSkip) {
 			// The emulation could not run (its tool is not installable on this image); skip rather
 			// than count a miss. Recorded so the skip is visible in the report, not silent.
@@ -681,10 +715,20 @@ func (c *checker) detection() {
 		// land after a single post-scan -- dropping exec_from_tmp and failing set-equality. Symmetric
 		// with the pre-drain: before excludes the prior family's tail, fired includes this one's.
 		c.drainQuiescent()
+		// Attribute by identity, not by the scan window. Build this family's process subtree from the
+		// audit records produced since the window opened, rooted at the family launcher's pid. An alert
+		// counts for this family only if its evidence process is in that subtree. A prior family's
+		// late-flushing exec and a background daemon both run under a different subtree, so neither can
+		// bleed in -- no timing, no masking. The drains above only bound how much we read; the subtree
+		// is what decides.
+		subtree := descendants(auditProcTree(auditSince(auditBefore)), launcher)
 		fired := map[string]bool{}
 		offending := map[string]string{} // rule -> first raw alert line, for diagnosing an unexpected fire
 		journalled := from(c.journal("err"), beforeJ)
 		for _, line := range from(alertLines(), before) {
+			if pid, ppid := alertProcess(line); !inSubtree(subtree, pid, ppid) {
+				continue // another family's straggler or a background daemon, not this family
+			}
 			rule, sev, problem := ocsfRule(line, host)
 			if problem != "" {
 				badOCSF = append(badOCSF, family+": "+problem)
