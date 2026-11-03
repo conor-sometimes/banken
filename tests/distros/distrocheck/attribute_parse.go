@@ -1,12 +1,55 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"strings"
 
 	"github.com/conor-sometimes/banken/internal/alert"
 )
+
+// auditExe returns the basename of the program in an audit line's exe= field.
+// auditd writes exe= two ways: quoted (exe="/usr/bin/touch"), and hex-encoded
+// (exe=2F7573722F...) whenever the path holds a space, quote or control byte.
+// The old diagnostic read only the quoted form, so a hex path showed as gibberish.
+// Returns "" when exe is absent or "(null)".
+func auditExe(line string) string {
+	i := strings.Index(line, " exe=")
+	if i < 0 {
+		return ""
+	}
+	v := line[i+len(" exe="):]
+	if j := strings.IndexByte(v, ' '); j >= 0 {
+		v = v[:j] // the field ends at the next space (a real path with a space is hex-encoded, not here)
+	}
+	switch {
+	case v == "" || v == "(null)":
+		return ""
+	case strings.HasPrefix(v, `"`):
+		v = strings.Trim(v, `"`)
+	case isHexStr(v):
+		if b, err := hex.DecodeString(v); err == nil {
+			v = string(b)
+		}
+	}
+	return v[strings.LastIndexByte(v, '/')+1:]
+}
+
+// isHexStr reports whether s is an even-length run of hex digits, auditd's
+// encoding for a field value with bytes that cannot appear raw.
+func isHexStr(s string) bool {
+	if len(s) == 0 || len(s)%2 != 0 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
 
 // auditProcTree builds a pid -> ppid map from the audit log's SYSCALL records,
 // the process tree identity-based attribution walks. Only SYSCALL records carry

@@ -387,18 +387,7 @@ func auditExecsSince(n int) string {
 	seen := map[string]bool{}
 	var exes []string
 	for _, line := range lines[n:] {
-		i := strings.Index(line, " exe=")
-		if i < 0 {
-			continue
-		}
-		v := line[i+5:]
-		v = strings.TrimPrefix(v, "\"")
-		if j := strings.IndexByte(v, '"'); j >= 0 {
-			v = v[:j]
-		} else if j := strings.IndexByte(v, ' '); j >= 0 {
-			v = v[:j]
-		}
-		base := v[strings.LastIndexByte(v, '/')+1:]
+		base := auditExe(line)
 		if base != "" && !seen[base] {
 			seen[base] = true
 			exes = append(exes, base)

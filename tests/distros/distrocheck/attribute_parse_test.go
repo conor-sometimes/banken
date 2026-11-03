@@ -20,6 +20,24 @@ func TestAuditInt(t *testing.T) {
 	}
 }
 
+// TestAuditExe covers both ways auditd writes exe=: quoted, and hex-encoded
+// (used when the path has a space/quote/control byte). The hex here is
+// /usr/bin/touch. The old extractor only read the quoted form.
+func TestAuditExe(t *testing.T) {
+	cases := []struct{ name, line, want string }{
+		{"quoted path", `type=SYSCALL msg=audit(1:1): pid=2 exe="/usr/bin/touch" key=k`, "touch"},
+		{"hex-encoded path", `type=SYSCALL msg=audit(1:1): pid=2 exe=2f7573722f62696e2f746f756368 key=k`, "touch"},
+		{"null exe", `type=SYSCALL msg=audit(1:1): pid=2 exe=(null) key=k`, ""},
+		{"no exe field", `type=PATH msg=audit(1:1): item=0 name="/tmp/x"`, ""},
+		{"root-level name", `type=SYSCALL msg=audit(1:1): pid=2 exe="/kmod" key=k`, "kmod"},
+	}
+	for _, c := range cases {
+		if got := auditExe(c.line); got != c.want {
+			t.Errorf("%s: auditExe = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // TestAuditProcTree builds the pid -> ppid map from a window of audit records.
 // Only SYSCALL lines contribute; EXECVE/PATH lines are ignored.
 func TestAuditProcTree(t *testing.T) {
