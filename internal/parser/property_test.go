@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"path"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,7 +28,13 @@ func safeToken(t *rapid.T, label string) string {
 
 func TestPropertyAuditdRecoversWellFormedExec(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		exe := "/" + rapid.StringMatching(`[a-z]{1,8}(/[a-z]{1,8}){0,3}`).Draw(t, "exe")
+		// Exclude multicall dispatcher names (coreutils, busybox, toybox, kmod):
+		// for those the parser deliberately resolves Image to argv[0], not the exe,
+		// so Image == exe would not hold. That resolution has its own test
+		// (TestResolveMulticall); this property is about ordinary binaries.
+		exe := "/" + rapid.StringMatching(`[a-z]{1,8}(/[a-z]{1,8}){0,3}`).
+			Filter(func(s string) bool { return !multicallBinaries[path.Base(s)] }).
+			Draw(t, "exe")
 		uid := strconv.Itoa(rapid.IntRange(0, 65535).Draw(t, "uid"))
 		sec := rapid.Int64Range(0, 4_000_000_000).Draw(t, "sec")
 		ms := rapid.IntRange(0, 999).Draw(t, "ms")
@@ -70,7 +77,13 @@ func TestPropertyAuditdRecoversWellFormedExec(t *testing.T) {
 
 func TestPropertyLaurelRecoversWellFormedExec(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		exe := "/" + rapid.StringMatching(`[a-z]{1,8}(/[a-z]{1,8}){0,3}`).Draw(t, "exe")
+		// Exclude multicall dispatcher names (coreutils, busybox, toybox, kmod):
+		// for those the parser deliberately resolves Image to argv[0], not the exe,
+		// so Image == exe would not hold. That resolution has its own test
+		// (TestResolveMulticall); this property is about ordinary binaries.
+		exe := "/" + rapid.StringMatching(`[a-z]{1,8}(/[a-z]{1,8}){0,3}`).
+			Filter(func(s string) bool { return !multicallBinaries[path.Base(s)] }).
+			Draw(t, "exe")
 		uid := strconv.Itoa(rapid.IntRange(0, 65535).Draw(t, "uid"))
 		argv := rapid.SliceOfN(rapid.Custom(func(t *rapid.T) string {
 			return safeToken(t, "arg")
