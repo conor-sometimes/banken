@@ -186,7 +186,12 @@ The guarantee is layered:
 - **No native footguns.** Pure Go, no cgo, no `unsafe`, no kernel module. Overflow and use-after-free are structurally impossible.
 - **Policy, not rules.** Response actions are operator policy, never rule-embedded.
 
-Enforcement is a two-process split. The daemon parses untrusted bytes and decides, but holds only `CAP_DAC_READ_SEARCH` and cannot act. A tiny `banken-respond` helper re-judges each work order against its own policy and the live target before acting. Full threat model: [docs/security-model.md](docs/security-model.md).
+Enforcement is a two-process split:
+
+- the **daemon** parses untrusted bytes and decides. It holds only `CAP_DAC_READ_SEARCH`, so it can't act.
+- a tiny **`banken-respond`** helper re-judges each work order against its own policy and the live target, then acts.
+
+Full threat model: [docs/security-model.md](docs/security-model.md).
 
 ## Performance
 
