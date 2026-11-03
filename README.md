@@ -69,7 +69,7 @@ The demos reuse the real end-to-end tests. They cannot claim a detection the sui
 - **Standards out, no glue.** OCSF 1.3.0 (CI-validated), ECS 8.11.0, or OTLP/HTTP. Any such backend ingests them with no per-product mapping.
 - **Proven on real distros.** Green on 8 distros plus NixOS, on their own kernels and auditd.
 - **Tiny and safe.** One static CGO-free binary, ~7 MiB, ~14 MiB RAM. No kernel module. A bug is a missed detection, never a kernel panic.
-- **Rule count is free.** An Aho-Corasick prefilter makes match time independent of rule count. Fuzz-proven to over-admit, never miss.
+- **Rule count is nearly free.** An Aho-Corasick prefilter keeps match time near-flat through ~10,000 rules; past that it grows gently (roughly linear). Fuzz-proven to over-admit, never miss.
 - **Measured, not claimed.** ATT&CK coverage is scored by a live Atomic Red Team range: 24/115 techniques on merit (2026-11-01).
 
 `just conformance` gates the Sigma, pySigma and OCSF claims against pinned versions. A broken claim fails the build.
@@ -197,7 +197,7 @@ Full threat model: [docs/security-model.md](docs/security-model.md).
 
 ## Performance
 
-An Aho-Corasick prefilter makes match time independent of rule count. A fuzz target proves it agrees with checking every rule.
+An Aho-Corasick prefilter keeps match time near-flat through ~10,000 rules. Past that it grows roughly linearly: p50 ~1.8 ms at 100k rules, ~8.8 ms at 500k, ~4.3 KB resident per rule. A fuzz target proves the prefilter agrees with checking every rule.
 
 Measured on a shared host:
 
