@@ -1,25 +1,29 @@
 # Enforcement testing - how to prove the executor kills the right thing and nothing else
 
 Status: **design, not implemented.** Written 2026-11-02 against `5febddb` (branch
-`distro-matrix-mimi`). Nothing here is built; the executor it describes is built but **real
-enforcement is DISABLED and not armed anywhere** (`internal/response/exec/exec.go:6-20`). Three
-pieces of enforcement testing are being built in parallel and are taken as given, not re-designed:
-the responder wiring (alert -> `Decide` -> executor -> ledger, task `00c2aded`), the coverage
-scorecard ("enforcement killed on X/X rules" over `tests/emulations/`, task `bee5bc37`) and the
-whack-a-mole stress (random should-kill / should-NOT-kill mix, zero innocents slain, task
-`7f4ad9a2`). This doc is what comes *after* those: the ways enforcement can still go wrong once a
-kill lands on the right rule in a clean VM, and the test that proves each one does not.
+`distro-matrix-mimi`). Nothing here is built. The executor it describes is built, but **real
+enforcement is DISABLED and not armed anywhere** (`internal/response/exec/exec.go:6-20`).
+
+Three pieces of enforcement testing are being built in parallel. Take them as given, not re-designed:
+
+- the responder wiring (alert -> `Decide` -> executor -> ledger, task `00c2aded`);
+- the coverage scorecard ("enforcement killed on X/X rules" over `tests/emulations/`, task `bee5bc37`);
+- the whack-a-mole stress (random should-kill / should-NOT-kill mix, zero innocents slain, task
+  `7f4ad9a2`).
+
+This doc is what comes *after* those. It covers the ways enforcement can still go wrong once a kill
+lands on the right rule in a clean VM, and the test that proves each one does not.
 
 Read `response-actions.md` (the spec) and `response-actions-research.md` (the pid-reuse argument)
-first. Section references like "spec 5.1" point into the spec. Where this doc cites a line number
-it is the line in the tree at `5febddb`; where the code and the spec disagree, the code is what gets
-tested and the disagreement is listed as a finding.
+first. Section references like "spec 5.1" point into the spec. A line number cited here is the line
+in the tree at `5febddb`. Where the code and the spec disagree, the code is what gets tested and the
+disagreement is listed as a finding.
 
-The one-sentence shape: **enforcement has two failure directions, and the first is unforgivable.**
-Killing an innocent process is a false positive with a body; failing to kill a payload is the
-status quo banken already lives with. So the strategy is asymmetric: *every* false-positive vector
-gets a test that must pass before enforcement is armed on any host, and the evasion vectors get
-tests whose job is to measure and record, not to gate.
+**Enforcement has two failure directions, and the first is unforgivable.** Killing an innocent
+process is a false positive with a body. Failing to kill a payload is the status quo banken already
+lives with. So the strategy is asymmetric. Every false-positive vector gets a test that must pass
+before enforcement is armed on any host. The evasion vectors get tests whose job is to measure and
+record, not to gate.
 
 ---
 
@@ -40,7 +44,7 @@ tests whose job is to measure and record, not to gate.
 ## 2. Findings in the executor as built (test targets, not blame)
 
 Reading `exec_linux.go` with the adversarial hat on produced these. Each is a test in section 3-5
-and a seeded task; none are fixed here (scope: docs only).
+and a seeded task. None are fixed here (scope: docs only).
 
 | # | Where | What | Direction |
 | --- | --- | --- | --- |
@@ -58,22 +62,26 @@ and a seeded task; none are fixed here (scope: docs only).
 | F12 | `decide.go:184-195` | first matching entry wins, so one rule maps to exactly one action; "freeze the process AND quarantine its file" cannot be expressed | capability (see `quarantine.md`) |
 
 F1 and F2 are the two that would make a careful operator refuse to arm. F1 is the pid-reuse crux
-with a hole in it; F2 hands every piece of malware a one-word cloak.
+with a hole in it. F2 hands every piece of malware a one-word cloak.
 
 ---
 
 ## 3. Direction one: banken kills the WRONG thing
 
 Ranked by how bad the outcome is multiplied by how plausible the trigger is. Everything in this
-section is a **gate**: red means do not arm.
+section is a **gate**. Red means do not arm.
 
 ### 3.1 Unverifiable target must be refused (F1) - rank 1
 
 **Threat.** The alert names pid 4242 from auditd (no start time). By drain time the original has
-exited and an innocent process holds 4242. `pidfd_open` pins the innocent. `readStartTime` fails
-(the innocent is in a pid namespace with `hidepid=2`, or exits and is replaced *again* between the
-open and the read, or `/proc` is simply not readable to the responder because of a unit hardening
-typo). `startErr != nil`, the proof is skipped, the innocent dies.
+exited and an innocent process holds 4242. `pidfd_open` pins the innocent. Then `readStartTime`
+fails, for any of:
+
+- the innocent is in a pid namespace with `hidepid=2`;
+- it exits and is replaced *again* between the open and the read;
+- `/proc` is simply not readable to the responder, because of a unit hardening typo.
+
+`startErr != nil`. The proof is skipped. The innocent dies.
 
 **Test (unit, Linux, no root).**
 - `TestIdentifyRefusesWhenStartUnreadable`: spawn `sleep`, build a `ProcessRef` with its pid, and
@@ -87,7 +95,7 @@ typo). `startErr != nil`, the proof is skipped, the innocent dies.
   (`exec_linux_test.go:124`).
 
 **Invariant to write into the executor doc comment:** *no proof, no action.* `ErrStaleTarget`
-is a good ledger line; a kill with `live.StartTime.IsZero()` is a bug.
+is a good ledger line. A kill with `live.StartTime.IsZero()` is a bug.
 
 ### 3.2 Pid reuse across the tick boundary - rank 2
 
@@ -96,24 +104,25 @@ tighter cases:
 
 - **Same tick.** `identityTick` is 10 ms (`exec_linux.go:40`). A reuser forked within the same
   clock tick as the original's start passes `|start - ref.StartTime| <= 1 tick` when the source
-  *does* carry a start time (mimi/eBPF). Test: `TestReuseWithinTick` forces a reuse by pinning
-  `pid_max` low in a VM (`sysctl kernel.pid_max=300` in a fresh pid namespace), fork-exits in a
-  tight loop until a child reclaims the original's pid, and records how often the reuser's start
-  tick equals the original's. Assert: the executor refuses when exe differs **and** tick matches
-  (today exe mismatch is recorded, not refused - spec 5.1 says that is deliberate for `bash ->
-  curl`; the test quantifies how often the deliberate choice would have killed an innocent and
-  the number goes in the doc).
+  *does* carry a start time (mimi/eBPF). `TestReuseWithinTick` forces a reuse: it pins `pid_max` low
+  in a VM (`sysctl kernel.pid_max=300` in a fresh pid namespace), fork-exits in a tight loop until a
+  child reclaims the original's pid, and records how often the reuser's start tick equals the
+  original's. Assert that the executor refuses when exe differs **and** tick matches. (Today exe
+  mismatch is recorded, not refused - spec 5.1 says that is deliberate for `bash -> curl`. The test
+  quantifies how often the deliberate choice would have killed an innocent, and that number goes in
+  the doc.)
 - **EventTime bound with clock step.** Step the VM clock backwards 5 s between the event and the
   drain (`date -s`), with `SkewTolerance` at its 2 s default. The bound `start <= EventTime + skew`
   now admits a reuser forked up to 3 s after the event. Assert the exe comparison catches it when
-  the exe differs; record the residual (same exe, clock stepped) as **known, accepted, logged**.
+  the exe differs. Record the residual (same exe, clock stepped) as **known, accepted, logged**.
   This is the honest limit from research section 2 made into a number.
-- **Zombie.** The original exits but is not reaped (parent ignores SIGCHLD). `pidfd_send_signal(fd,
-  0)` succeeds on a zombie; `/proc/<pid>/stat` still exists; the pid cannot be reused. Assert `Kill`
-  returns `ErrGone` or a no-op, never an error that aborts the drain, and that the ledger line says
-  `zombie`.
+- **Zombie.** The original exits but is not reaped (parent ignores SIGCHLD). Here
+  `pidfd_send_signal(fd, 0)` succeeds on the zombie. `/proc/<pid>/stat` still exists. The pid cannot
+  be reused. Assert `Kill` returns `ErrGone` or a no-op, never an error that aborts the drain, and
+  that the ledger line says `zombie`.
 
-Needs: root + a fresh pid namespace (`unshare -pf`) for the `pid_max` trick; otherwise plain Linux.
+This needs root plus a fresh pid namespace (`unshare -pf`) for the `pid_max` trick. Otherwise plain
+Linux.
 
 ### 3.3 The live rails that do not exist yet (F3) - rank 3
 
@@ -175,7 +184,7 @@ syscall. `scope: tree` walks *down* from it. Two properties to pin:
 
 ### 3.6 An innocent process matching a rule - rank 6
 
-The detection corpus owns rule precision; enforcement amplifies a miss into a kill. Two gates:
+The detection corpus owns rule precision. Enforcement amplifies a miss into a kill. Two gates:
 
 - `TestBenignNeverActsEvenUnderKillAll` (fast, Mac-safe): replay every `tests/fixtures/*.expect-none.json`
   through the engine and `Decide` with a synthetic `enforce` policy that maps **every** loaded rule
@@ -218,7 +227,7 @@ freeze-mapped tag, spend `perRun: 3`, and the real `xmrig_dropper` alert in the 
 **Fix shape** (design, for the task): budget per policy entry (`rateLimit` on the `Entry`, default
 inherits the global) and evaluate `kill` entries before `freeze` entries within a run regardless of
 alert order (the responder sorts decided-but-not-yet-budgeted actions by severity before spending).
-**Test:** 500 decoy alerts + 1 kill-pinned alert in one run, random order; assert the kill is
+**Test:** 500 decoy alerts plus 1 kill-pinned alert in one run, random order. Assert the kill is
 `executed` and the decoys share the remaining budget. Fast test over the `Fake` executor.
 
 ### 3.9 Tree members without their own proof (F5) - rank 9
@@ -226,11 +235,11 @@ alert order (the responder sorts decided-but-not-yet-budgeted actions by severit
 Microseconds, but a property with a clean statement: *every pid the executor signals has been pinned
 and proven, or is inside a cgroup the executor froze before it could change.* The cgroup path
 already satisfies the second half (frozen on arrival). The SIGSTOP fallback and `pidfd-tree`
-fallback do not. **Test:** build `targetSet`, then before `sigAll` kill one member and spin
-`fork-exit` until its pid is reclaimed by an innocent (pid-namespace `pid_max` trick); assert the
+fallback do not. **Test:** build `targetSet`. Then before `sigAll`, kill one member and spin
+`fork-exit` until its pid is reclaimed by an innocent (pid-namespace `pid_max` trick). Assert the
 innocent is not signalled. Expect this to need per-member start-time capture during the walk
 (capture `starttime` in the same `/proc/<pid>/stat` read `readPPID` already does, verify it at
-signal time). Root + pid namespace.
+signal time). This needs root plus a pid namespace.
 
 ---
 
@@ -247,8 +256,8 @@ prints next to coverage.
 
 **Harness (VM).** A *heartbeat victim*: a payload (wrapped emulation, as the whack-a-mole does) that
 after tripping its rule appends `$(date +%s%N)` to `/tmp/hb.<pid>` every 10 ms until killed. The
-kill time is the last heartbeat; the event time is the audit record's timestamp (already in the
-alert as `Event.Time`); the decision and executed times are in the two ledgers. Report, per run:
+kill time is the last heartbeat. The event time is the audit record's timestamp (already in the
+alert as `Event.Time`). The decision and executed times are in the two ledgers. Report, per run:
 
 ```
 time-to-kill  p50 2.31s  p90 2.9s  p99 4.1s  max 61.0s  (n=48)
@@ -265,7 +274,7 @@ a unit an operator understands, and it is the number that justifies the `--watch
 
 ### 4.2 Fire-and-exit - rank 2
 
-Most of `tests/emulations/*.sh` exit in milliseconds; the real-world droppers they imitate often
+Most of `tests/emulations/*.sh` exit in milliseconds. The real-world droppers they imitate often
 do too (`curl | sh` finishes, the installed miner is a *different* pid). The scorecard wraps them to
 stay alive, which is right for proving the kill path. Separately record the unwrapped truth:
 
@@ -291,36 +300,36 @@ Three victims, one assertion each (VM, root, cgroup v2):
   returns within a deadline, and the responder unit's own cgroup is untouched (the bomb never
   migrates *into* `banken-respond.service`).
 - **Double-fork daemonizer.** `setsid sh -c 'payload &'` so the payload's parent dies and it is
-  reparented to pid 1. The ppid walk (`exec_linux.go:472`) misses it. Assert... today: it survives.
-  The design fix: when the alert pid's original cgroup is *dedicated* (a transient scope or a
-  service unit, i.e. not `session-N.scope` and not `user@N.service`'s top cgroup), walk the cgroup's
-  `cgroup.procs` instead of ppid; when it is shared (a login session), ppid is the only safe walk
-  and the orphan is recorded as `escaped-reparent` with its pid, for the operator. Test both
-  branches.
+  reparented to pid 1. The ppid walk (`exec_linux.go:472`) misses it. Assert what happens today: it
+  survives. The design fix depends on the alert pid's original cgroup. When that cgroup is
+  *dedicated* (a transient scope or a service unit, i.e. not `session-N.scope` and not
+  `user@N.service`'s top cgroup), walk the cgroup's `cgroup.procs` instead of ppid. When it is shared
+  (a login session), ppid is the only safe walk, and the orphan is recorded as `escaped-reparent`
+  with its pid, for the operator. Test both branches.
 
 ### 4.4 Re-exec under a benign name - rank 4
 
 `exec /usr/bin/sleep` from the payload: same pid, same start time, exe now `/usr/bin/sleep`. The
 identity proof passes (deliberately; spec 5.1) and the kill lands. Assert it does. Then the cloak
-variant (3.4): `cp payload /tmp/sshd && exec /tmp/sshd`. Today: immune. After the 3.4 fix: dies,
-`masquerade: true`. One test, two phases, same victim.
+variant (3.4): `cp payload /tmp/sshd && exec /tmp/sshd`. This is immune today. After the 3.4 fix it
+dies, with `masquerade: true`. One test, two phases, same victim.
 
 ### 4.5 SIGKILL vs uninterruptible sleep (F6) - rank 5
 
-A task in `D` state takes the signal and dies when it leaves `D`; one stuck in `D` forever (hung
-NFS, a wedged driver) does not die for anyone, root included. banken cannot fix that; it must not
+A task in `D` state takes the signal and dies when it leaves `D`. One stuck in `D` forever (hung
+NFS, a wedged driver) does not die for anyone, root included. banken cannot fix that. It must not
 *claim* a kill it did not get.
 
 **Design:** after `pidfd_send_signal(SIGKILL)`, `poll(pidfd, POLLIN, 500ms)`. `POLLIN` within the
-wait: `exited: true`. Timeout: read `/proc/<pid>/stat` state, record `exited: false, state: D`, and
-the journal line says "signalled, not confirmed dead". **Test (honest about difficulty):** a true
-unbreakable `D` is hard to manufacture in a VM. Use the approximations: (a) a reader blocked on a
-FUSE filesystem whose daemon never answers (`TASK_KILLABLE`, so SIGKILL *does* work - this proves
-the confirmation path, not the stuck path); (b) a frozen task (`cgroup.freeze=1`, `TASK_FROZEN`):
-assert SIGKILL kills a frozen task, which the spec asserts and nobody has verified on 6.12 yet. The
-truly stuck case is documented as untestable without a buggy driver, and the code path is covered
-by the timeout branch with a `sleep` that the test simply does not let exit (SIGSTOPped) - it
-exercises the "not confirmed" ledger line.
+wait means `exited: true`. On timeout, read `/proc/<pid>/stat` state, record `exited: false,
+state: D`, and the journal line says "signalled, not confirmed dead". **Test (honest about
+difficulty):** a true unbreakable `D` is hard to manufacture in a VM. Use the approximations: (a) a
+reader blocked on a FUSE filesystem whose daemon never answers (`TASK_KILLABLE`, so SIGKILL *does*
+work - this proves the confirmation path, not the stuck path); (b) a frozen task (`cgroup.freeze=1`,
+`TASK_FROZEN`): assert SIGKILL kills a frozen task, which the spec asserts and nobody has verified on
+6.12 yet. The truly stuck case is documented as untestable without a buggy driver. The code path is
+covered by the timeout branch with a `sleep` that the test simply does not let exit (SIGSTOPped) -
+it exercises the "not confirmed" ledger line.
 
 ### 4.6 Cgroup escape - rank 6
 
@@ -328,10 +337,10 @@ A frozen task cannot run, so it cannot escape. Its unfrozen *allies* can move it
 
 - an unprivileged sibling in the same session cannot write `banken.quarantine/<id>/cgroup.procs`
   (0750 root) - assert EACCES from a non-root helper (VM);
-- a root attacker can, and the spec says so (spec 9). The test is the ledger's: move a frozen pid
-  out by hand, run `banken respond list`, assert it reports `handle X: pid Y no longer in cgroup
-  (moved)` instead of `frozen`. Detection of the escape, not prevention.
-- systemd: `systemctl daemon-reexec` and `systemctl restart user@1000.service` while a tree is
+- a root attacker can, and the spec says so (spec 9). The test is the ledger's. Move a frozen pid
+  out by hand. Run `banken respond list`. Assert it reports `handle X: pid Y no longer in cgroup
+  (moved)` instead of `frozen`. This is detection of the escape, not prevention.
+- systemd. Run `systemctl daemon-reexec` and `systemctl restart user@1000.service` while a tree is
   frozen in `banken.quarantine/`. Assert the frozen pids are still there and still frozen (systemd
   does not touch foreign root-level subtrees - spec 5.2 asserts this; prove it on 26.05's systemd).
 
@@ -352,17 +361,17 @@ A frozen task cannot run, so it cannot escape. Its unfrozen *allies* can move it
 ### 4.8 Evasion through the decision layer - rank 8
 
 - **Source laundering.** The attacker cannot write to the audit log as a non-root user except
-  through what they *do*, but they can choose a `comm`/argv that makes Laurel's enrichment emit a
-  field banken parses into `Image`. Fuzz: `FuzzDecideNeverTargetsFromUntrustedSource` - a forged
-  generic-JSONL alert never produces `Action != none`. Exists in spec 10.1; keep.
+  through what they *do*. But they can choose a `comm`/argv that makes Laurel's enrichment emit a
+  field banken parses into `Image`. The fuzz test is `FuzzDecideNeverTargetsFromUntrustedSource`: a
+  forged generic-JSONL alert never produces `Action != none`. It exists in spec 10.1; keep it.
 - **Level laundering.** A rule's `level` is in the rule file, not the event; no attacker control.
   Nothing to test beyond `below-min-level` fixtures.
 - **Budget exhaustion.** Section 3.8.
 - **Spool poisoning.** The scan is the only writer of `/var/lib/banken/spool` (`StateDirectory`,
   root 0700). A forged work order asking for a kill the on-disk policy would not decide must be
-  downgraded (spec 3.5 step 1). Test with the `Fake`: a work order carrying `kill` for a pid the
-  policy would `freeze`; assert `failed: downgraded by executor`. Spec 10.2 has it; it is the single
-  most important protocol test and should be in the first responder PR.
+  downgraded (spec 3.5 step 1). Test with the `Fake`: send a work order carrying `kill` for a pid the
+  policy would `freeze`, and assert `failed: downgraded by executor`. Spec 10.2 has it. It is the
+  single most important protocol test and should be in the first responder PR.
 
 ---
 
@@ -381,22 +390,23 @@ A frozen task cannot run, so it cannot escape. Its unfrozen *allies* can move it
 
 ### 5.2 The ledger always records (write-ahead)
 
-The invariant: **for every real action there is a ledger line written *before* the act that names
-the work order, and one after that names the handle or the error.** A crash between the act and the
-second line leaves a `requested` without an `executed`, which the next drain turns into `gone` or
-`already-applied` - inferable, never silent.
+The invariant is: **for every real action there is a ledger line written *before* the act that
+names the work order, and one after that names the handle or the error.** A crash between the act
+and the second line leaves a `requested` without an `executed`. The next drain turns that into
+`gone` or `already-applied` - inferable, never silent.
 
 **Test:** fault injection in the drain. Wrap the executor in a `Fake`-like decorator that runs the
 real primitive and then `os.Exit(137)`s before returning. Restart the drain. Assert the ledger has
-`requested` -> (gap) -> `gone`/`already-applied` for the order and the victim is dead exactly once.
-Also the converse the spec names (spec 7.4): make the ledger directory read-only; assert the
-responder writes **no** work order (an action without a record is worse than no action) and surfaces
-the error.
+`requested` -> (gap) -> `gone`/`already-applied` for the order, and that the victim is dead exactly
+once. Also test the converse the spec names (spec 7.4): make the ledger directory read-only, then
+assert the responder writes **no** work order (an action without a record is worse than no action)
+and surfaces the error.
 
 ### 5.3 Dry-run is truly inert - proven structurally, not by inspection (F10)
 
-Unit tests assert dry-run "does nothing" by checking the victim is alive afterwards. Stronger: run
-the dry-run executor where doing anything is *impossible* and assert it still succeeds.
+Unit tests assert dry-run "does nothing" by checking the victim is alive afterwards. Something
+stronger is possible: run the dry-run executor where doing anything is *impossible*, and assert it
+still succeeds.
 
 **Test (VM or any systemd host, no root needed for the user manager):**
 
@@ -413,23 +423,28 @@ which the filter blocks. Switch liveness to `poll(pidfd)` (the spec's step 3) an
 proof holds for every dry-run path. Also assert the filter is *working* by running one real-enforce
 test under it and seeing EPERM, so the proof is not a vacuous pass.
 
-The `Quarantine` dry-run reads the whole file to hash it (`exec_linux.go:308`) with no size cap; a
-dry-run on a 40 GiB file or a hung NFS mount blocks the drain. Cap at `maxFileBytes` (see
+The `Quarantine` dry-run reads the whole file to hash it (`exec_linux.go:308`) with no size cap. A
+dry-run on a 40 GiB file or a hung NFS mount then blocks the drain. Cap at `maxFileBytes` (see
 `quarantine.md` section 4) and test with a sparse 1 TiB file.
 
 ### 5.4 Enforce-off on the real host, continuously
 
 Three layers, cheapest first:
 
-1. **Nix module assertion.** `services.banken.response.enable` defaults false; when true,
-   `mode` defaults `observe` and the rendered `banken-respond.service` is only emitted when
+1. **Nix module assertion.** `services.banken.response.enable` defaults false. When true, `mode`
+   defaults `observe`, and the rendered `banken-respond.service` is only emitted when
    `mode = "enforce"` **and** an explicit `armEnforcement = true`. A `nix eval` test asserts the
-   default config contains neither the unit nor `enforce: true`. Runs on hokkaido in
+   default config contains neither the unit nor `enforce: true`. It runs on hokkaido in
    `nix flake check`, no VM.
-2. **`banken respond status`** prints `mode`, `enforce` (the executor gate), kill-switch presence,
-   the policy hash, and the last 24 h action count. `verify.sh`-style: the hokkaido deploy check
-   greps `enforce: off` until Conor decides otherwise. One line, in the same place the containment
-   verify runs.
+2. **`banken respond status`** prints:
+   - `mode`;
+   - `enforce` (the executor gate);
+   - kill-switch presence;
+   - the policy hash;
+   - the last 24 h action count.
+
+   It is `verify.sh`-style: the hokkaido deploy check greps `enforce: off` until Conor decides
+   otherwise. One line, in the same place the containment verify runs.
 3. **Live canary.** A weekly `+maint` run on hokkaido: trip one kill-pinned rule (the wrapped
    `xmrig.sh`, kept alive 3 intervals) and assert it is **still alive** and the decisions ledger has
    an `observe-mode` line for it. Observe mode proven inert on the real host, against the real
@@ -439,19 +454,25 @@ Three layers, cheapest first:
 ### 5.5 Restore-ability of reversible actions
 
 For `freeze` the test is 4.7 (pids home, running, heartbeat resumes). For `quarantine` it is the
-round-trip property in `quarantine.md` section 7: content, mode (including setuid), owner, mtime,
-xattrs identical after quarantine + restore, on same-fs and on EXDEV.
+round-trip property in `quarantine.md` section 7. These must be identical after quarantine plus
+restore, on same-fs and on EXDEV:
+
+- content;
+- mode (including setuid);
+- owner;
+- mtime;
+- xattrs.
 
 ### 5.6 The responder's own sandbox lets it act
 
-A hardened unit can *silently disarm* the executor: a missing `pidfd_open` in `SystemCallFilter`
-is EPERM, which `identify` turns into an error, which the ledger records as `failed` - and nobody
-reads the ledger. **Test (VM):** with the real `banken-respond.service` unit from the module, each
+A hardened unit can *silently disarm* the executor. A missing `pidfd_open` in `SystemCallFilter`
+is EPERM. `identify` turns that into an error. The ledger records it as `failed` - and nobody reads
+the ledger. **Test (VM):** with the real `banken-respond.service` unit from the module, each
 primitive succeeds once (kill, freeze+thaw, tree-kill, quarantine+restore, collect) and each
 *disallowed* thing fails (connect a socket, write outside `ReadWritePaths`, read `/home`). Plus a
 unit test that the `SystemCallFilter` list in `module.nix` is a superset of the syscalls
 `exec_linux.go` makes (grep the `sys*` constants and the `syscall.` calls; compare to the rendered
-unit). Cheap, and it catches the day someone adds `openat2`.
+unit). It is cheap, and it catches the day someone adds `openat2`.
 
 ---
 
@@ -480,25 +501,25 @@ unit). Cheap, and it catches the day someone adds `openat2`.
 | 19 | Collect identity (F9) | evidence | Linux | yes |
 | 20 | enforce-off on the real host, weekly canary (5.4) | inertness | hokkaido | standing |
 
-"Gate" means: red blocks arming on any host. The whack-a-mole and scorecard remain the first two
-gates; this table is what sits behind them.
+"Gate" means red blocks arming on any host. The whack-a-mole and scorecard remain the first two
+gates. This table is what sits behind them.
 
 ---
 
 ## 7. What is hard to test, said plainly
 
 - **A true unbreakable `D` state** needs a buggy driver or a dead NFS server. The confirmation path
-  is tested with stand-ins (4.5); the stuck case is documented, not proven.
+  is tested with stand-ins (4.5). The stuck case is documented, not proven.
 - **Pid reuse within one 10 ms tick** needs `pid_max` pinned low in a private pid namespace and a
-  fork-exit spin; it is deterministic enough to be a test but it will be slow (seconds) and
-  root-only. It measures a residual the design accepts; it does not eliminate it.
+  fork-exit spin. It is deterministic enough to be a test, but it will be slow (seconds) and
+  root-only. It measures a residual the design accepts. It does not eliminate it.
 - **The clock-step case** can be forced in a VM but on a real host depends on NTP behaviour banken
   does not control. The exe comparison is the mitigation and the number is recorded.
 - **A root attacker** thaws, restores, moves cgroups and edits the ledger. Every test in 4.6 and
-  5.2 can only prove banken *notices*. The spec never claimed more (spec 9); the tests must not
+  5.2 can only prove banken *notices*. The spec never claimed more (spec 9). The tests must not
   either.
 - **Benign-baseline completeness.** An hour of a quiet VM is not a month of a real host. The weekly
-  canary (5.4) and the observe-mode decisions ledger on hokkaido are the real baseline; the VM hour
+  canary (5.4) and the observe-mode decisions ledger on hokkaido are the real baseline. The VM hour
   is the floor.
 - **Latency numbers** from a KVM guest on hokkaido are the guest's, not a laptop's or a loaded
   server's. Report them with the interval setting and the guest spec beside them.
@@ -507,9 +528,16 @@ gates; this table is what sits behind them.
 
 ## 8. Tasks seeded from this doc
 
-Seeded in Taskwarrior under `project:banken.response` with `+design` or `+roughedge`; the ids are in
-the PR description. One task per finding F1-F11 (F12 is in `quarantine.md`), plus one each for the
-time-to-kill harness, the benign-baseline hour, the dry-run syscall-filter proof, the write-ahead
-crash injection, the blast-radius `simulate`, the responder-sandbox test, the weekly observe canary,
-and an `EMUL_KEEP=1` mode for the emulation scripts so payloads and dropped artifacts stay alive /
-on disk for the enforcement and quarantine scorecards (coordinated with `7f4ad9a2` and `bee5bc37`).
+Seeded in Taskwarrior under `project:banken.response` with `+design` or `+roughedge`. The ids are in
+the PR description. There is one task per finding F1-F11 (F12 is in `quarantine.md`), plus one each
+for:
+
+- the time-to-kill harness;
+- the benign-baseline hour;
+- the dry-run syscall-filter proof;
+- the write-ahead crash injection;
+- the blast-radius `simulate`;
+- the responder-sandbox test;
+- the weekly observe canary;
+- an `EMUL_KEEP=1` mode for the emulation scripts, so payloads and dropped artifacts stay alive /
+  on disk for the enforcement and quarantine scorecards (coordinated with `7f4ad9a2` and `bee5bc37`).

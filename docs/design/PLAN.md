@@ -1,66 +1,78 @@
 # Build plan: response-actions + OCSF + YARA (synthesized)
 
-Three Fable design specs landed overnight - [response-actions](response-actions.md),
-[ocsf-output](ocsf-output.md), [yara-integration](yara-integration.md). This is the map that
-reconciles them into one ordered build. Read this first; the three specs hold the detail.
+Three Fable design specs landed overnight: [response-actions](response-actions.md),
+[ocsf-output](ocsf-output.md) and [yara-integration](yara-integration.md). This is the map that
+reconciles them into one ordered build. Read this first. The three specs hold the detail.
 
-The headline: **all three independently found the same foundation**, so we do that once, then the
-three features sit on top with almost no overlap.
+**All three specs independently found the same foundation.** So we do it once. The three features
+then sit on top with almost no overlap.
 
 ## Phase 0 - the shared foundation (do first, unblocks all three)
 
 A single small PR. Every spec is blocked on it:
 
 1. **`Event.PID` / `Event.PPID` / `Event.ProcessStart`.** Both parsers already *see* pid/ppid and
-   drop them (auditd keeps them in `rec.fields`; Laurel reads `SYSCALL` and ignores `.pid/.ppid`);
-   neither carries a start time - add it where available, else leave zero.
+   drop them (auditd keeps them in `rec.fields`; Laurel reads `SYSCALL` and ignores `.pid/.ppid`).
+   Neither carries a start time. Add it where available, else leave zero.
    - OCSF needs `process.pid` (`at_least_one [pid,uid]`).
    - Response needs pid **and** start time (the pid-reuse-safety proof: `starttime ≤ EventTime`).
    - Expose as Sigma fields `ProcessId` / `ParentProcessId` via `Event.Field` (free prefilter
      dimension, and SigmaHQ rules use them). **Decision #9/#2 below.**
-2. **`Rule.Tags` → `Alert.Tags`.** `sigma.rawRule` silently drops `tags:` today; only 1 of 7
-   baseline rules declares any. Decode them, carry to the alert, and **tag the other six rules**
-   (both the OCSF and response specs proposed tag sets - merge them; no directory-name guessing).
+2. **`Rule.Tags` → `Alert.Tags`.** `sigma.rawRule` silently drops `tags:` today. Only 1 of 7
+   baseline rules declares any. Decode them and carry them to the alert. Also **tag the other six
+   rules** (both the OCSF and response specs proposed tag sets - merge them; no directory-name
+   guessing).
    - OCSF maps `attack.*` tags → the finding's ATT&CK metadata.
    - Response uses `tag:` as an action selector.
 3. **`Alert` gains `File` / `SHA256` / `Trigger`** (optional; YARA-kind alerts fill them).
 
 That one PR is the keystone. It also changes parser goldens (expected) and lightly touches the
-matcher - land it, re-baseline goldens, green, then branch into the three features.
+matcher. Then run the sequence:
+
+1. land it;
+2. re-baseline the goldens;
+3. get it green;
+4. branch into the three features.
 
 ## Order after Phase 0 (by effort × dependency)
 
-1. **OCSF output - first.** Smallest, stdlib-only, **no new sink** (an `Encoder func(Alert)([]byte,error)`
-   seam; `jsonl.format: ocsf`, `webhook.style: ocsf`). Only needs Phase 0's pid + tags. Pure
-   interop/CV win, low risk, fast confidence. Detection Finding class 2004, pinned OCSF **1.3.0**.
-   Golden-per-rule + a pinned schema-validation CI step (via the existing `uv` runner).
-2. **Response actions - the flagship** (kill is v1/high-priority). The two-layer, two-unit design:
-   a pure testable `Decide(Input) Decision` in `internal/response` (the scan only writes JSON work
-   orders to a spool, sandbox untouched) + a separate least-privilege `banken-respond` unit that
-   re-decides from on-disk policy and executes via `pidfd` (reuse-safe kill), **cgroup freeze**
-   (reversible-first), and `renameat2` quarantine. Phased: decision-layer-in-observe → freeze/kill →
-   quarantine. This is where "should-kill is testable" lives (see below).
-3. **YARA - after response.** Recommended as a **`yara` CLI shell-out** (`internal/yara`), where the
-   *process boundary is the security feature* (hostile file + hostile rules parsed in a child, killed
-   on a deadline = never-die for free). Best wired at **quarantine time** (scan the artifact copy in
-   the state dir - needs no sandbox relaxation), which is why it follows response. On-alert scanning
-   of `/tmp`,`/home` needs a sandbox relaxation - **decision #Y1**, lean quarantine-only for v1.
+1. **OCSF output - first.** It is the smallest and stdlib-only, with **no new sink** (an
+   `Encoder func(Alert)([]byte,error)` seam; `jsonl.format: ocsf`, `webhook.style: ocsf`). It only
+   needs Phase 0's pid and tags. The win is pure interop and CV. Risk is low and confidence comes
+   fast. Detection Finding class 2004, pinned OCSF **1.3.0**. Golden-per-rule plus a pinned
+   schema-validation CI step (via the existing `uv` runner).
+2. **Response actions - the flagship** (kill is v1/high-priority). The design is two-layer and
+   two-unit:
+   - a pure, testable `Decide(Input) Decision` in `internal/response` (the scan only writes JSON work
+     orders to a spool; the sandbox is untouched);
+   - a separate least-privilege `banken-respond` unit that re-decides from on-disk policy and
+     executes. It uses three primitives: `pidfd` (reuse-safe kill), **cgroup freeze**
+     (reversible-first) and `renameat2` quarantine.
+
+   The phases are decision-layer-in-observe → freeze/kill → quarantine. This is where "should-kill
+   is testable" lives (see below).
+3. **YARA - after response.** Recommended as a **`yara` CLI shell-out** (`internal/yara`). Here the
+   *process boundary is the security feature*: a hostile file and hostile rules are parsed in a child
+   and killed on a deadline. That is never-die for free. Best wired at **quarantine time** (scan the
+   artifact copy in the state dir - needs no sandbox relaxation). That is why it follows response.
+   On-alert scanning of `/tmp`,`/home` needs a sandbox relaxation - **decision #Y1**; lean
+   quarantine-only for v1.
 
 ## Reconcile once, not three times
 
-- **Alert struct:** `Tags` (shared, Phase 0) + `File/SHA256/Trigger` (YARA). OCSF and response both
-  *read* the alert; neither needs more fields than these. Add them in Phase 0 + the YARA PR, never
-  piecemeal.
+- **Alert struct:** `Tags` (shared, Phase 0) plus `File/SHA256/Trigger` (YARA). OCSF and response
+  both *read* the alert. Neither needs more fields than these. Add them in Phase 0 and the YARA PR,
+  never piecemeal.
 - **`engine.Process` seam:** both response and YARA act *after* each alert is dispatched (the
-  `Responder` is by-value / no-return, so it can't enrich - don't try). Ordering in the scan:
+  `Responder` is by-value / no-return, so it can't enrich - don't try). The scan ordering is:
   dispatch → response work-order spool → (quarantine happens in the respond unit) → YARA scans the
-  quarantined artifact. One post-dispatch hook, two consumers.
+  quarantined artifact. That is one post-dispatch hook with two consumers.
 - **Testing discipline (unified):** all three mirror `engine/fixtures_test.go`.
-  - response: `tests/response/NAME.expect-<action>.json` (alert+policy+self+budget → decided action)
-    - **this is "should-kill" made testable, no process ever killed**; `exec.Fake` for the executor;
-    real primitives only in a build-tagged, root+cgroupv2 VM integration test.
-  - OCSF: golden-per-rule + `TestEveryRuleHasAnOCSFGolden` + schema validation.
-  - YARA: `exec.Fake`/recorded-CLI goldens + fuzz; one real-engine golden gated on `BANKEN_YARA`.
+  - response: `tests/response/NAME.expect-<action>.json` (alert+policy+self+budget → decided action).
+    **This is "should-kill" made testable - no process is ever killed.** Use `exec.Fake` for the
+    executor. Run real primitives only in a build-tagged root+cgroupv2 VM integration test.
+  - OCSF: golden-per-rule plus `TestEveryRuleHasAnOCSFGolden` plus schema validation.
+  - YARA: `exec.Fake`/recorded-CLI goldens plus fuzz; one real-engine golden gated on `BANKEN_YARA`.
   Same shape as detections - every policy entry / rule / mapping has a fixture.
 
 ## Decisions for Conor (consolidated - the ~10 that matter)
@@ -103,11 +115,15 @@ matcher - land it, re-baseline goldens, green, then branch into the three featur
   actions map cleanly to **MITRE D3FEND** ("detections ATT&CK-mapped, responses D3FEND-mapped").
 
 ## What stays honest (flagged by the specs, not papered over)
-One-interval latency (response is cleanup, not prevention). No start time in raw audit → bounded by
-event time. Freeze moves a process out of its systemd cgroup. Rename-quarantine is same-fs only
-(`EXDEV` → in-place neuter, never copy). A root attacker can undo everything - the ledger +
-`tamper_banken` are the real defence. YARA adds an optional host-binary dep + an exec per scan;
-OCSF's `raw_data` is the normalised event, not the original audit line.
+The specs flagged these honestly. None are papered over:
+
+- One-interval latency (response is cleanup, not prevention).
+- No start time in raw audit → bounded by event time.
+- Freeze moves a process out of its systemd cgroup.
+- Rename-quarantine is same-fs only (`EXDEV` → in-place neuter, never copy).
+- A root attacker can undo everything. The ledger plus `tamper_banken` are the real defence.
+- YARA adds an optional host-binary dep plus an exec per scan.
+- OCSF's `raw_data` is the normalised event, not the original audit line.
 
 ## Suggested sequencing
 Phase 0 PR → OCSF (fast win) → response Phase 1 (decide + observe + the should-kill corpus) →
