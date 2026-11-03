@@ -1,18 +1,24 @@
 # Agentic AI detection rules
 
-Detections written for the behaviour of an autonomous AI agent (a coding agent like Claude Code,
-a CI/build agent) running under its own account. This is a rule class **SigmaHQ does not cover**:
-its rules target classic threats and catch an agent only incidentally (a reverse shell is a reverse
-shell whoever spawns it). These rules instead ask a question only the agent's *identity* makes
-meaningful - "should this account be doing this at all?" - which is how you detect an agent that has
-been prompt-injected, has gone off its task, or is being driven by an attacker who got into its
-session.
+Detections written for the behaviour of an autonomous AI agent running under its own account (a
+coding agent like Claude Code, or a CI/build agent).
 
-The mechanism is **account scoping**: each rule names the agent accounts in a `User` selection, so a
-behaviour that is noise on a human login (reading `~/.ssh/config`, running `sudo`, reaching the
-network) is a clean signal when *the agent* does it. Edit the `User` list to match your accounts;
-the companion [nixos-agent-containment](https://github.com/conor-sometimes/nixos-agent-containment)
-gives each agent its own uid and audits it, which is where the account names come from.
+This is a rule class **SigmaHQ does not cover**. SigmaHQ's rules target classic threats and catch an
+agent only incidentally: a reverse shell is a reverse shell whoever spawns it. These rules instead
+ask a question only the agent's *identity* makes meaningful - "should this account be doing this at
+all?" That is how you detect an agent that has one of these problems:
+
+- it has been prompt-injected
+- it has gone off its task
+- it is being driven by an attacker who got into its session
+
+The mechanism is **account scoping**. Each rule names the agent accounts in a `User` selection. So a
+behaviour that is noise on a human login is a clean signal when *the agent* does it. Examples of such
+behaviour: reading `~/.ssh/config`, running `sudo`, reaching the network.
+
+Edit the `User` list to match your accounts. The companion
+[nixos-agent-containment](https://github.com/conor-sometimes/nixos-agent-containment) gives each
+agent its own uid and audits it, which is where the account names come from.
 
 ## Rules here
 
@@ -47,35 +53,36 @@ ATT&CK v20 (Oct 2026) added the first AI/agent techniques. banken keys on **host
 so it detects an AI technique only when that technique has a host-observable footprint:
 
 - **T1700 AI-Enabled Exfiltration** - detected (`agent_ai_enabled_exfil`). The injected prompt is
-  invisible, but the agent *executing* the transfer is a process event, which is exactly what the
+  invisible. But the agent *executing* the transfer is a process event, which is exactly what the
   technique's analytics (AN2079/AN2080) key on.
 - **T1685.007 Impair Autonomous Defenses** - detected (`agent_impair_autonomous_defenses`). banken
-  can't read the "fake system message" in the malware, but it sees the agent taking the defense tool
+  can't read the "fake system message" in the malware. But it sees the agent taking the defense tool
   down, which is the realised effect.
 - **T1696 Anti-Automation Evasion** - **partially** detected (`agent_anti_automation_evasion`). The
   CAPTCHA image and the solved token live in browser/LLM content, which a host EDR cannot see. What
   banken *can* see is the agent's host-side footprint: a call to a known CAPTCHA-solving service, or
   the install/use of an anti-bot "stealth" automation toolkit. It deliberately does **not** try to
-  catch the homegrown image-transform approach in T1696.001's own example (an ImageMagick script),
-  because ImageMagick is overwhelmingly benign - matching it would be a false claim dressed as a
-  detection. The site-side view (bot traffic reaching a protected form) is out of banken's reach by
-  design; MITRE itself notes no target-side CAPTCHA telemetry exists.
+  catch the homegrown image-transform approach in T1696.001's own example (an ImageMagick script).
+  ImageMagick is overwhelmingly benign, so matching it would be a false claim dressed as a detection.
+  The site-side view (bot traffic reaching a protected form) is out of banken's reach by design.
+  MITRE itself notes no target-side CAPTCHA telemetry exists.
 - **T1697 Steal Application Specific Passwords** - **partially** detected (`agent_steal_app_password`),
-  the host-observable slice only. T1697 is mostly an identity-provider / SaaS technique: generating an
-  ASP at the IdP, phishing a user for one, then logging in over a legacy non-MFA path. All of that
-  lives in IdP/SaaS audit logs (which the technique's own analytics AN2075-AN2077 key on) and is
-  invisible to a host EDR. The one host-adjacent variant the technique lists is "obtain an ASP stored
-  on a system" - the agent reading an on-host ASP store (mail-client creds, .authinfo, .netrc,
-  git-credentials) - and that is all `agent_steal_app_password` claims. The MFA-bypass login itself is
-  not host-observable and no rule pretends it is.
+  the host-observable slice only. T1697 is mostly an identity-provider / SaaS technique: generate an
+  ASP at the IdP, phish a user for one, then log in over a legacy non-MFA path. All of that lives in
+  IdP/SaaS audit logs and is invisible to a host EDR; the technique's own analytics (AN2075-AN2077)
+  key on those logs. The one host-adjacent variant the technique lists is "obtain an ASP stored on a
+  system": the agent reading an on-host ASP store (mail-client creds, .authinfo, .netrc,
+  git-credentials). That is all `agent_steal_app_password` claims. The MFA-bypass login itself is not
+  host-observable, and no rule pretends it is.
 - **T1698 Indirect / T1699 Direct Prompt Injection** - **not** detected as such, and no rule pretends
   to. The injection lives in LLM-conversation content (a web page, a document, the prompt box), which
-  is invisible to a host EDR by design - the harness transcript is the source, not banken. What banken
-  *can* catch is the injection's downstream **effect** (the agent then exfiltrating, impairing a
-  defense, reaching the network, touching a secret), which the rules above and the rest of this set
-  already cover. Writing a "prompt injection detector" over process telemetry would be a false claim.
-- **T1608.007 AI Result Poisoning** - out of scope (a PRE/resource-development technique about seeding
-  web content attackers control; nothing executes on the host).
+  is invisible to a host EDR by design. The harness transcript is the source, not banken. What banken
+  *can* catch is the injection's downstream **effect**: the agent then exfiltrating, impairing a
+  defense, reaching the network, or touching a secret. The rules above and the rest of this set
+  already cover that. Writing a "prompt injection detector" over process telemetry would be a false
+  claim.
+- **T1608.007 AI Result Poisoning** - out of scope. It is a PRE/resource-development technique about
+  seeding web content attackers control, and nothing executes on the host.
 
 More ideas, ranked and grounded in banken's telemetry, are in
 [docs/design/agentic-detection-ideas.md](../../docs/design/agentic-detection-ideas.md).
