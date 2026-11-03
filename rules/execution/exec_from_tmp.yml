@@ -30,12 +30,15 @@ detection:
   # (a) the process's own image is under a world-writable temp dir (direct exec or shebang exec)
   image_in_tmp:
     Image|re: '^/(tmp|var/tmp|dev/shm|run/user/[0-9]+|run/shm)/'
-  # (b) an interpreter handed a script-PATH argument under a temp dir. The temp path must be the
-  # script argument (right after the interpreter and any non `-c` flags), NOT anywhere in the
-  # command, so inline `-c '... /tmp/x ...'` code does not trip it: a bare `-c` is excluded from the
-  # optional flag run, which stops the match before the temp path can be reached.
+  # (b) an interpreter handed a script-PATH argument under a temp dir. The interpreter must be
+  # argv[0] (the command itself, anchored at the start with an optional absolute-path prefix) -- not
+  # merely a substring anywhere in the line, or a path ARGUMENT like `/bin/sh` passed to another
+  # tool would spoof it (`touch -r /bin/sh /tmp/x` is a timestomp, not an exec from /tmp). The temp
+  # path must then be the script argument (right after the interpreter and any non `-c` flags), NOT
+  # anywhere in the command, so inline `-c '... /tmp/x ...'` code does not trip it: a bare `-c` is
+  # excluded from the optional flag run, which stops the match before the temp path can be reached.
   interp_tmp_script:
-    CommandLine|re: '(^|\s|/)(bash|dash|zsh|ksh|fish|ash|sh|python[0-9.]*|perl|ruby|php|node|awk)\s+((-[^c\s]\S*|--\S+)\s+)*(/tmp/|/var/tmp/|/dev/shm/|/run/user/[0-9]+/|/run/shm/)'
+    CommandLine|re: '^(\S*/)?(bash|dash|zsh|ksh|fish|ash|sh|python[0-9.]*|perl|ruby|php|node|awk)\s+((-[^c\s]\S*|--\S+)\s+)*(/tmp/|/var/tmp/|/dev/shm/|/run/user/[0-9]+/|/run/shm/)'
   condition: image_in_tmp or interp_tmp_script
 falsepositives:
   - Package managers and build systems run maintainer/config scripts from /tmp or /var/tmp during
