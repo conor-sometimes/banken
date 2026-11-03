@@ -62,7 +62,7 @@ Not yet in the matrix: reboot persistence (A5), alert timing (B3), abuse recover
 
 ## Recorded per distro
 
-Logged, not judged:
+Each report captures this for context. None of it is scored:
 
 - OS, kernel, systemd version
 - LSM and SELinux mode
@@ -136,20 +136,20 @@ Sysmon loads its own eBPF probe off the kernel's BTF, like mimi. A kernel with n
 
 ## Network
 
-With no proxy (a CI runner, a workstation), the guests use QEMU's user network directly.
+With no proxy, the guests use QEMU's user network directly. A CI runner or a workstation needs nothing more.
 
-With `http_proxy`/`https_proxy` set to a proxy on the host's loopback:
+Behind an egress allow-list (a firewall that only lets named hosts out), set `http_proxy`/`https_proxy` to the loopback proxy. The checker then:
 
-- the guests reach it at `10.0.2.2`
-- the checker configures the package manager for it
+- points each guest's package manager at the proxy (`10.0.2.2`)
+- pins the repos to each vendor's own host, so every hostname is known ahead of time
 
-The default mirror list redirects to random third-party mirrors. An allow-list can't name those ahead of time. So the checker pins dnf and zypper to the vendor's own host: `dl.rockylinux.org`, `repo.almalinux.org`, `dl.fedoraproject.org`, `downloadcontent.opensuse.org`.
-
-`cloud.debian.org` serves images only by redirect to `acc.umu.se`. The allow-list needs that host too.
+The pinned hosts live in [`distrocheck`](distrocheck/main.go).
 
 ## Adding a distro
 
-Add an entry to `distros.json`:
+Add one entry to [`distros.json`](distros.json). No code. The harness picks it up, boots it, and runs every objective against it.
+
+The entry needs four things:
 
 - a versioned image URL the vendor serves directly (not a `latest` link: it moves and breaks the checksum)
 - the vendor's checksum (`sha256` or `sha512`)
