@@ -50,15 +50,15 @@ Sysmon is `n/a` where Microsoft does not serve `sysmonforlinux`. The stage is sk
 
 What each column checks:
 
-- **Install** - packages, audit rules and the unit install per the docs. Zero-config run. The timer fires on its own. Clean logs. (A1-A4)
-- **Detect** - every malware look-alike fires exactly its rules. A normal day fires nothing. (B1-B2)
-- **Output** - every alert is a valid OCSF finding. High and critical reach the journal. (C1-C2)
-- **Security** - the unit's sandbox takes effect. The distro's own SELinux/AppArmor denies banken nothing. (D1-D2)
-- **Go suite** - banken's whole Go test suite passes inside the guest. (E1)
-- **mimi** - the eBPF sensor loads against the distro's own kernel BTF. banken detects off its stream. (M1-M5)
-- **Sysmon** - Microsoft's real `sysmonforlinux`, where it is served. banken detects off it. (S1-S5)
+- **Install** - packages, audit rules and the unit install per the docs. Zero-config run. The timer fires on its own. Clean logs.
+- **Detect** - every malware look-alike fires exactly its rules. A normal day fires nothing.
+- **Output** - every alert is a valid OCSF finding. High and critical reach the journal.
+- **Security** - the unit's sandbox takes effect. The distro's own SELinux/AppArmor denies banken nothing.
+- **Go suite** - banken's whole Go test suite passes inside the guest.
+- **mimi** - the eBPF sensor loads against the distro's own kernel BTF. banken detects off its stream.
+- **Sysmon** - Microsoft's real `sysmonforlinux`, where it is served. banken detects off it.
 
-Not yet in the matrix: reboot persistence (A5), alert timing (B3), abuse recovery (D3), footprint budget (D4), the full ART range (E2), the SigmaHQ false-positive count (E3), live OCSF validation (E4).
+Not yet in the matrix: reboot persistence, alert timing, abuse recovery, footprint budget, the full Atomic Red Team range, the SigmaHQ false-positive count, live OCSF validation.
 
 ## Recorded per distro
 
@@ -73,7 +73,7 @@ Each report captures this for context. None of it is scored:
 
 ## banken + mimi (M1-M5)
 
-The A-E objectives test banken on the auditd floor. The M objectives add the mimi eBPF sensor on top.
+The base matrix tests banken on the plain auditd floor. The mimi stage adds its eBPF sensor on top.
 
 On each distro:
 
@@ -84,7 +84,7 @@ This proves the sensor-to-brain integration on real vendor kernels. Not just the
 
 banken's flake stays decoupled from mimi:
 
-- `nix run .#distro-matrix` is banken-raw (A-E only).
+- `nix run .#distro-matrix` runs the auditd floor only, no sensors.
 - [`default.nix`](default.nix) takes an optional `mimiBundle`. Set it, and the payload carries the mimi bundle and [`mimicheck.sh`](mimicheck.sh). Then `distrocheck` runs M1-M5.
 
 A small throwaway flake supplies the bundle and calls `default.nix`:
@@ -108,7 +108,7 @@ mimi is built dynamically. A fully static glibc build isn't possible with proc-m
 
 ## banken + Sysmon-for-Linux (S1-S5)
 
-The S objectives prove the other sensor: Microsoft's own `sysmonforlinux`, installed the real way in the guest.
+The Sysmon stage proves the other sensor: Microsoft's own `sysmonforlinux`, installed the real way in the guest.
 
 [`sysmoncheck.sh`](sysmoncheck.sh):
 
