@@ -713,10 +713,14 @@ func (c *checker) detection() {
 			for _, r := range want {
 				wantSet[r] = true
 			}
+			var extras []string
 			for _, r := range got {
 				if !wantSet[r] {
-					msg += "\n  extra " + r + ": " + firstLine(offending[r])
+					extras = append(extras, "extra "+r+": "+firstLine(offending[r]))
 				}
+			}
+			if len(extras) > 0 {
+				msg += "\n  " + strings.Join(extras, "\n  ")
 			}
 		}
 		c.check("B1/"+family, equal(got, want), msg)
