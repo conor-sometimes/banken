@@ -194,10 +194,10 @@ An Aho-Corasick prefilter makes match time independent of rule count. A fuzz tar
 
 Measured on a shared host:
 
-- Detect latency: p50 134 us, p99 699 us
+- Detect latency: 134 us median, 699 us at the 99th percentile
 - Throughput: ~25,000 events/sec per core
 - Binary: ~7 MiB. RAM: ~14 MiB
-- Cold start to first finding: p50 12 ms
+- Cold start to first finding: 12 ms median
 
 Breakdown: [docs/performance.md](docs/performance.md).
 
