@@ -122,12 +122,18 @@ pkgs.testers.runNixOSTest {
         out = machine.succeed("cat /var/lib/banken/response/actions-*.jsonl 2>/dev/null || true")
         return [json.loads(l) for l in out.splitlines() if l.strip()]
 
-    def latest_quar(phase="executed"):
-        """The newest quarantine action line in `phase`. Each drain produces at
-        most one quarantine, and we read it immediately after, so the newest
-        (ledger ids are time-ordered) is the one we just caused."""
+    def latest_quar(phase="executed", since=0):
+        """The newest quarantine action line in `phase`, scoped to lines ADDED
+        after the `since`-th ledger line -- a count snapshot each caller takes
+        BEFORE its own trigger. Scoping by a before-count is what makes a phase
+        that fired NOTHING return None (caught by the caller's `assert ... is not
+        None`) instead of silently inheriting the PREVIOUS phase's line, which
+        latest-in-the-whole-ledger would do. Each drain produces at most one
+        quarantine, so the newest among the new lines is the one this phase
+        caused. Callers that key by a known order id (by_decision) need no
+        snapshot; these are the real-event phases whose order id the daemon mints."""
         cands = [
-            a for a in action_lines()
+            a for a in action_lines()[since:]
             if a.get("action") == "quarantine" and a.get("phase") == phase
         ]
         return max(cands, key=lambda a: a["id"]) if cands else None
@@ -266,12 +272,13 @@ pkgs.testers.runNixOSTest {
     mk_regular(S1, "innocent-1")
     p1_pre = rec_attrs(P1)
     s1_pre = rec_attrs(S1)
+    beforeA = len(action_lines())
     trip_exec(P1)
     barrier("QUAR_A")
     drain_byhand()
 
-    a = latest_quar()
-    assert a is not None, "phase A: no executed quarantine action line"
+    a = latest_quar(since=beforeA)
+    assert a is not None, "phase A: no executed quarantine action line (this phase fired nothing)"
     assert a["enforced"] is True, f"phase A: not enforced: {a}"
     h = a["handle"]
     assert h["dryRun"] is False and h["method"] == "rename", \
@@ -307,10 +314,11 @@ pkgs.testers.runNixOSTest {
     # cross-filesystem case on /dev/shm.
     Pf = "/tmp/q/hpayload"
     mk_payload(Pf, "0755")
+    beforeB1 = len(action_lines())
     trip_exec(Pf)
     barrier("QUAR_B1")
     enf_scan()  # the REAL sandboxed helper
-    bf = latest_quar()
+    bf = latest_quar(since=beforeB1)
     assert bf is not None and bf["handle"]["method"] == "neuter", \
         f"phase B1 (finding): a /tmp payload under the sandboxed helper must NEUTER (store is a separate bind mount), got {bf}"
     Qf = bf["handle"]["id"]
@@ -326,10 +334,11 @@ pkgs.testers.runNixOSTest {
     mk_regular(S2, "innocent-2")
     p2_pre = rec_attrs(P2)
     s2_pre = rec_attrs(S2)
+    beforeB2 = len(action_lines())
     trip_exec(P2)
     barrier("QUAR_B2")
     enf_scan()
-    b = latest_quar()
+    b = latest_quar(since=beforeB2)
     assert b is not None and b["handle"]["method"] == "neuter", \
         f"phase B2: /dev/shm payload must neuter (cross-fs), got {b}"
     Q2 = b["handle"]["id"]
@@ -374,10 +383,12 @@ pkgs.testers.runNixOSTest {
     # drains unsandboxed.
     mk_payload(P1, "4755")
     p1d_pre = rec_attrs(P1)
+    beforeD1 = len(action_lines())
     trip_exec(P1)
     barrier("QUAR_D")
     drain_byhand()
-    d = latest_quar()
+    d = latest_quar(since=beforeD1)
+    assert d is not None, "phase D1: no executed quarantine action line (this phase fired nothing)"
     assert d["handle"]["method"] == "rename", f"phase D1: expected a rename for the squatter test, got {d['handle']}"
     Q3 = d["handle"]["id"]
     assert Q3 != Q1, "phase D: expected a fresh handle for the re-quarantine"
@@ -402,10 +413,12 @@ pkgs.testers.runNixOSTest {
 
     # D2: Q4, a replaced inode is refused (neuter method on /dev/shm).
     mk_payload(P2, "0755")
+    beforeD2 = len(action_lines())
     trip_exec(P2)
     barrier("QUAR_D2")
     enf_scan()
-    d2 = latest_quar()
+    d2 = latest_quar(since=beforeD2)
+    assert d2 is not None, "phase D2: no executed quarantine action line (this phase fired nothing)"
     assert d2["handle"]["method"] == "neuter", f"phase D2: expected a neuter, got {d2['handle']}"
     Q4 = d2["handle"]["id"]
     machine.succeed(f"chattr -i {P2}")
@@ -510,7 +523,14 @@ pkgs.testers.runNixOSTest {
     machine.succeed("systemctl stop banken-respond.path")
     machine.succeed("systemctl start banken.service")  # daemon writes the order; helper not triggered
     machine.wait_until_succeeds('test -n "$(ls -A /var/lib/banken/spool 2>/dev/null)"')
-    oid_f = machine.succeed("ls /var/lib/banken/spool | head -1").strip()[:-5]  # strip .json
+    # Deterministic order selection: the QUAR_F trip must have spooled exactly one
+    # order. `head -1` on a stray second order would pick the wrong file, and
+    # because chattr +i below makes EVERY order fail, the assertion would still
+    # pass -- a false green. Require exactly one.
+    spool_files = machine.succeed("ls /var/lib/banken/spool").split()
+    assert len(spool_files) == 1, \
+        f"phase F expects exactly one spooled order for the QUAR_F trip, got {spool_files}"
+    oid_f = spool_files[0][:-5]  # strip .json
     machine.succeed(f"cp /var/lib/banken/spool/{oid_f}.json /root/order-F.json")
     machine.succeed(f"chattr +i {QDIR}")
     machine.succeed("systemctl start banken-respond.path")  # the helper drains, and must FAIL

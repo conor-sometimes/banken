@@ -130,6 +130,25 @@ pkgs.testers.runNixOSTest {
                     pids.add(str(h.get("pid")))
         return pids
 
+    def failed_kill_line(pid):
+        # A refused kill is a FAILED action line naming this pid as its target and
+        # carrying the executor's ErrDenied/ErrStaleTarget message -- NOT an
+        # executed-kill line. Return the newest such line (ledger ids are
+        # time-ordered), or None. This is how a RAIL is proven, vs mere survival.
+        hits = [a for a in action_lines()
+                if a.get("phase") == "failed" and a.get("action") == "kill"
+                and str(((a.get("target") or {}).get("process") or {}).get("pid")) == str(pid)]
+        return max(hits, key=lambda a: a["id"]) if hits else None
+
+    def decision_for(pid):
+        # The daemon's decided line whose target process is this pid (newest), or
+        # None. It carries the rail that downgraded the intended action (a none
+        # verdict writes no order, so there is no action line -- the decision line
+        # is the only evidence the denylist/other rail fired).
+        hits = [d for d in decision_lines()
+                if str((((d.get("decision") or {}).get("target") or {}).get("process") or {}).get("pid")) == str(pid)]
+        return max(hits, key=lambda d: d["id"]) if hits else None
+
     machine.wait_for_unit("auditd.service")
     machine.wait_until_succeeds("auditctl -l | grep -q banken-exec")
     enf_scan()  # drain boot-time events (daemon + helper)
@@ -269,11 +288,37 @@ pkgs.testers.runNixOSTest {
                 masq_seen["recorded"] = True
                 img = ((dec.get("target") or {}).get("process") or {}).get("image", "?")
                 print(f"  masquerade recorded: image={img} action={dec.get('action')} rail={dec.get('rail')}")
-        # real-protected refusals (survived + a refusal recorded)
+        # real-protected refusals: assert the actual RAIL fired, not merely that
+        # the process survived (a process can survive for unrelated reasons).
         for s in spawned:
-            if s["kind"] == "real_uid0" and enf_alive(s["pid"]) and s["pid"] not in kp:
+            if s["kind"] == "real_uid0":
+                # uid-0 is an EXECUTOR rail: the order is written (reverse_shell ->
+                # kill) and the executor refuses the live uid-0 target (allowRoot
+                # false) with ErrDenied, so the evidence is a FAILED kill line.
+                assert enf_alive(s["pid"]), f"real uid-0 pid {s['pid']} was KILLED (uid-0 rail did not hold)"
+                assert s["pid"] not in kp, f"real uid-0 pid {s['pid']} recorded as an executed kill"
+                fl = failed_kill_line(s["pid"])
+                assert fl is not None, \
+                    (f"real uid-0 pid {s['pid']}: no failed-kill ledger line -- survival alone does not "
+                     f"prove the uid-0 rail fired")
+                err = fl.get("error") or ""
+                assert "allowRoot is false" in err, \
+                    f"real uid-0 pid {s['pid']} refused for the WRONG reason: want the live uid-0 rail (ErrDenied), got {err!r}"
                 uid0_refused = True
-            if s["kind"] == "real_trusted" and enf_alive(s["pid"]) and s["pid"] not in kp:
+            if s["kind"] == "real_trusted":
+                # The trusted-prefix shield is a DECIDE rail (denylist): a built-in
+                # protected name under a trusted exe prefix downgrades to none, so
+                # no order is written and the evidence is the decision line's rail.
+                assert enf_alive(s["pid"]), f"real trusted sshd pid {s['pid']} was KILLED (denylist shield did not hold)"
+                assert s["pid"] not in kp, f"real trusted sshd pid {s['pid']} recorded as an executed kill"
+                dec = decision_for(s["pid"])
+                assert dec is not None, f"real trusted sshd pid {s['pid']}: no decision line found to prove the rail"
+                dv = dec.get("decision") or {}
+                assert dv.get("rail") == "denylist", \
+                    (f"real trusted sshd pid {s['pid']} not shielded by the denylist rail: "
+                     f"rail={dv.get('rail')!r} action={dv.get('action')!r} intended={dv.get('intended')!r}")
+                assert dv.get("action") == "none", \
+                    f"real trusted sshd pid {s['pid']} denylist rail did not downgrade to none: action={dv.get('action')!r}"
                 trusted_refused = True
 
     assert masq_seen["killed"], "masquerade /tmp/mq/sshd was NOT killed"
@@ -290,48 +335,65 @@ pkgs.testers.runNixOSTest {
     import base64 as _b
     alice_uid = machine.succeed("id -u alice").strip()
     alice_gid = machine.succeed("id -g alice").strip()
-    # transient victim: image carrier that trips credential_file_read then exits.
-    machine.succeed("rm -f /tmp/enf_reuse_v.pid")
     machine.succeed("mkdir -p /run/enf && cp $(command -v bash) /run/enf/cat && chmod 0755 /run/enf/cat")
-    vboot = 'echo $$ > /tmp/enf_reuse_v.pid; exec /run/enf/cat -c true /etc/shadow'
-    vb64 = _b.b64encode(vboot.encode()).decode()
-    machine.succeed(f'( runuser -u alice -- setsid bash -c "$(printf %s {vb64} | base64 -d)" >/dev/null 2>&1 & ) ; true')
-    machine.wait_for_file("/tmp/enf_reuse_v.pid")
-    vpid = machine.succeed("cat /tmp/enf_reuse_v.pid").strip()
-    machine.wait_until_fails(f"kill -0 {vpid}")  # it exited; pid is free
-    barrier("WHACK_REUSE_EVENT")  # the credential_file_read execve for vpid is on disk
-    # wait past the 2s skew so the reuser's start-time is provably after the event
-    machine.succeed("sleep 3")
-    # Force the reuser onto the freed vpid. setpriv exec-REPLACES (no fork), so the
-    # first fork after writing ns_last_pid -- the backgrounding `&` -- becomes the
-    # reuser itself at vpid, dropping to alice and exec'ing the SAME image the
-    # alert named. Same image => the exe-binding passes and the start-time bound
-    # is the sole thing that can refuse: the reuser started AFTER the event, so it
-    # must be refused (ErrStaleTarget) and NOT killed.
+    # The reuser: drops to alice and exec-replaces into the SAME image the alert
+    # named, then sleeps. setpriv exec-REPLACES (no fork), so the first fork after
+    # writing ns_last_pid -- the backgrounding `&` -- becomes the reuser itself at
+    # the freed pid. Same image => the exe-binding passes and the start-time bound
+    # is the SOLE thing that can refuse: the reuser started AFTER the event.
     reuse_boot = 'echo $$ > /tmp/enf_reuse_w.pid; exec /run/enf/cat -c "sleep 100000 ; :"'
     rb64 = _b.b64encode(reuse_boot.encode()).decode()
-    machine.succeed("rm -f /tmp/enf_reuse_w.pid")
-    machine.succeed(
-        f'echo $(({vpid}-1)) > /proc/sys/kernel/ns_last_pid; '
-        f'setpriv --reuid={alice_uid} --regid={alice_gid} --clear-groups '
-        f'bash -c "$(printf %s {rb64} | base64 -d)" >/dev/null 2>&1 & echo ok'
-    )
-    machine.wait_for_file("/tmp/enf_reuse_w.pid")
-    wpid = machine.succeed("cat /tmp/enf_reuse_w.pid").strip()
-    print(f"[Phase C] victim pid={vpid} freed; reuser pid={wpid} (want equal)")
-    reuse_hit = (wpid == vpid)
+
+    # Deterministic pid-reuse. A transient victim trips credential_file_read then
+    # EXITS, freeing its pid; ns_last_pid forces that exact pid onto the reuser. A
+    # stray fork can steal the pid first (then vpid is gone and cannot be reused),
+    # so retry with a FRESH victim until the reuser lands on the freed pid. If it
+    # cannot be forced, FAIL -- we never pass on a NOTE, or "pid-reuse refused"
+    # becomes a claim nobody actually proves.
+    vpid = wpid = None
+    for attempt in range(20):
+        vpf = f"/tmp/enf_reuse_v{attempt}.pid"
+        machine.succeed(f"rm -f {vpf} /tmp/enf_reuse_w.pid")
+        vboot = f'echo $$ > {vpf}; exec /run/enf/cat -c true /etc/shadow'
+        vb64 = _b.b64encode(vboot.encode()).decode()
+        machine.succeed(f'( runuser -u alice -- setsid bash -c "$(printf %s {vb64} | base64 -d)" >/dev/null 2>&1 & ) ; true')
+        machine.wait_for_file(vpf)
+        vpid = machine.succeed(f"cat {vpf}").strip()
+        machine.wait_until_fails(f"kill -0 {vpid}")  # it exited; the pid is free
+        barrier(f"WHACK_REUSE_EVENT_{attempt}")       # the credential_file_read execve is on disk
+        machine.succeed("sleep 3")                    # past the 2s skew: the reuser starts provably after
+        machine.succeed(
+            f'echo $(({vpid}-1)) > /proc/sys/kernel/ns_last_pid; '
+            f'setpriv --reuid={alice_uid} --regid={alice_gid} --clear-groups '
+            f'bash -c "$(printf %s {rb64} | base64 -d)" >/dev/null 2>&1 & echo ok'
+        )
+        machine.wait_for_file("/tmp/enf_reuse_w.pid")
+        wpid = machine.succeed("cat /tmp/enf_reuse_w.pid").strip()
+        if wpid == vpid:
+            break
+        machine.succeed(f"kill -9 {wpid} 2>/dev/null || true")  # a stray won the pid; retry with a fresh victim
+        wpid = None
+    assert wpid is not None and wpid == vpid, \
+        ("pid-reuse could not be forced deterministically in 20 attempts (ns_last_pid never landed the "
+         "freed pid); FAILING rather than passing on a NOTE")
+    print(f"[Phase C] victim pid={vpid} freed; reuser forced onto the SAME pid={wpid}")
+    reuse_hit = True
     barrier("WHACK_REUSE_SCAN")
     scan()
     kp = executed_kill_pids()
-    if reuse_hit:
-        assert enf_alive(wpid), f"pid-reuse: reuser pid {wpid} was KILLED (stale target not refused)"
-        assert wpid not in kp, f"pid-reuse: reuser pid {wpid} recorded as killed"
-        print(f"[Phase C] PASS: reused pid {wpid} refused (ErrStaleTarget), reuser alive")
-    else:
-        # ns_last_pid did not land the exact pid (another fork raced in). Do not
-        # claim a result we did not get; the start-time bound is also proven by
-        # internal/response/exec unit tests (TestVerifyStaleByStartBound).
-        print(f"[Phase C] NOTE: pid not reused ({wpid}!={vpid}); reuse not force-reproduced this run")
+    assert enf_alive(wpid), f"pid-reuse: reuser pid {wpid} was KILLED (stale target not refused)"
+    assert wpid not in kp, f"pid-reuse: reuser pid {wpid} recorded as killed"
+    # Prove the RAIL, not just survival: a FAILED kill line for this pid carrying
+    # ErrStaleTarget. Same image as the alert, so only the start-time bound can
+    # refuse it -- the reuser started after the event.
+    fl = failed_kill_line(wpid)
+    assert fl is not None, \
+        (f"pid-reuse: reuser pid {wpid} survived but has NO failed-kill ledger line -- survival alone "
+         f"does not prove the start-time rail fired")
+    err = fl.get("error") or ""
+    assert "is not the process the alert described" in err, \
+        f"pid-reuse: reuser pid {wpid} refused for the WRONG reason: want ErrStaleTarget (start-time bound), got {err!r}"
+    print(f"[Phase C] PASS: reused pid {wpid} refused (ErrStaleTarget), reuser alive, failed-kill line asserted")
     machine.succeed(f"kill -9 {wpid} 2>/dev/null || true")
 
     # ================= Scorecard =================
@@ -342,7 +404,7 @@ pkgs.testers.runNixOSTest {
     print(f"masquerade /tmp/mq/sshd : killed={masq_seen['killed']} recorded_masquerade_true={masq_seen['recorded']}")
     print(f"real uid-0 refused      : {uid0_refused}")
     print(f"real sshd(/usr) refused : {trusted_refused}")
-    print(f"pid-reuse refused       : {'yes (ErrStaleTarget, reuser alive)' if reuse_hit else 'not force-reproduced this run'}")
+    print("pid-reuse refused       : yes (ErrStaleTarget, reuser alive, failed-kill line asserted)")
     assert totals["collateral"] == 0, "COLLATERAL KILLS OCCURRED"
     print("WHACK-A-MOLE PASS: exactly the should-kill died, zero innocents slain.")
   '';
