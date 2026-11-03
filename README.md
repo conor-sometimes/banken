@@ -162,13 +162,26 @@ Enforcement is a two-process split. The daemon parses untrusted bytes and decide
 
 An Aho-Corasick prefilter makes match time independent of rule count. A fuzz target proves it agrees with checking every rule.
 
-Measured on a shared host: detect latency p50 134 us, p99 699 us. ~25,000 events/sec per core. ~7 MiB binary, ~14 MiB RAM. Cold start to first finding, p50 12 ms. Breakdown: [docs/performance.md](docs/performance.md).
+Measured on a shared host:
+
+- Detect latency: p50 134 us, p99 699 us
+- Throughput: ~25,000 events/sec per core
+- Binary: ~7 MiB. RAM: ~14 MiB
+- Cold start to first finding: p50 12 ms
+
+Breakdown: [docs/performance.md](docs/performance.md).
 
 ## Testing
 
 A root daemon parsing untrusted log bytes has to be heavily tested.
 
-Table tests for every parser and matcher. Never-die contracts: corrupt state recovers, panic guards hold, rule values stay inert. A Go fuzz campaign at 73.6M executions, zero crashes. Benign-malware emulations against real auditd in a NixOS VM. A full CI gate on every push: race, vet, staticcheck, gosec, govulncheck, OCSF-golden validation. Detail: [docs/testing.md](docs/testing.md).
+- Table tests for every parser and matcher
+- Never-die contracts: corrupt state recovers, panic guards hold, rule values stay inert
+- Fuzzing: 73.6M executions, zero crashes
+- Benign-malware emulations against real auditd in a NixOS VM
+- Full CI gate every push: race, vet, staticcheck, gosec, govulncheck, OCSF-golden
+
+Detail: [docs/testing.md](docs/testing.md).
 
 ## Roadmap
 
