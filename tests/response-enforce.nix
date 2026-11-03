@@ -56,6 +56,12 @@ let
     { name = "credential_file_read"; rule = "credential_file_read"; carrier = "image"; image = "cat"; trigger = "/etc/shadow"; }
     { name = "credential_search"; rule = "credential_search"; carrier = "image"; image = "find"; trigger = ".aws/credentials"; }
     { name = "shell_history_read"; rule = "shell_history_read"; carrier = "image"; image = "cat"; trigger = "/home/alice/.bash_history"; }
+    # browser_credential_access: cat a browser credential store. The path contains
+    # `logins.json` and `.mozilla/firefox` (browser_store selection) and the exe
+    # ends in /cat (reader); no secret_path/histfile token, so it trips ONLY this
+    # rule, not credential_file_read or shell_history_read -- the attribution
+    # assertion below depends on that.
+    { name = "browser_credential_access"; rule = "browser_credential_access"; carrier = "image"; image = "cat"; trigger = "/home/alice/.mozilla/firefox/ab.default/logins.json"; }
     { name = "proc_memory_dump"; rule = "proc_memory_dump"; carrier = "image"; image = "dd"; trigger = "if=/proc/1/mem"; }
     { name = "pam_config_modification"; rule = "pam_config_modification"; carrier = "image"; image = "sed"; trigger = "/etc/pam.d/system-auth"; }
     { name = "audit_config_tamper"; rule = "audit_config_tamper"; carrier = "image"; image = "sed"; trigger = "/etc/audit/auditd.conf"; }
@@ -139,7 +145,36 @@ ${actionsYaml}  '';
     "honeytoken_access"
   ];
   deferredJSON = builtins.toJSON deferredRules;
+
+  # COMPLETENESS, at eval time: the two hand-kept lists must together name
+  # EXACTLY the own-rule set under rules/. killCases is "every own rule a
+  # long-running process can carry" and deferredRules is "every own rule it
+  # cannot, with the reason"; a rule in NEITHER (the review found
+  # browser_credential_access was) is a silent coverage hole, and a name in a
+  # list that is not a real rule is dead weight. Both are caught here: eval of
+  # this file (so `nix flake check`, `nix build`) fails with the symmetric diff
+  # rather than the scorecard quietly omitting a rule. Rule name == .yml
+  # basename throughout the tree (the convention the policy and the ledger's
+  # alert.rule use), so compare basenames.
+  ruleNamesUnder = dir:
+    lib.concatLists (lib.mapAttrsToList
+      (n: t:
+        if t == "directory" then ruleNamesUnder (dir + "/${n}")
+        else if lib.hasSuffix ".yml" n then [ (lib.removeSuffix ".yml" n) ]
+        else [ ])
+      (builtins.readDir dir));
+  ownRuleSet = lib.sort (a: b: a < b) (lib.unique (ruleNamesUnder ../rules));
+  coveredSet = lib.sort (a: b: a < b) (lib.unique (killRules ++ deferredRules));
+  # rules present in the tree but named in neither list (the silent hole):
+  uncovered = lib.subtractLists coveredSet ownRuleSet;
+  # names listed but with no rule file (a stale list entry):
+  notARule = lib.subtractLists ownRuleSet coveredSet;
+  coverageOK = uncovered == [ ] && notARule == [ ];
 in
+assert coverageOK || throw (
+  "response-enforce coverage drift vs rules/ (killCases + deferredRules must name every own rule): "
+  + "rules present but in NEITHER list = [${lib.concatStringsSep " " uncovered}]; "
+  + "listed but not a rule file = [${lib.concatStringsSep " " notARule}]");
 pkgs.testers.runNixOSTest {
   name = "banken-response-enforce";
 
@@ -256,13 +291,25 @@ pkgs.testers.runNixOSTest {
         f"forged unmapped-rule order: want phase downgraded, got {bnd.get(oid_dg)}"
     assert bnd.get(oid_stale, {}).get("phase") == "failed", \
         f"forged mismatched-image order: want phase failed (stale), got {bnd.get(oid_stale)}"
+    # Assert the SPECIFIC rail: ErrStaleTarget (live exe != the recorded image),
+    # not merely phase=="failed" -- a pidfd_open EPERM or a helper crash mid-order
+    # is also "failed" and would wrongly pass as "refused by the live identity
+    # rail". The sentinel message is exec.ErrStaleTarget's: "exec: target is not
+    # the process the alert described".
+    _stale_err = bnd[oid_stale].get("error") or ""
+    assert "is not the process the alert described" in _stale_err, \
+        f"forged mismatched-image order failed for the WRONG reason: want ErrStaleTarget, got error {_stale_err!r}"
     assert enf_alive(bnd_innocent), \
         f"BOUNDARY: innocent pid {bnd_innocent} was KILLED by a forged order"
-    assert bnd_innocent not in {str((bnd[oid_stale].get('handle') or {}).get('pid'))} or \
-        bnd[oid_stale]["phase"] == "failed", "forged kill must not have executed"
-    _stale_err = (bnd[oid_stale].get("error") or "")[:60]
+    # Real effect, not a tautology on the phase: no EXECUTED kill line may name
+    # the innocent pid (the forged order must not have acted).
+    _innocent_killed = [a for a in action_lines()
+                        if a.get("phase") == "executed" and a.get("action") == "kill"
+                        and str((a.get("handle") or {}).get("pid")) == str(bnd_innocent)]
+    assert not _innocent_killed, \
+        f"forged kill EXECUTED against innocent pid {bnd_innocent}: {_innocent_killed}"
     print(f"[boundary] forged orders: {oid_dg[:8]} downgraded, {oid_stale[:8]} "
-          f"failed ({_stale_err}); innocent {bnd_innocent} alive")
+          f"failed ({_stale_err[:60]}); innocent {bnd_innocent} alive")
     machine.succeed(f"kill -9 {bnd_innocent} 2>/dev/null || true")
     print("[boundary] PASS: capability split exact; forged orders downgraded/stale; 0 innocents touched")
 
@@ -316,14 +363,23 @@ pkgs.testers.runNixOSTest {
     for c in killCases:
         pid = pids[c["name"]]
         alive = enf_alive(pid)
-        has_ledger = pid in killed_pids
+        line = killed_pids.get(pid)
+        has_ledger = line is not None
+        ledger_rule = ((line or {}).get("alert") or {}).get("rule")
         if alive:
             failures.append(f"{c['name']} (rule {c['rule']}) pid {pid} STILL ALIVE, expected SIGKILLed")
         elif not has_ledger:
             failures.append(f"{c['name']} (rule {c['rule']}) pid {pid} dead but no executed-kill ledger line")
+        elif ledger_rule != c["rule"]:
+            # RULE ATTRIBUTION: the pid died with an executed kill line, but the
+            # order that killed it credits a DIFFERENT rule. "victim dead" then
+            # does not prove THIS rule's kill mapping fired (the victim could
+            # have tripped a second kill-mapped rule). A mis-attributed kill is a
+            # failure, not a pass.
+            failures.append(f"{c['name']} pid {pid} killed but the executed order names rule {ledger_rule!r}, not {c['rule']!r} (mis-attributed kill)")
         else:
             killed_rules.append(c["rule"])
-        print(f"  {c['name']:30s} pid {pid:>6} alive={alive} killed_in_ledger={has_ledger}")
+        print(f"  {c['name']:30s} pid {pid:>6} alive={alive} killed_in_ledger={has_ledger} rule={ledger_rule}")
 
     # ---- innocent must survive (zero collateral) ----
     if not enf_alive(innocent_pid):
@@ -332,16 +388,33 @@ pkgs.testers.runNixOSTest {
         failures.append(f"COLLATERAL: innocent pid {innocent_pid} recorded as killed in the ledger")
 
     # ---- transient honesty: decided, target already exited (ErrGone), not a kill ----
-    transient_gone = (transient_pid in gone_pids) or (not enf_alive(transient_pid) and transient_pid not in killed_pids)
+    # Assert the REAL outcome, not a constant-True disjunction: the transient
+    # dropper trips credential_file_read (a kill-mapped rule), so a kill order is
+    # written, but the target is gone by drain time, so the executor records a
+    # FAILED kill line carrying exec.ErrGone ("target already exited"). That line
+    # (gone_pids) is the evidence a decision was made and did not kill.
+    assert transient_pid in gone_pids, \
+        (f"transient demonstrator pid {transient_pid} has no failed-kill ledger line with ErrGone; "
+         f"expected a decided kill on an already-exited target, got nothing (gone_pids={sorted(gone_pids)})")
+    assert transient_pid not in killed_pids, \
+        f"transient demonstrator pid {transient_pid} was recorded as an EXECUTED kill (pid reuse?), not ErrGone"
+    transient_gone = True
     print(f"\n  transient demonstrator pid {transient_pid}: decided, target already exited (ErrGone) = {transient_gone}")
 
     assert not failures, "ENFORCEMENT COVERAGE FAILURES:\n" + "\n".join(failures)
 
+    # Honest scorecard: the DENOMINATOR is the number of kill cases attempted,
+    # the NUMERATOR the number actually killed-and-attributed. They are equal
+    # only because every case passed the gate above; if one case had failed the
+    # assert would have fired first, and N<M would show here. (killCases rules
+    # are unique, so distinct_killed == killed count.)
+    attempted = len(killCases)
+    killed_n = len(killed_rules)
     distinct_killed = sorted(set(killed_rules))
-    X = len(distinct_killed)
     print("\n================ ENFORCEMENT COVERAGE SCORECARD ================")
-    print(f"enforcement killed on {X}/{X} rules "
-          f"(every long-running victim was SIGKILLed via real pidfd; 0 innocents slain)")
+    print(f"enforcement killed on {killed_n}/{attempted} rules "
+          f"(each live victim SIGKILLed via real pidfd AND the executed order credited that rule; 0 innocents slain)")
+    print("coverage asserted at eval time: killCases + deferredRules == every own rule under rules/")
     print(f"rules proven killed: {distinct_killed}")
     print(f"transient-only demonstrator: decided, ErrGone (not a kill): {transient_gone}")
     print(f"own rules NOT covered as long-running victims ({len(deferred)}): {sorted(deferred)}")
