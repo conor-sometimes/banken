@@ -1,7 +1,12 @@
 # Writing rules
 
-banken detects with two things: **Sigma rules** (behaviour) and **IOC lists** (bulk indicators).
-Both live in a rule tree; the binary ships an embedded baseline tree, and your own trees load on top.
+banken detects with two things:
+
+- **Sigma rules** - behaviour.
+- **IOC lists** - bulk indicators of compromise (known-bad IPs, domains, filenames).
+
+Both live in a rule tree. The binary ships an embedded baseline tree, and your own trees load on
+top.
 
 ## The rule tree
 
@@ -12,21 +17,22 @@ rules/
   ioc/*.txt                                                                      # bulk indicator lists
 ```
 
-A rule's directory is just organisation - banken loads every `*.yml`/`*.yaml` under the tree (except
+A rule's directory is just organisation. banken loads every `*.yml`/`*.yaml` under the tree (except
 `ioc/`). Put a behavioural rule under the tactic it detects, a family signature under
 `malware/<family>/`, and flat indicator feeds in `ioc/`.
 
 The embedded baseline is compiled into the binary, so detection works with nothing on disk. Any
-on-disk tree (`-rules DIR` or `rules:` in the config) is loaded on top; a rule whose filename
-matches a baseline rule's **replaces** it, so you extend or override the defaults without losing them.
-Every such baseline override is logged at load and recorded in the refresh status file (see below), so
-a rule that shadows a baseline detection is never silent; `refresh.protectBaseline` forbids it outright.
+on-disk tree (`-rules DIR` or `rules:` in the config) is loaded on top. A rule whose filename
+matches a baseline rule's **replaces** it, so you extend or override the defaults without losing
+them. Every such baseline override is logged at load and recorded in the refresh status file (see
+below). So a rule that shadows a baseline detection is never silent. `refresh.protectBaseline`
+forbids it outright.
 
 ## Sigma: the supported subset
 
 A rule is standard [Sigma](https://github.com/SigmaHQ/sigma): a `detection:` block of named
-*selections* plus a `condition`. banken evaluates this subset (anything outside it is a load-time
-error naming the file and reason - a malformed rule is never silently dropped):
+*selections* plus a `condition`. banken evaluates the subset below. Anything outside it is a
+load-time error naming the file and reason - a malformed rule is never silently dropped.
 
 **Fields** (they map to the normalised event): `Image`, `CommandLine`, `ParentImage`,
 `TargetFilename`, `User`, `CurrentDirectory`, and anything a parser put in `Raw`.
@@ -44,16 +50,16 @@ error naming the file and reason - a malformed rule is never silently dropped):
 | `Field\|...\|all: [a, b]` | matches *every* listed value, not just one |
 
 **Keyword selections.** A selection whose value is a bare list of strings (not field mappings) is a
-*keyword* match: it fires if any string appears in any of the event's text fields - e.g.
-`keywords:\n  - /etc/shadow\n  - id_rsa`. A single scalar works too, and a modifier-only key makes
-it stricter: `'|all':\n  - truncate\n  - ' -s'` requires every string to appear (each in some field).
+*keyword* match. It fires if any string appears in any of the event's text fields - e.g.
+`keywords:\n  - /etc/shadow\n  - id_rsa`. A single scalar works too. A modifier-only key makes it
+stricter: `'|all':\n  - truncate\n  - ' -s'` requires every string to appear (each in some field).
 Wildcards inside a keyword are substring (unanchored) matches.
 
-A value may be a scalar or a list; a list is OR (any) unless `|all` is added. String comparisons are
+A value may be a scalar or a list. A list is OR (any) unless `|all` is added. String comparisons are
 case-insensitive (Sigma's default); a regexp honours its own casing.
 
 **Wildcards.** In an *unmodified* value, `*` matches any run of characters and `?` matches exactly
-one, matched against the whole field - so `CommandLine: '*whoami*'` is contains, `'sudo *'` is
+one, matched against the whole field. So `CommandLine: '*whoami*'` is contains, `'sudo *'` is
 startswith, `'*/python3'` is endswith, and `'f?o'` matches `fXo`. Escape a literal with a backslash
 (`\*`, `\?`, `\\`). A `Field: null` is Sigma's field-absence test (the same as
 `Field|exists: false`); a null anywhere else (inside a value list) is rejected at load rather than
@@ -81,7 +87,7 @@ detection:
   condition: shell and net
 ```
 
-An allow-list carve-out, using `not`:
+An allow-list carve-out (match the command, then exclude the known-good case) using `not`:
 
 ```yaml
 title: curl to an unexpected host
@@ -119,36 +125,40 @@ c2.evil.test
 /usr/share/.hidden/miner
 ```
 
-banken classifies each by shape - IP (token match), domain (exact or dot-suffix, so `evil.test`
-matches `c2.evil.test` but not `notevil.test`), otherwise a filename/path (substring/basename) - and
-checks them against the event's fields. Which field an indicator hit is recorded on the alert.
-(IP lookups are O(1); domain/path matching is being folded into the same matcher the rules use.) File, process and command-line indicators work against the audit sources
-today; hash and network indicators arrive with the eBPF / network sources.
+banken classifies each indicator by shape and checks it against the event's fields:
+
+- an IP - token match;
+- a domain - exact or dot-suffix, so `evil.test` matches `c2.evil.test` but not `notevil.test`;
+- otherwise a filename/path - substring or basename.
+
+Which field an indicator hit is recorded on the alert. IP lookups are O(1); domain and path
+matching is being folded into the same matcher the rules use. File, process and command-line
+indicators work against the audit sources today. Hash and network indicators arrive with the eBPF
+and network sources.
 
 ## Testing a rule
 
-Two ways:
+Two ways.
 
-- **`banken check`** - the fast path. Describe one event and see which rules fire, no log needed:
+- **`banken check`** is the fast path. Describe one event and see which rules fire, no log needed:
 
   ```sh
   banken check -image /usr/bin/cat 'cat /etc/shadow'          # -> credential_file_read
   banken check -json '{"image":"/bin/bash","commandLine":"...dev/tcp..."}'
   ```
 
-  It's faithful to the rule logic - if a rule needs `TargetFilename`, set `-target`; a command line
+  It's faithful to the rule logic. If a rule needs `TargetFilename`, set `-target`; a command line
   alone won't satisfy it. Perfect for tuning ("does my change still fire?") and purple-teaming.
-
 - **A fixture** for regression: a normalised event JSON under `tests/fixtures/`.
   `NAME.expect-<rule>.json` must fire that rule; `NAME.expect-none.json` must fire nothing.
-  `go test ./...` runs them (and the coverage gate requires every rule to have one), so a rule ships
+  `go test ./...` runs them, and the coverage gate requires every rule to have one. So a rule ships
   with proof it does - and doesn't - fire.
 
 ## Refreshing rules at runtime (no redeploy)
 
 Rules do not have to be baked into the binary or the config. A directory listed under `refreshDirs:`
-is read live: a running daemon rebuilds its whole rule set on a reload, and a one-shot run reads it on
-its next scan. The loop:
+is read live: a running daemon rebuilds its whole rule set on a reload, and a one-shot run reads it
+on its next scan. The loop:
 
 ```sh
 banken check /var/lib/banken-rules   # preflight: compile the tree, non-zero exit on any bad rule
@@ -156,8 +166,9 @@ banken reload                        # SIGHUP the daemon -> validate-all-then-sw
 banken status                        # confirm: last refresh, outcome, rules loaded, failures
 ```
 
-A refresh is safe by construction: a bad rule file is reported and skipped (the good rules load), and
-a whole-set failure -- an empty tree, or one over the resource-guard caps (`refresh.maxRules`,
-`refresh.maxPatternBytes`) -- keeps the previously-good set rather than blinding the host. The full
-fleet workflow (a git rules repo, the puller, provenance) is the [new-threat
-scenario](scenarios/new-threat.md), designed in [rule-refresh](design/rule-refresh.md).
+A refresh is safe by construction. A bad rule file is reported and skipped, and the good rules load.
+A whole-set failure keeps the previously-good set rather than blinding the host. That covers an
+empty tree, or one over the resource-guard caps (`refresh.maxRules`, `refresh.maxPatternBytes`). The
+full fleet workflow (a git rules repo, the puller, provenance) is the
+[new-threat scenario](scenarios/new-threat.md), designed in
+[rule-refresh](design/rule-refresh.md).

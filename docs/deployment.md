@@ -1,25 +1,32 @@
 # Deployment
 
-The goal is no fiddling: install the binary, point it at the audit log, enable the timer. banken
+The goal is no fiddling. Install the binary, point it at the audit log, enable the timer. banken
 ships an embedded baseline ruleset and auto-detects the log source, so there is little to configure.
 
-**One line, if you run NixOS:** add the module and set `services.banken.enable = true;` - that pulls
-in auditd with the rules banken reads, the hardened unit and the timer, alerting to the journal (see
-[NixOS](#nixos)). On any other systemd Linux it is the three-command [Quickstart](#quickstart-any-systemd-linux)
-below. Either way the defaults are a working deployment; the rest of this page is the optional knobs.
+On NixOS it is one line. Add the module and set `services.banken.enable = true;`. That pulls in
+auditd with the rules banken reads, the hardened unit, and the timer, alerting to the journal (see
+[NixOS](#nixos)). On any other systemd Linux it is the three-command
+[Quickstart](#quickstart-any-systemd-linux) below. Either way the defaults are a working deployment.
+The rest of this page is the optional knobs.
 
 ## Supported platforms
 
-**Linux with systemd** on x86_64 (aarch64 builds but is not yet tested). The live distro matrix
-([tests/distros](../tests/distros/README.md)) runs banken against each distro's own kernel and
-auditd: Rocky 9, AlmaLinux 10, Fedora 44, Amazon Linux 2023, Debian 13, Ubuntu 24.04, openSUSE
-Leap 16 and Arch; NixOS is tested through its own module (`tests/vm.nix`).
+banken supports **Linux with systemd** on x86_64. aarch64 builds but is not yet tested.
 
-systemd is a requirement, not a preference. banken runs as root and parses untrusted log bytes,
-so its security model *is* the unit's sandbox ([Sandbox](#sandbox)): `ProtectSystem=strict`,
-one capability, a syscall filter, no writable or executable memory. OpenRC and SysV init have no
-equivalent, so a banken under them would be an unconfined root parser. The static binary runs
-anywhere, but outside systemd it is unsupported.
+The live distro matrix ([tests/distros](../tests/distros/README.md)) runs banken against each
+distro's own kernel and auditd:
+
+- Rocky 9, AlmaLinux 10, Fedora 44
+- Amazon Linux 2023, Debian 13, Ubuntu 24.04
+- openSUSE Leap 16, Arch
+
+NixOS is tested through its own module (`tests/vm.nix`).
+
+systemd is a requirement, not a preference. banken runs as root and parses untrusted log bytes, so
+its security model *is* the unit's sandbox ([Sandbox](#sandbox)): `ProtectSystem=strict`, one
+capability, a syscall filter, no writable or executable memory. OpenRC and SysV init have no
+equivalent. A banken under them would be an unconfined root parser. The static binary runs anywhere,
+but outside systemd it is unsupported.
 
 ## Quickstart (any systemd Linux)
 
@@ -36,24 +43,24 @@ anywhere, but outside systemd it is unsupported.
 
 With no config file, `banken` loads its embedded rules, auto-detects the source
 (`/var/log/laurel/audit.log`, then `/var/log/audit/audit.log`), and alerts to the journal. When
-`/etc/banken/banken.yml` exists it is read; it is only needed to add rule trees, change the source,
+`/etc/banken/banken.yml` exists it is read. You only need it to add rule trees, change the source,
 or enable the jsonl/webhook sinks. The unit runs `banken` with no flags either way.
 
-The timer is `packaging/systemd/banken.timer`: first scan two minutes after boot, then every two
-minutes, catching up a run missed while the machine was off.
+The timer is `packaging/systemd/banken.timer`. The first scan runs two minutes after boot, then
+every two minutes, catching up a run missed while the machine was off.
 
 Under systemd banken logs at the right priorities: alerts at `crit`/`err`, its own problems at
-`warning`/`err`, progress at `info`. So `journalctl -u banken -p err` is the alert feed, and
-anything else it shows at `warning` or above is banken telling you something is wrong.
+`warning`/`err`, progress at `info`. So `journalctl -u banken -p err` is the alert feed. Anything
+else it shows at `warning` or above is banken telling you something is wrong.
 
-The interval is the main detection-latency knob: a threat is flagged within one interval of being
-logged (plus ~microseconds of matching - see [Performance](../README.md#performance)). Shorten it,
-or run `banken --watch` as a daemon, for lower latency.
+The interval is the main detection-latency knob. A threat is flagged within one interval of being
+logged, plus a few microseconds of matching (see [Performance](../README.md#performance)). Shorten
+the interval, or run `banken --watch` as a daemon, for lower latency.
 
 ## Log source
 
-banken reads the audit log; it does not hook syscalls itself. The host needs auditd capturing
-execve (and the file accesses you care about). A minimal rule set:
+banken reads the audit log. It does not hook syscalls itself. The host needs auditd capturing
+execve, plus the file accesses you care about. A minimal rule set:
 
 ```
 # /etc/audit/rules.d/banken.rules
@@ -61,8 +68,8 @@ execve (and the file accesses you care about). A minimal rule set:
 -a always,exit -F arch=b32 -S execve -k exec
 ```
 
-Then `augenrules --load` (or `auditctl -R`). Two distro quirks to check first (both found by the
-live distro matrix, [tests/distros](../tests/distros/README.md)):
+Then run `augenrules --load` (or `auditctl -R`). Check two distro quirks first. Both were found by
+the live distro matrix ([tests/distros](../tests/distros/README.md)).
 
 - **`-a task,never` turns syscall auditing off entirely.** Fedora and openSUSE ship it in
   `/etc/audit/rules.d/audit.rules`. With it loaded the kernel emits no exec events, and banken runs
@@ -71,13 +78,13 @@ live distro matrix, [tests/distros](../tests/distros/README.md)):
 - **On RHEL 10 and its rebuilds, `auditctl` and `augenrules` are in a separate `audit-rules`
   package** that a cloud image may lack (seen on AlmaLinux 10): `dnf install audit-rules`.
 
-[Laurel](https://github.com/threathunters-io/laurel) is
-supported and recommended as an enricher (it turns the multi-line audit records into clean JSON),
-but not required - the raw auditd parser reads `/var/log/audit/audit.log` directly.
+[Laurel](https://github.com/threathunters-io/laurel) is supported and recommended as an enricher
+(it turns the multi-line audit records into clean JSON), but not required. The raw auditd parser
+reads `/var/log/audit/audit.log` directly.
 
 ## Configuration
 
-Config is YAML; flags override it. The smallest useful config is **no config at all** - the
+Config is YAML, and flags override it. The smallest useful config is **no config at all**. The
 zero-config default above (embedded rules, auto-detected source, journal alerts) is a complete
 deployment. A config file is only for adding to it.
 
@@ -104,19 +111,23 @@ alerts:
   webhook: { enable: true, urlFile: /run/secrets/banken-webhook, style: slack }  # or style: ocsf
 ```
 
-The jsonl sink's `format` picks the on-disk shape: `banken` (native, the default), `ocsf` (OCSF
-1.3.0 Detection Findings for an OCSF-aware SIEM) or `ecs` (Elastic Common Schema for
-Elasticsearch/Kibana). One finding per line in every case.
+The jsonl sink's `format` picks the on-disk shape:
 
-The webhook URL should come from a file (`urlFile`) - most webhook URLs embed a secret token
-(Slack, Discord), and a secret never belongs inline in a config that may live in a Nix store or a
-repo. Set the URL inline (`url:` / NixOS `alerts.webhook.url`) only for a genuinely non-secret
-receiver. See the CLI flags with `banken -h` for one-off overrides (`-source type:path`,
-`-jsonl-dir`, `-jsonl-format`, `-webhook-url-file`, `--watch`, …).
+- `banken` - native, the default
+- `ocsf` - OCSF 1.3.0 Detection Findings, for an OCSF-aware SIEM
+- `ecs` - Elastic Common Schema, for Elasticsearch/Kibana
+
+Either way it writes one finding per line.
+
+The webhook URL should come from a file (`urlFile`). Most webhook URLs embed a secret token (Slack,
+Discord), and a secret never belongs inline in a config that may live in a Nix store or a repo. Set
+the URL inline (`url:` / NixOS `alerts.webhook.url`) only for a genuinely non-secret receiver. See
+the CLI flags with `banken -h` for one-off overrides (`-source type:path`, `-jsonl-dir`,
+`-jsonl-format`, `-webhook-url-file`, `--watch`, ...).
 
 ## Runtime rule refresh
 
-A directory under `refreshDirs:` is read live, without a redeploy: unlike `rules:` (and NixOS
+A directory under `refreshDirs:` is read live, without a redeploy. Unlike `rules:` (and NixOS
 `extraRules`, which are copied into the Nix store), a `refreshDir` is a plain runtime path. Point it
 at an externally-managed or git-cloned rules dir.
 
@@ -128,43 +139,54 @@ refresh:
   maxPatternBytes: 8388608 # 8 MiB of literal patterns
 ```
 
-Triggering a refresh:
+To trigger a refresh:
 
-- `banken reload` -- finds the running daemon (its pidfile in the state dir) and sends it SIGHUP; the
+- `banken reload` - finds the running daemon (its pidfile in the state dir) and sends it SIGHUP. The
   daemon validates the whole new tree and swaps it in atomically, never dropping the good set on a
-  bad rule. `systemctl reload banken` does the same via the unit's `ExecReload`. (A one-shot timer
-  deployment has no daemon to signal; it reads the dir on its next scan.)
-- `banken check <dir>` -- preflight a tree (non-zero exit on any bad rule) before you push or reload.
-- `banken status` -- read the refresh status file (`/var/lib/banken/refresh-status.json`): last
-  refresh time, outcome (`swapped` / `kept-old` / `startup`), rules loaded, per-file failures, and
-  any baseline overrides. This is how you confirm a pushed rule actually went live on a host.
+  bad rule. `systemctl reload banken` does the same via the unit's `ExecReload`. A one-shot timer
+  deployment has no daemon to signal; it reads the dir on its next scan.
+- `banken check <dir>` - preflight a tree before you push or reload. It exits non-zero on any bad
+  rule.
+- `banken status` - read the refresh status file (`/var/lib/banken/refresh-status.json`). It shows
+  the last refresh time, the outcome (`swapped` / `kept-old` / `startup`), the rules loaded, any
+  per-file failures, and any baseline overrides. This is how you confirm a pushed rule actually went
+  live on a host.
 
-The full fleet loop -- a git rules repo pulled to every host and applied within minutes -- is the
-[new-threat scenario](scenarios/new-threat.md); the design is [rule-refresh](design/rule-refresh.md).
-On NixOS the module wires all of it (below).
+The full fleet loop - a git rules repo pulled to every host and applied within minutes - is the
+[new-threat scenario](scenarios/new-threat.md). The design is
+[rule-refresh](design/rule-refresh.md). On NixOS the module wires all of it (below).
 
 ## Sandbox
 
-`packaging/systemd/banken.service` runs the scan locked down: `NoNewPrivileges`,
-`ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `MemoryDenyWriteExecute`,
-`SystemCallFilter=@system-service`, writing only `/var/lib/banken` and reading only the audit logs,
-with just `CAP_DAC_READ_SEARCH` to read the root-owned log. banken parses untrusted bytes as root,
-so the sandbox shrinks the blast radius of a parser bug to almost nothing. See the
-[README's Security model](../README.md#security-model) for why the rules themselves can't become a
-code-execution vector.
+`packaging/systemd/banken.service` runs the scan locked down:
+
+- `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`
+- `MemoryDenyWriteExecute`
+- `SystemCallFilter=@system-service`
+- writes only `/var/lib/banken`, reads only the audit logs
+- just `CAP_DAC_READ_SEARCH`, to read the root-owned log
+
+banken parses untrusted bytes as root, so the sandbox shrinks the blast radius of a parser bug to
+almost nothing. See the [README's Security model](../README.md#security-model) for why the rules
+themselves can't become a code-execution vector.
 
 ## NixOS
 
-First-class: `services.banken` (`module.nix`, exported as `nixosModules.default`) generates the
-config at `/etc/banken/banken.yml`, the unit (this section's hardening, plus no network unless the
-webhook is on), the timer, and by default auditd with banken's audit rules (`audit.enable`,
-`audit.watchPaths`). `services.banken.enable = true` is the whole setup; see the README's
+banken is first-class on NixOS. `services.banken` (`module.nix`, exported as
+`nixosModules.default`) generates:
+
+- the config at `/etc/banken/banken.yml`
+- the unit (this section's hardening, plus no network unless the webhook is on)
+- the timer
+- by default, auditd with banken's audit rules (`audit.enable`, `audit.watchPaths`)
+
+`services.banken.enable = true` is the whole setup. See the README's
 [Use (NixOS)](../README.md#use-nixos) for options. `tests/vm.nix` proves the module end to end.
 
-For the fleet rule-refresh loop, `services.banken.refresh` wires it in full: set `refresh.enable`
-and `refresh.repo` and the module clones the rules repo to `refresh.dir` (a runtime path, not the
-store), adds it to `refreshDirs`, and runs a dedicated, unprivileged `banken-rules-pull` timer that
-pulls, optionally verifies the signed HEAD (`refresh.verify`), preflights with `banken check`, and --
-on success -- reloads the running daemon. The puller is the only component with git and the network;
-the banken daemon stays network-free in its sandbox and only reads the checkout. `refreshDirs` can
-also be set directly to point at a dir you manage yourself, with no puller.
+For the fleet rule-refresh loop, `services.banken.refresh` wires it in full. Set `refresh.enable`
+and `refresh.repo`, and the module clones the rules repo to `refresh.dir` (a runtime path, not the
+store), adds it to `refreshDirs`, and runs a dedicated, unprivileged `banken-rules-pull` timer. That
+timer pulls, optionally verifies the signed HEAD (`refresh.verify`), preflights with `banken check`,
+and on success reloads the running daemon. The puller is the only component with git and the
+network. The banken daemon stays network-free in its sandbox and only reads the checkout.
+`refreshDirs` can also be set directly to point at a dir you manage yourself, with no puller.

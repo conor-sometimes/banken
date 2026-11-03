@@ -1,18 +1,18 @@
 # Per-commit checklist
 
 What to run before a change lands, tiered by cost. Running the full distro matrix or the
-stress/profiling suite on every commit is impractical (tens of minutes of KVM each), so the fast
-gate runs on every commit and the heavy work runs per-PR or nightly.
+stress/profiling suite on every commit is impractical (tens of minutes of KVM each). So the fast
+gate runs on every commit, and the heavy work runs per-PR or nightly.
 
-This file is the SPEC. The goal is that each item is AUTOMATED (a `just` target, a CI job, or the
-pre-commit hook), not a thing a human remembers. Where an item is not wired yet it is marked TODO
-with its Taskwarrior anchor; wiring it is the work, this doc is the contract.
+This file is the SPEC. The goal is that each item is AUTOMATED - a `just` target, a CI job, or the
+pre-commit hook - not a thing a human remembers. Where an item is not wired yet it is marked TODO
+with its Taskwarrior anchor. Wiring it is the work; this doc is the contract.
 
 ## Golden rule
 
 Run the WHOLE `just default`, never a subset like `go test ./internal/...`. The CI breakage on
-2026-11-02 (staticcheck + govulncheck red tree-wide) slipped through for exactly this reason: every
-local and worker gate ran `go test ./internal/...` and `golangci-lint` on subsets, so nobody
+2026-11-02 (staticcheck plus govulncheck red tree-wide) slipped through for exactly this reason.
+Every local and worker gate ran `go test ./internal/...` and `golangci-lint` on subsets, so nobody
 exercised `staticcheck ./...`, gosec over `bench/`, or `govulncheck`. A green subset is not a green
 gate.
 
@@ -48,8 +48,9 @@ gate.
 - [ ] `nix flake check`: the VM integration tests (vm, switch, switch-floor, switch-restart) and the
       wired emulation checks (sigmahq-emul).
 - [ ] pySigma conformance differential: rules agree with the reference engine (`just conformance`).
-- [ ] `nix run .#distro-matrix-mimi`: all 8 distros + NixOS on their own kernels, mimi M1-M5, Sysmon
-      S1-S5. **This is "verify across all distros we test on" - it lives here, not per-commit.**
+- [ ] `nix run .#distro-matrix-mimi`: all 8 distros plus NixOS on their own kernels, with the mimi
+      and Sysmon scenario suites. **This is "verify across all distros we test on" - it lives here,
+      not per-commit.**
 - [x] Benchmarks (indicative, non-gating) run and APPENDED to the per-commit benchmark history file
       (`bench/history.ndjson`, one JSON line per commit, see `bench/README.md`) so
       regressions/improvements are trackable over time; benchstat delta vs the committed baseline
@@ -76,12 +77,23 @@ gate.
 
 ## Automation status
 
-- Wired today: `just precommit` (the whole Tier 1 in one command: `just default` incl. the fuzz
-  smoke, `just rules-check`, `just ocsf-validate`, `just cross-compile`, `just size-check`), the CI
-  `default` job running the same guards, the hooks, `nix flake check`, `nix run
-  .#distro-matrix-mimi`, `just conformance`, `just sbom`, the nightly fuzz campaign (fuzz.yml), and
-  the CI `bench` job, which appends each commit's numbers to `bench/history.ndjson`.
-- Still manual / TODO (Taskwarrior, project:banken.testing / banken.bench / banken.ci): a nightly
-  deep-tier job, the idle-RSS guard, the stress + profiling harness, the reproducible-hash check,
-  and the false-positive baseline test. The CI `bench` job uploads the history file as an artifact
-  but does not commit it back; a line committed to the repo comes from `just bench-history`.
+Wired today:
+
+- `just precommit` - the whole Tier 1 in one command: `just default` (incl. the fuzz smoke),
+  `just rules-check`, `just ocsf-validate`, `just cross-compile`, `just size-check`
+- the CI `default` job, running the same guards
+- the hooks
+- `nix flake check`, `nix run .#distro-matrix-mimi`, `just conformance`, `just sbom`
+- the nightly fuzz campaign (fuzz.yml)
+- the CI `bench` job, which appends each commit's numbers to `bench/history.ndjson`
+
+Still manual or TODO (Taskwarrior, project:banken.testing / banken.bench / banken.ci):
+
+- a nightly deep-tier job
+- the idle-RSS guard
+- the stress + profiling harness
+- the reproducible-hash check
+- the false-positive baseline test
+
+The CI `bench` job uploads the history file as an artifact but does not commit it back; a line
+committed to the repo comes from `just bench-history`.
