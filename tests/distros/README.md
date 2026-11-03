@@ -118,7 +118,7 @@ The S objectives prove the other sensor: Microsoft's own `sysmonforlinux`, insta
 - triggers a reverse-shell-shaped `/dev/tcp` exec as the test user
 - checks banken detects `reverse_shell` off the `sysmon` source
 
-How the log reaches banken: Sysmon logs via syslog. journald captures it under identifier `sysmon`. A tiny `journalctl -o cat -t sysmon -f` bridge appends those entries to a file banken tails. Same shape as `module.nix`'s `services.banken.sysmon`.
+Sysmon logs via syslog. journald captures it under the identifier `sysmon`. A small bridge runs `journalctl -o cat -t sysmon -f`, appending those entries to a file banken tails. Same shape as `module.nix`'s `services.banken.sysmon`.
 
 The stage is conditional on where Microsoft ships `sysmonforlinux`:
 
@@ -142,9 +142,8 @@ With `http_proxy`/`https_proxy` set to a proxy on the host's loopback:
 
 - the guests reach it at `10.0.2.2`
 - the checker configures the package manager for it
-- it pins dnf and zypper to the vendor's own host: `dl.rockylinux.org`, `repo.almalinux.org`, `dl.fedoraproject.org`, `downloadcontent.opensuse.org`
 
-Why pin: a mirror list hands out third-party mirrors an allow-list can't name in advance.
+The default mirror list redirects to random third-party mirrors. An allow-list can't name those ahead of time. So the checker pins dnf and zypper to the vendor's own host: `dl.rockylinux.org`, `repo.almalinux.org`, `dl.fedoraproject.org`, `downloadcontent.opensuse.org`.
 
 `cloud.debian.org` serves images only by redirect to `acc.umu.se`. The allow-list needs that host too.
 
