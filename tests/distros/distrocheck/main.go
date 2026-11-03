@@ -291,6 +291,23 @@ func (c *checker) scan() {
 	}
 }
 
+// drainQuiescent scans until a full settle passes with no new alert surfacing, so every exec is
+// read and attributed before a count is taken -- a prior family's tail before a window, or this
+// family's own late-flushing exec after it. auditd flush latency (and out-of-order record
+// completion) otherwise races a single fixed settle on a loaded VM. Bounded by maxDrain so a
+// genuinely chatty host cannot hang the matrix; a quiet VM settles in one iteration.
+func (c *checker) drainQuiescent() {
+	for i := 0; i < maxDrain; i++ {
+		c.scan()
+		n := len(alertLines())
+		time.Sleep(scanSettle)
+		c.scan()
+		if len(alertLines()) == n {
+			return
+		}
+	}
+}
+
 // journal is banken's own output in the journal at or above prio, one line each.
 func (c *checker) journal(prio string) []string {
 	out, _ := c.sh(time.Minute, "journalctl", "_SYSTEMD_UNIT=banken.service", "_COMM=banken",
@@ -646,21 +663,10 @@ func (c *checker) detection() {
 	host, _ := os.Hostname()
 	var badOCSF, unjournalled []string
 	for _, family := range c.families() {
-		// Drain to quiescence before opening this family's window: a prior family's exec can still
-		// be in auditd's write buffer -- or completing out of order -- when its own scan ran, so
-		// without this it is read on THIS family's drain and counted against it (exec_from_tmp from
-		// an earlier /tmp-staging family bled into stomp this way; a single fixed settle raced the
-		// flush on a loaded VM). Keep scanning until a full settle passes with no new alert
-		// surfacing, so the straggler lands in `before`, not in this family's fired set.
-		for i := 0; i < maxDrain; i++ {
-			c.scan()
-			n := len(alertLines())
-			time.Sleep(scanSettle)
-			c.scan()
-			if len(alertLines()) == n {
-				break
-			}
-		}
+		// Drain to quiescence before opening this family's window so a prior family's late-flushing
+		// exec lands in `before`, not in this family's fired set (a /tmp-staging family bled into
+		// stomp this way; a single fixed settle raced auditd's flush on a loaded VM).
+		c.drainQuiescent()
 		before, beforeJ := len(alertLines()), len(c.journal("err"))
 		auditBefore := auditLineN()
 		out := c.runFamily(family)
@@ -670,7 +676,11 @@ func (c *checker) detection() {
 			c.rep.Info["B1_skipped/"+family] = firstLine(strings.TrimSpace(out))
 			continue
 		}
-		c.scan()
+		// Drain to quiescence again so this family's OWN late-flushing exec is counted: masqdaemon
+		// copies a daemon-named binary into /tmp and only then execs it, and that exec's record can
+		// land after a single post-scan -- dropping exec_from_tmp and failing set-equality. Symmetric
+		// with the pre-drain: before excludes the prior family's tail, fired includes this one's.
+		c.drainQuiescent()
 		fired := map[string]bool{}
 		offending := map[string]string{} // rule -> first raw alert line, for diagnosing an unexpected fire
 		journalled := from(c.journal("err"), beforeJ)
