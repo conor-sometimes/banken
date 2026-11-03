@@ -33,6 +33,9 @@ const (
 	journalDir = "/var/log/banken"
 	configPath = "/etc/banken/banken.yml"
 	auditLog   = "/var/log/audit/audit.log"
+	// scanSettle is how long a family's drain waits for auditd to flush the previous family's
+	// tail before the second drain, so a straggler exec is attributed to its own family (B1).
+	scanSettle = 2 * time.Second
 )
 
 // auditRules are banken's documented rules (docs/deployment.md, Log source)
@@ -623,16 +626,30 @@ func (c *checker) detection() {
 			c.unitFailures = append(c.unitFailures, "write config: "+err.Error())
 		}
 	}
-	// Quiet background services that trip detections on their own schedule: fwupd loads kernel
-	// modules via modprobe, which fires kernel_module_load and, landing in whatever family's scan
-	// window it happens to, gets misattributed (seen on Ubuntu). A test VM needs no firmware updates.
-	for _, unit := range []string{"fwupd.service", "fwupd-refresh.service", "fwupd-refresh.timer"} {
+	// Quiet background services that trip detections on their own schedule: a daemon that acts
+	// inside a family's scan window gets its alert misattributed to that family. fwupd loads kernel
+	// modules via modprobe (kernel_module_load, seen on Ubuntu); the cron/at family runs jobs that
+	// read credential paths through PAM and exec helpers from temp dirs (credential_file_read bled
+	// into killlog, an unrelated log-tamper family, via a cron-spawned dash; exec_from_tmp likewise).
+	// A test VM needs no firmware updates and no periodic jobs, so mask them all (a mask of an absent
+	// unit is a harmless no-op on this distro).
+	for _, unit := range []string{
+		"fwupd.service", "fwupd-refresh.service", "fwupd-refresh.timer",
+		"cron.service", "crond.service", "anacron.service", "anacron.timer", "atd.service",
+	} {
 		_, _ = c.sh(time.Minute, "systemctl", "mask", "--now", unit)
 	}
 	c.scan() // drain the A2/A3 activity
 	host, _ := os.Hostname()
 	var badOCSF, unjournalled []string
 	for _, family := range c.families() {
+		// Settle before opening this family's window: the previous family's last exec can still be
+		// in auditd's write buffer when its own scan ran, so without a pause it is read on THIS
+		// family's drain and counted against it (exec_from_tmp from the staging family bled into
+		// stomp this way). Scan, let auditd flush, scan again -- both drains land the straggler in
+		// `before`, not in this family's fired set.
+		c.scan()
+		time.Sleep(scanSettle)
 		c.scan()                                                    // drain any inter-family or concurrent-service activity so only this family's own
 		before, beforeJ := len(alertLines()), len(c.journal("err")) // events count toward it
 		auditBefore := auditLineN()
