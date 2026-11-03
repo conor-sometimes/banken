@@ -138,15 +138,15 @@ banken evaluates the common Sigma modifiers, wildcards, keyword selections, and 
 
 ## Standards
 
-| Standard | What banken does | How it is checked |
+| Standard | Support | How checked |
 | --- | --- | --- |
-| [Sigma](https://sigmahq.io) | Compiles Sigma natively | 210/210 SigmaHQ Linux rules load; agrees with pySigma on 182/182 |
-| [OCSF](https://schema.ocsf.io) 1.3.0 | Alerts as Detection Findings | Validated in CI by the OCSF project's own validator |
-| [ECS](https://www.elastic.co/guide/en/ecs/current/index.html) 8.11.0 | Alerts as Elastic Common Schema | Encoder unit-tested |
-| [MITRE ATT&CK](https://attack.mitre.org) | Every rule tagged tactic + technique | Mapping unit-tested; scored by the range below |
-| [OTLP](https://opentelemetry.io/docs/specs/otlp/) | Findings as OTLP/HTTP records | Exporter unit-tested |
-| [Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) | Live ATT&CK range in a VM | Measured: 24/115 techniques on merit (2026-11-01) |
-| systemd | Hardened unit + timer | `systemd-analyze security`: exposure 2.1 "OK" on every distro |
+| [Sigma](https://sigmahq.io) | ✅ 210/210 | agrees with pySigma on 182/182 |
+| [OCSF](https://schema.ocsf.io) 1.3.0 | ✅ | OCSF project's own validator, in CI |
+| [ECS](https://www.elastic.co/guide/en/ecs/current/index.html) 8.11.0 | ✅ | encoder unit tests |
+| [MITRE ATT&CK](https://attack.mitre.org) | ✅ | tag mapping tests + the ART range below |
+| [OTLP](https://opentelemetry.io/docs/specs/otlp/) | ✅ | exporter unit tests |
+| [Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) | 24/115 | live ATT&CK range in a VM (2026-11-01) |
+| systemd hardening | ✅ 2.1 "OK" | `systemd-analyze security`, every distro |
 
 The [live distro matrix](tests/distros/README.md) boots each vendor's own cloud image under KVM. It installs banken as the docs say. It runs benign malware look-alikes against that distro's real kernel and auditd. All green as of 2026-11-01.
 
