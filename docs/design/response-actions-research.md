@@ -1,32 +1,39 @@
 # Response actions -- research and validation
 
-Status: **research, not a spec.** This doc does not design the subsystem; `response-actions.md`
-already does that, thoroughly, and this doc exists to (a) check every external claim that design
-rests on against current, cited facts, (b) make the hard calls the spec left open or left implicit,
-and (c) survey how real EDRs do Linux response so banken's shape is a deliberate choice, not an
-accident. Read `response-actions.md` first; section references like "spec 5.1" point into it.
+Status: **research, not a spec.** This doc does not design the subsystem. `response-actions.md`
+already does that, thoroughly. This doc exists to do three things:
+
+- check every external claim that design rests on against current, cited facts
+- make the hard calls the spec left open or left implicit
+- survey how real EDRs do Linux response, so banken's shape is a deliberate choice, not an accident
+
+Read `response-actions.md` first. Section references like "spec 5.1" point into it.
 
 Written against the tree at `59a319a` (2026-11-02), branch `distro-matrix-mimi`. Every kernel floor
-and standards claim below carries a citation to a primary source; where a source could not pin a
+and standards claim below carries a citation to a primary source. Where a source could not pin a
 version exactly, that is said so. ASCII only, hyphens not dashes, on purpose (repo house rule).
 
 The one-line verdict, up front: **the spec is correct and buildable as written.** The pid-reuse
-handling is sound (and is the crux -- do not weaken it). banken response should stay **userspace**;
+handling is sound, and it is the crux - do not weaken it. banken response should stay **userspace**;
 in-kernel enforcement is a different product and is correctly deferred. The two external standards
-(OpenC2, D3FEND) map onto the existing action set cleanly and should be adopted as a thin shim and a
-docs table respectively, not as a redesign.
+(OpenC2, D3FEND) map onto the existing action set cleanly. Adopt them as a thin shim and a docs
+table respectively, not as a redesign.
 
 ---
 
 ## 1. Kernel primitives: verified floors, guarantees, failure modes
 
 banken's own target is NixOS 26.05 (kernel 6.12 LTS line), which clears every floor below by a wide
-margin. The floors matter for two reasons only: the honesty of the "portable static binary" story
-(a banken built for an older distro in the EDR-Telemetry comparison), and runtime feature detection
-(the executor must degrade, not crash, on a kernel that lacks `cgroup.kill` or the v2 freezer). Every
-primitive below is therefore gated at runtime by probing for the file/syscall, never by a
-`uname` version compare -- the same discipline systemd's freezer helper uses (it stats
-`cgroup.freeze` rather than checking the kernel version). [systemd cgroup-util]
+margin. The floors matter for two reasons only:
+
+- the honesty of the "portable static binary" story (a banken built for an older distro in the
+  EDR-Telemetry comparison)
+- runtime feature detection (the executor must degrade, not crash, on a kernel that lacks
+  `cgroup.kill` or the v2 freezer)
+
+Every primitive below is therefore gated at runtime by probing for the file/syscall, never by a
+`uname` version compare. This is the same discipline systemd's freezer helper uses: it stats
+`cgroup.freeze` rather than checking the kernel version. [systemd cgroup-util]
 
 | Primitive | First kernel | What it guarantees | Failure mode / floor note |
 | --- | --- | --- | --- |
@@ -42,17 +49,26 @@ primitive below is therefore gated at runtime by probing for the file/syscall, n
 | Landlock network (TCP, ABI v4) | 6.7 | the responder can be denied all TCP except the SIEM/webhook allow-list | UDP is not covered; below 6.7 fall back to seccomp + a network namespace. [go-landlock] |
 | seccomp-bpf | 3.5 | syscall allow-list for the responder (systemd `SystemCallFilter=`) | universally available; the primary confinement, Landlock is defence in depth. |
 
-Landlock ABI ladder (for the responder's self-confinement, section 3): v1 filesystem (5.13),
-v2 `REFER`/cross-dir rename (5.19), v3 `TRUNCATE` (6.2), v4 TCP bind+connect (6.7), v5 IOCTL on
-device files (6.10+). [kernel landlock.rst, go-landlock]. Query the ABI at runtime with
+Landlock ABI ladder (for the responder's self-confinement, section 3):
+
+- v1 filesystem (5.13)
+- v2 `REFER`/cross-dir rename (5.19)
+- v3 `TRUNCATE` (6.2)
+- v4 TCP bind+connect (6.7)
+- v5 IOCTL on device files (6.10+)
+
+[kernel landlock.rst, go-landlock]. Query the ABI at runtime with
 `landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION)` and drop rights the kernel does
-not know -- the kernel docs mandate exactly this best-effort pattern.
+not know. The kernel docs mandate exactly this best-effort pattern.
 
 **Takeaway for the spec.** No floor contradicts the design. Two additions the spec should fold in:
-(1) the `isolate` cgroup must exist before its nft rule, which chains naturally after the freeze
-move; (2) `PIDFD_GET_INFO` is the right long-term way to read pid+identity atomically and retire the
-`/proc/<pid>/stat` read, but it must be probed on 6.13.x, so the `/proc` read stays as the portable
-path. Both are small notes, not redesigns.
+
+- the `isolate` cgroup must exist before its nft rule, which chains naturally after the freeze move
+- `PIDFD_GET_INFO` is the right long-term way to read pid+identity atomically and retire the
+  `/proc/<pid>/stat` read. But it must be probed on 6.13.x, so the `/proc` read stays as the portable
+  path.
+
+Both are small notes, not redesigns.
 
 ---
 
@@ -73,10 +89,11 @@ theoretical: on a busy host pids cycle through the whole `pid_max` range in seco
 
 **Why pidfd ALONE is not enough -- the subtlety the spec gets right.** `pidfd_open(pid)` pins
 *whatever process currently holds that pid*. If the original already exited and a reuser now holds
-the pid, the pidfd faithfully pins the **reuser**. So a held pidfd defeats the TOCTOU race *between
-verifying and acting* (nobody can swap the process out from under the fd once held), but it does
-**not** by itself establish that the pinned process is the one the alert described. pidfd closes the
-micro-race; it does not close the minutes-long latency gap.
+the pid, the pidfd faithfully pins the **reuser**. So a held pidfd defeats the race *between
+verifying and acting* - a time-of-check-to-time-of-use (TOCTOU) race, where nobody can swap the
+process out from under the fd once it is held. But it does **not** by itself establish that the
+pinned process is the one the alert described. pidfd closes the micro-race. It does not close the
+minutes-long latency gap.
 
 **Why pid+starttime ALONE is not enough.** You can read `/proc/<pid>/stat` field 22 (starttime) and
 compare it, but between that read and a subsequent `kill(pid)` the pid can still be reused (small
@@ -98,17 +115,17 @@ window, but the same class of bug you were trying to avoid).
 5. Act through the fd: `pidfd_send_signal(fd, ...)`. Never `kill(2)`.
 
 **Verdict: pidfd AND pid+starttime, not either/or.** pidfd is the pin that makes step 2's read and
-step 5's signal race-free; the starttime bound is the identity proof that the pinned process is the
+step 5's signal race-free. The starttime bound is the identity proof that the pinned process is the
 alert's process and not a reuser born in the latency gap. The spec's section 5.1 is correct as
 written and must not be "simplified" to one or the other. The `PIDFD_GET_INFO` refinement (section
-1) collapses steps 1-2 into one atomic read on new kernels but changes nothing about the argument.
+1) collapses steps 1-2 into one atomic read on new kernels, but changes nothing about the argument.
 
-**The one honest gap, restated:** auditd and Laurel carry no starttime, so banken relies on the
-`starttime <= eventTime` bound there. That is sound for process reuse but assumes a monotone-enough
-wall clock between event and response; the skew tolerance plus the recorded (non-fatal) exe
-comparison are the mitigations, and refusal-on-doubt (`ErrStaleTarget`) is always preferred to
-acting. A source that *does* carry starttime (mimi/eBPF) removes the assumption entirely, which is a
-concrete argument for enriching process events from mimi over time (spec section 6).
+**The one honest gap, restated.** auditd and Laurel carry no starttime, so banken relies on the
+`starttime <= eventTime` bound there. That is sound for process reuse, but it assumes a
+monotone-enough wall clock between event and response. The mitigations are the skew tolerance and
+the recorded (non-fatal) exe comparison, and refusal-on-doubt (`ErrStaleTarget`) is always preferred
+to acting. A source that *does* carry starttime (mimi/eBPF) removes the assumption entirely. That is
+a concrete argument for enriching process events from mimi over time (spec section 6).
 
 ---
 
@@ -127,9 +144,15 @@ strengthens the case for it:
   single biggest differentiator from every prior-art tool in section 6: **none of them can unit-test
   "would this alert kill?" without a live victim or a mock of the whole agent.**
 - **The fake executor** (`exec.Fake`, not build-tagged, records ordered `Call`s, scriptable errors)
-  makes the *protocol* testable on a Mac: decided-before-requested, re-decide-downgrades-only,
-  failed-line-on-every-error, idempotent-redrain, expired-not-executed, kill-switch-wins. The real
-  executor is exercised only in the root+cgroupv2 VM integration test on hokkaido.
+  makes the *protocol* testable on a Mac. The protocol it tests:
+    - decided-before-requested
+    - re-decide-downgrades-only
+    - failed-line-on-every-error
+    - idempotent-redrain
+    - expired-not-executed
+    - kill-switch-wins
+
+  The real executor is exercised only in the root+cgroupv2 VM integration test on hokkaido.
 - **The privilege split is the point, not overhead.** The scan parses untrusted bytes and holds
   `CAP_DAC_READ_SEARCH` and nothing that can signal/freeze/rename. Only `banken-respond` (path-unit
   triggered, `Type=oneshot`) holds `CAP_KILL`, `CAP_SYS_PTRACE`, `CAP_DAC_OVERRIDE/FOWNER`,
@@ -150,21 +173,27 @@ general code execution. Concretely (section 1 floors permitting on the target, w
   all in v1 (it writes a ledger the scan/sinks ship), so deny all egress outright; revisit only if
   `isolate`/webhook-notify moves into the responder.
 
-This is cheap, it is the same "confine the confiner" discipline the agent-containment flake already
-applies to the claude user, and it closes the "what if the executor is the bug" question before it
+This is cheap. It is the same "confine the confiner" discipline the agent-containment flake already
+applies to the claude user. And it closes the "what if the executor is the bug" question before it
 is asked.
 
 ---
 
 ## 4. Reversibility, auditing, dry-run, interlocks (validated, nothing to add but emphasis)
 
-The spec already has: reversible-first ordering (freeze is the recommended default, kill graduated
-per-rule after a week of observe); an append-only JSONL ledger (`decisions-*` from the scan,
-`actions-*` from the drain) with the undo handle on every executed line; observe mode as the default
-that records `Intended` + which rail *would* have stopped an enforce action; a `/run` kill-switch
-checked by both processes every time; rate limits (per-run on the scan, per-hour on the drain,
-counted from the ledger); dedupe; and a built-in denylist (pid 1/2, init/sshd/auditd/dbus/banken
-itself, by name and by live re-check) the policy can only add to, never subtract from.
+The spec already has:
+
+- reversible-first ordering (freeze is the recommended default, kill graduated per-rule after a week
+  of observe)
+- an append-only JSONL ledger (`decisions-*` from the scan, `actions-*` from the drain) with the
+  undo handle on every executed line
+- observe mode as the default, which records `Intended` plus which rail *would* have stopped an
+  enforce action
+- a `/run` kill-switch checked by both processes every time
+- rate limits (per-run on the scan, per-hour on the drain, counted from the ledger)
+- dedupe
+- a built-in denylist (pid 1/2, init/sshd/auditd/dbus/banken itself, by name and by live re-check)
+  that the policy can only add to, never subtract from
 
 Research notes, in priority order:
 
@@ -194,7 +223,7 @@ Research notes, in priority order:
 
 ### 5.1 OpenC2 (OASIS)
 
-OpenC2 Language Specification v2.0 defines 20 actions; a Command is
+OpenC2 Language Specification v2.0 defines 20 actions. A Command is
 `{action, target, args?, profile?, command_id?}` and a Response is `{status, status_text?, results?}`.
 [OASIS oc2ls v2.0]. The relevant actions and their normative meanings:
 
@@ -207,12 +236,13 @@ OpenC2 Language Specification v2.0 defines 20 actions; a Command is
 - `investigate` / `copy` -- gather data (the reserved `collect`);
 - `query` -- report state (observe-mode / `respond list`).
 
-There is a dedicated **Endpoint Response (ER) actuator profile** under development at
-`oasis-tcs/openc2-ap-edr` (OASIS separated the "endpoint response" part of EDR into its own profile);
-network isolation has a published **Stateless Packet Filter (SLPF)** profile (`deny`/`allow`/`update`/
-`delete` over `ipv4_connection` five-tuples). [OASIS ap-edr repo; OASIS oc2slpf v1.0]. The ER profile
-is still a working draft, so banken should map to the **language-spec actions** (stable) and name the
-ER profile as the `profile` field, tracking it as it stabilises -- not block on it.
+A dedicated **Endpoint Response (ER) actuator profile** is under development at
+`oasis-tcs/openc2-ap-edr`, where OASIS separated the "endpoint response" part of EDR into its own
+profile. Network isolation has a published **Stateless Packet Filter (SLPF)** profile
+(`deny`/`allow`/`update`/`delete` over `ipv4_connection` five-tuples). [OASIS ap-edr repo; OASIS
+oc2slpf v1.0]. The ER profile is still a working draft. So banken should map to the **language-spec
+actions** (stable) and name the ER profile as the `profile` field, tracking it as it stabilises
+rather than blocking on it.
 
 **The call: adopt OpenC2 as a thin optional ingress shim, not banken's internal model.** banken's
 internal `Action`/`Target`/`Decision` types stay as the spec defines them (they are what the fixtures
@@ -229,18 +259,19 @@ and renders an OpenC2 Response from a ledger line. Mapping:
 | `collect` | `investigate` or `copy` / `process`,`file` | ap-edr (ER) |
 | observe / status | `query` / `features`,`process` | core |
 
-Rationale: an orchestrator (or a SOAR) drives banken with the standard verb set and no bespoke API,
-which is the entire point of OpenC2; but banken's safety rails, policy, and ledger remain the source
-of truth, and an OpenC2 Command is just another thing that proposes a `Decision` the rails still
-vet. The OpenC2 ingress must be subject to the *same* `enforceSources`/mode/rails as any alert -- a
-command is not a bypass. This keeps the testable-decision core untouched.
+Rationale: an orchestrator, or a SOAR (security orchestration, automation and response) platform,
+drives banken with the standard verb set and no bespoke API. That is the entire point of OpenC2. But
+banken's safety rails, policy and ledger remain the source of truth. An OpenC2 Command is just
+another thing that proposes a `Decision` the rails still vet. The OpenC2 ingress must be subject to
+the *same* `enforceSources`/mode/rails as any alert - a command is not a bypass. This keeps the
+testable-decision core untouched.
 
 ### 5.2 MITRE D3FEND
 
-D3FEND is the defensive counterpart to ATT&CK; banken's detections are ATT&CK-mapped, so mapping each
-response to the D3FEND technique it realises is a cheap, recognisable docs win (standards.md already
-lists it as "Docs, cheap"). Verified technique IDs (confirm each against d3fend.mitre.org at write
-time -- third-party sources vary on a few):
+D3FEND is the defensive counterpart to ATT&CK. banken's detections are ATT&CK-mapped, so mapping
+each response to the D3FEND technique it realises is a cheap, recognisable docs win (standards.md
+already lists it as "Docs, cheap"). Verified technique IDs (confirm each against d3fend.mitre.org at
+write time -- third-party sources vary on a few):
 
 | banken action | D3FEND technique | ID (verify) | Tactic |
 | --- | --- | --- | --- |
@@ -251,9 +282,10 @@ time -- third-party sources vary on a few):
 | `isolate` (per-cgroup / host egress) | Network Traffic Filtering / Broadcast Domain Isolation | D3-NTF / D3-BDI | Isolate |
 | observe-mode ledger | Process/Network Analysis | D3-PA / D3-NTA | Analyze |
 
-The honest framing for the docs: banken is an **Evict + Isolate** responder (post-event), **not** a
-**Deceive** or an inline **Isolate-by-prevention** (no exec-time block in the timer model). That
-distinction is the same userspace-vs-eBPF point as section 6, stated in D3FEND's own vocabulary.
+The honest framing for the docs: banken is an **Evict + Isolate** responder (post-event). It is
+**not** a **Deceive** responder, nor an inline **Isolate-by-prevention** one (no exec-time block in
+the timer model). That distinction is the same userspace-vs-eBPF point as section 6, stated in
+D3FEND's own vocabulary.
 
 ---
 
@@ -268,10 +300,10 @@ distinction is the same userspace-vs-eBPF point as section 6, stated in D3FEND's
 | **osquery** | none (query only) | SQL over host state; response is bolted on by external tooling (Fleet, Kolide) | Confirms the clean split banken keeps: detection/telemetry is one concern, response another. banken keeps them in separate processes for the same reason. |
 | **Tetragon / Cilium** | in-kernel enforcement: SIGKILL + return-value override at the syscall | BPF hooks that both decide and act in-kernel; docs state a bare SIGKILL "does not always stop the operation" (a kill during `write()` may still write) so Signal must be paired with Override to truly block | The reference point for the eBPF verdict (section 7). True *prevention* needs in-kernel; it is a different mechanism and a different product. [Tetragon enforcement docs] |
 
-**Where banken sits:** a **userspace, post-event, host-level Evict/Isolate responder** whose
-differentiator is a **pure, fixture-testable decision** and a **privilege-split executor** with
+**Where banken sits.** It is a **userspace, post-event, host-level Evict/Isolate responder**. Its
+differentiator is a **pure, fixture-testable decision** plus a **privilege-split executor** with
 **correct pid identity**. No surveyed OSS tool has all three. Wazuh is the closest and lacks (1) and
-(2); the eBPF tools do in-kernel prevention, which banken deliberately does not attempt (next).
+(2). The eBPF tools do in-kernel prevention, which banken deliberately does not attempt (next).
 
 ---
 
@@ -282,11 +314,11 @@ sibling, not bolted onto banken's scan.**
 
 The argument:
 
-1. **banken is cleanup, not prevention, by construction.** It reads a log on a timer after the fact;
-   a response lands up to one interval after the event. In-kernel enforcement exists to stop an
+1. **banken is cleanup, not prevention, by construction.** It reads a log on a timer after the fact.
+   A response lands up to one interval after the event. In-kernel enforcement exists to stop an
    operation *as it happens* (Tetragon overrides the syscall return before the body runs). banken has
    already missed that window by design, so in-kernel machinery buys it **nothing** for the four
-   response actions -- kill/freeze/quarantine/isolate are all things you do to a process/file that
+   response actions. kill/freeze/quarantine/isolate are all things you do to a process or file that
    already exists. Userspace pidfd/cgroup/renameat2/nft do them correctly and reversibly.
 
 2. **In-kernel enforcement is a different, heavier mechanism with its own failure modes.** Tetragon's
@@ -300,18 +332,18 @@ The argument:
    (5.5) correctly rules out `fanotify` permission events in the timer model (nobody is resident to
    answer them) and reserves them for a future `--watch` mode. The memory note `mimi-listener-only`
    records the standing decision that in-kernel BPF-LSM *enforcement* is deferred as a someday
-   separate sibling (task 1114), with mimi staying a pure listener. Those two facts line up exactly:
-   if/when banken wants prevention, the path is a resident `--watch` mode, and even then the first
+   separate sibling (task 1114), with mimi staying a pure listener. Those two facts line up exactly.
+   If and when banken wants prevention, the path is a resident `--watch` mode. Even then the first
    choice is **fanotify permission events in userspace** (simpler, auditable, no `ALLOW_ERROR_INJECTION`
-   dependency), with BPF-LSM enforcement the "someday nuke" behind a hard design review -- not a
+   dependency). BPF-LSM enforcement stays the "someday nuke" behind a hard design review, not a
    feature of the scan.
 
 4. **The design tenets forbid it here.** "Simple is good", "no rough edges", and the containment
    tenet set (secure, auditable, comfortable, configurable) all point the same way: an in-kernel
    enforcer welded to a timer scanner would be the maximum of complexity for zero latency benefit.
 
-So: userspace for every response action banken ships; prevention is a separate product shape
-(resident `--watch`, fanotify-first) that is explicitly out of scope here and already has a home on
+So banken ships userspace for every response action. Prevention is a separate product shape
+(resident `--watch`, fanotify-first). It is explicitly out of scope here and already has a home on
 the task list. This is written into the phasing (section 8) as a non-goal, not an open question.
 
 ---
@@ -320,13 +352,14 @@ the task list. This is written into the phasing (section 8) as a non-goal, not a
 
 Flow (unchanged from spec section 2): `engine.Match -> Alert -> Dispatcher -> Responder.Respond`
 (`Alert.Tags` is the selector) `-> Decide (pure) -> ledger "decided" -> if Action != none, write
-work order to /var/lib/banken/spool -> ledger "requested"`; the `banken-respond.path` unit fires
-`banken-respond.service` which `re-Decide`s from on-disk policy and executes via the `Executor`,
-writing `executed`/`failed`/`expired`. Two processes, one binary, scan sandbox untouched.
+work order to /var/lib/banken/spool -> ledger "requested"`. Then the `banken-respond.path` unit
+fires `banken-respond.service`, which `re-Decide`s from on-disk policy and executes via the
+`Executor`, writing `executed`/`failed`/`expired`. Two processes, one binary, scan sandbox
+untouched.
 
-NixOS module option shape (confirming PLAN and spec; the module derives the respond unit's capability
-set from which actions the policy enables, so a policy with no `quarantine` entry gets no
-`CAP_LINUX_IMMUTABLE`):
+NixOS module option shape (confirming PLAN and spec). The module derives the respond unit's
+capability set from which actions the policy enables, so a policy with no `quarantine` entry gets no
+`CAP_LINUX_IMMUTABLE`:
 
 ```nix
 services.banken.response = {
@@ -367,7 +400,7 @@ Phased rollout (spec section 12, with the research decisions attached):
 
 ## 9. Decisions made in this research (summary)
 
-1. **pid identity: pidfd AND pid+starttime, never either alone.** pidfd closes the verify/act race;
+1. **pid identity: pidfd AND pid+starttime, never either alone.** pidfd closes the verify/act race.
    starttime closes the latency-gap reuse. The spec is correct; do not simplify. `PIDFD_GET_INFO` is
    a per-kernel-probed refinement, not a dependency. (Section 2.)
 2. **userspace, not eBPF, for all response actions.** banken is post-event cleanup; in-kernel
@@ -380,9 +413,9 @@ Phased rollout (spec section 12, with the research decisions attached):
    on the respond unit. New, cheap, closes "what if the executor is the bug". (Section 3.)
 5. **uid-0: default-refuse (`allowRoot: false`), opt-in per entry; keep the name denylist and add a
    cgroup-unit rail.** Resolves spec open questions 3 and 8. (Section 4.)
-6. **OpenC2: adopt as a thin optional ingress/egress shim, not the internal model;** map to stable
-   language-spec actions (`contain`/`stop`/`delete`/`restore`/`deny`), name the ER profile, do not
-   block on the draft. Commands are vetted by the same rails as alerts. (Section 5.1.)
+6. **OpenC2: adopt as a thin optional ingress/egress shim, not the internal model.** Map to stable
+   language-spec actions (`contain`/`stop`/`delete`/`restore`/`deny`) and name the ER profile. Do
+   not block on the draft. Commands are vetted by the same rails as alerts. (Section 5.1.)
 7. **D3FEND: a docs table** mapping each action to its technique (D3-PT/PSUS/FEV/NTF). Cheap
    credibility; frames banken honestly as Evict+Isolate, not prevention. (Section 5.2.)
 8. **Leave the rest of the spec as written.** The two-layer/two-process design, the ledger, observe
@@ -390,10 +423,13 @@ Phased rollout (spec section 12, with the research decisions attached):
    and need no change.
 
 Spec open questions this research does **not** close (they are Conor's, not research calls):
-1 (cgroup home: plain dir vs transient scope -- lean plain, touches hokkaido unit layout), 4 (two
-units vs one -- research strongly favours two), 5 (composite actions -- defer until `collect`
-exists), 6 (per-mount quarantine dir -- lean against, it is a rough edge), 7 (ledger location/
-retention), 10 (attack-range "expected response" column -- lean yes, same corpus idea).
+
+- 1 (cgroup home: plain dir vs transient scope -- lean plain, touches hokkaido unit layout)
+- 4 (two units vs one -- research strongly favours two)
+- 5 (composite actions -- defer until `collect` exists)
+- 6 (per-mount quarantine dir -- lean against, it is a rough edge)
+- 7 (ledger location/retention)
+- 10 (attack-range "expected response" column -- lean yes, same corpus idea)
 
 ---
 

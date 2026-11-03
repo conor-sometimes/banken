@@ -1,76 +1,95 @@
 # Response actions - design spec
 
-Status: **partially implemented; real enforcement DISABLED by default and armed only inside one VM
-test.** The decision layer (phases 0-1), the executor (phase 2) and the responder that wires an
-alert through `Decide` to the executor are built; see the "Implementation status" box below for
-exactly what exists and -- loudly -- for the fact that no process is killed, frozen or quarantined
-on any real host. The design text below is the original proposal, written against the tree as of
-2026-10-31 (`17c1d21`); where the code and this prose diverge the code is the truth.
+Status: **partially implemented. Real enforcement is DISABLED by default and armed only inside one
+VM test.**
+
+Three pieces are built:
+
+- the decision layer (phases 0-1)
+- the executor (phase 2)
+- the responder that wires an alert through `Decide` to the executor
+
+The "Implementation status" box below says exactly what exists. It also states, loudly, that no
+process is killed, frozen or quarantined on any real host.
+
+The design text below is the original proposal. It was written against the tree as of 2026-10-31
+(`17c1d21`). Where the code and this prose diverge, the code is the truth.
 
 > ## Implementation status (as built)
 >
 > **Real enforcement is OFF by default and is NOT armed anywhere.** The executor
-> (`internal/response/exec`) performs NO real kill, freeze, quarantine, neuter or collect unless its
-> `Config.Enforce` flag is explicitly set true. The zero value is false: a dry-run executor that
-> verifies the target, logs what it *would* do, and returns a handle marked `DryRun`. This worker did
-> NOT set `Enforce` true anywhere -- not in a constructor default, not in the NixOS module, not in any
-> test that runs against a real process or file. **Arming real enforcement is gated for Conor's
-> design-session review.** Do not flip the default without it.
+> (`internal/response/exec`) performs no real kill, freeze, quarantine, neuter or collect unless its
+> `Config.Enforce` flag is explicitly set true. The zero value is false. That zero value is a dry-run
+> executor: it verifies the target, logs what it *would* do, and returns a handle marked `DryRun`.
+> This worker did NOT set `Enforce` true anywhere. Not in a constructor default. Not in the NixOS
+> module. Not in any test that runs against a real process or file. **Arming real enforcement is
+> gated for Conor's design-session review.** Do not flip the default without it.
 >
 > Built so far:
-> - **Phase 0** (`internal/event`, `internal/parser`): `Event.PID/PPID/ProcessStart` fields and the
->   auditd/Laurel/mimi/sysmon parser plumbing that populates them, with goldens; `Rule.Tags ->
->   Alert.Tags`. (Present from the rule-refresh work; confirmed, not re-added.)
+> - **Phase 0** (`internal/event`, `internal/parser`): the `Event.PID/PPID/ProcessStart` fields,
+>   the auditd/Laurel/mimi/sysmon parser plumbing that populates them (with goldens), and
+>   `Rule.Tags -> Alert.Tags`. This came from the rule-refresh work. It was confirmed, not re-added.
 > - **Phase 1** (`internal/response`): the pure `Decide(Input) Decision` (no clock, no filesystem, no
 >   /proc, no globals), the `Policy` loader/validator (strict YAML, every bad key/action/mode a load
->   error), and an append-only decision `Ledger`. Decide has zero side effects; the ledger is a
->   separate recording component. Fully table-driven unit tests, including one that asserts every
->   `Rail` is reached.
-> - **Phase 2** (`internal/response/exec`): the `Executor` -- pidfd+start-time identity (the
+>   error), and an append-only decision `Ledger`. Decide has zero side effects. The ledger is a
+>   separate recording component. Unit tests are fully table-driven, and one of them asserts that
+>   every `Rail` is reached.
+> - **Phase 2** (`internal/response/exec`): the `Executor`. It covers pidfd+start-time identity (the
 >   pid-reuse crux), freeze/thaw (cgroup v2 freezer, SIGSTOP fallback), kill (pidfd SIGKILL,
 >   `cgroup.kill` with per-pid fallback), quarantine (`renameat2 RENAME_NOREPLACE`, EXDEV neuter +
->   immutable bit, sidecar manifest) and restore, and collect -- **every mutating method gated behind
->   `Config.Enforce`**, defaulting to dry-run. Linux-only syscall code is behind `//go:build linux`
->   so `GOOS=windows` still builds. Tests exercise dry-run everywhere and, on Linux, the real paths
->   against only self-spawned `sleep` children and files the test created under `/tmp`.
+>   immutable bit, sidecar manifest) and restore, and collect. **Every mutating method is gated behind
+>   `Config.Enforce`** and defaults to dry-run. Linux-only syscall code is behind `//go:build linux`,
+>   so `GOOS=windows` still builds. Tests exercise dry-run everywhere. On Linux they also exercise the
+>   real paths, but only against self-spawned `sleep` children and files the test created under `/tmp`.
 >
 > - **Responder wiring** (`internal/response/respond`, `main.go`, `module.nix`): the deferred
 >   alert -> `Decide` -> executor path is now built. `respond.Responder` implements
->   `alert.Responder`: for every dispatched alert it runs the pure `Decide` against the loaded
->   policy, records the verdict to the decision ledger, and -- when the policy decided a real action
->   -- invokes the executor (kill/freeze/quarantine/collect) and records the outcome (an
->   `executed`/`failed` line in `actions-<day>.jsonl`, with the handle and whether enforcement was
->   armed). It runs under a recover (never-die), tracks a run-local budget and dedupe set, and
->   re-stats the kill-switch on every alert. `internal/response` still does NOT import
->   `internal/response/exec`; the responder sits above both and is the one place that depends on all
->   three layers. `main.go` installs it behind `response.enable`; the NixOS module exposes
+>   `alert.Responder`. For every dispatched alert it runs the pure `Decide` against the loaded
+>   policy and records the verdict to the decision ledger. When the policy decided a real action, it
+>   also invokes the executor (kill/freeze/quarantine/collect) and records the outcome. That outcome
+>   is an `executed` or `failed` line in `actions-<day>.jsonl`, carrying the handle and whether
+>   enforcement was armed. The responder runs under a recover (never-die), tracks a run-local budget
+>   and dedupe set, and re-stats the kill-switch on every alert. `internal/response` still does NOT
+>   import `internal/response/exec`: the responder sits above both and is the one place that depends
+>   on all three layers. `main.go` installs it behind `response.enable`. The NixOS module exposes
 >   `services.banken.response` (`enable`, `enforce`, `policyFile`/`policy`, `ledgerDir`).
->   `response.enforce` ARMS the executor and defaults **false** on every real host; it relaxes the
->   scan unit's sandbox (adds `CAP_KILL` + `CAP_SYS_PTRACE`, `ProtectProc=default`, the pidfd
->   syscalls) only when set.
+>   `response.enforce` ARMS the executor and defaults **false** on every real host. Only when it is
+>   set does it relax the scan unit's sandbox, by adding `CAP_KILL` + `CAP_SYS_PTRACE`,
+>   `ProtectProc=default` and the pidfd syscalls.
 > - **End-to-end enforcement proof** (`tests/response-enforce.nix`, wired into `nix flake check` as
 >   `response-enforce`): a throwaway KVM VM with `response.enforce = true` and a policy mapping
->   `reverse_shell` and `pipe_to_shell` to `kill`. The test spawns benign long-lived processes (as an
->   unprivileged user) that carry each rule's triggering argv and then sleep; one banken scan detects
->   them and the executor SIGKILLs exactly the rule-matched ones via pidfd, leaving an innocent
->   process untouched, and the ledger records each real kill. This is the ONLY configuration anywhere
->   that arms real enforcement. The process set is a parametrized `cases` list so the follow-up
+>   `reverse_shell` and `pipe_to_shell` to `kill`. The test spawns benign long-lived processes as an
+>   unprivileged user. Each carries a rule's triggering argv and then sleeps. One banken scan detects
+>   them. The executor SIGKILLs exactly the rule-matched ones via pidfd, leaves an innocent process
+>   untouched, and the ledger records each real kill. This is the ONLY configuration anywhere that
+>   arms real enforcement. The process set is a parametrized `cases` list, so the follow-up
 >   enforcement-coverage stress phase can extend it to the whole emulation corpus.
 >
-> Not built here (deferred): the two-process spool/drain split (this responder acts in-process; the
-> separate `banken-respond.{service,path}` least-privilege executor unit from section 8 is still the
-> target shape), the `banken respond list|thaw|restore|explain` subcommands, and freeze/quarantine
-> enforcement proofs in the VM (only process-scope `kill` is proven end to end so far).
+> Deferred, not built here:
+>
+> - the two-process spool/drain split (this responder acts in-process; the separate
+>   `banken-respond.{service,path}` least-privilege executor unit from section 8 is still the target
+>   shape)
+> - the `banken respond list|thaw|restore|explain` subcommands
+> - freeze/quarantine enforcement proofs in the VM (only process-scope `kill` is proven end to end so
+>   far)
 
-banken today is alert-only. This is the design for the subsystem that lets it *act* on an alert:
-freeze or kill a process, quarantine a file, and later isolate a process from the network and
-collect evidence. It is held to the same bar as the rest of the tree - simple, no rough edges,
-honest, reversible where possible - and to the README's existing promise: **response actions are
-operator policy keyed off a rule tag, never embedded in a rule.**
+banken today is alert-only. This is the design for the subsystem that lets it *act* on an alert. An
+action can:
 
-The one-sentence shape: **a pure, fixture-tested decision function turns (alert, policy) into a
-decided action; a tiny, separately-sandboxed executor performs it with race-free Linux primitives;
-every decision and every action is written to an append-only ledger, in observe mode too.**
+- freeze or kill a process
+- quarantine a file
+- later, isolate a process from the network and collect evidence
+
+It is held to the same bar as the rest of the tree: simple, no rough edges, honest, and reversible
+where possible. It is also held to the README's existing promise: **response actions are operator
+policy keyed off a rule tag, never embedded in a rule.**
+
+The shape in short:
+
+- **A pure, fixture-tested decision function turns (alert, policy) into a decided action.**
+- **A tiny, separately-sandboxed executor performs it with race-free Linux primitives.**
+- **Every decision and every action is written to an append-only ledger, in observe mode too.**
 
 ---
 
@@ -84,8 +103,11 @@ every decision and every action is written to an append-only ledger, in observe 
 3. The scan process gains **no** new privilege. Only a small executor wields kill/freeze/quarantine.
 4. Default is observe: a fresh install never surprise-kills. Enforcement is an explicit, auditable
    operator decision, and a kill-switch stops it instantly without a config rebuild.
-5. Hard rails that no rule, policy or bug can cross: never pid 1, never the init system, never sshd,
-   never banken itself.
+5. Hard rails that no rule, policy or bug can cross. It never touches:
+   - pid 1
+   - the init system
+   - sshd
+   - banken itself
 6. Chain of custody: who decided what, from which alert, under which policy, and what happened.
 
 **Non-goals (for this version)**
@@ -99,12 +121,16 @@ every decision and every action is written to an append-only ledger, in observe 
 - Windows and macOS. One section (§5.7) names the equivalent primitives so the interfaces are not
   Linux-shaped by accident; the executor is Linux-only.
 
-**Honesty clause.** Where a thing cannot be done cleanly it is said so, with the consequence, rather
-than smoothed over. The list: the one-interval latency (above); auditd and Laurel carry no process
-start time (§6); cgroup freeze is per-cgroup, not per-process, so freezing means *moving* the
-process (§5.2); file quarantine by rename is same-filesystem only (§5.4); fanotify blocking needs a
-daemon (§5.5); a root-level attacker can undo any of this and the defence against that is the
-ledger plus the existing `tamper_banken` rule, not the action itself (§9).
+**Honesty clause.** Where a thing cannot be done cleanly, it is said so, with the consequence,
+rather than smoothed over. The things that cannot be done cleanly:
+
+- the one-interval latency (above)
+- auditd and Laurel carry no process start time (§6)
+- cgroup freeze is per-cgroup, not per-process, so freezing means *moving* the process (§5.2)
+- file quarantine by rename is same-filesystem only (§5.4)
+- fanotify blocking needs a daemon (§5.5)
+- a root-level attacker can undo any of this. The defence against that is the ledger plus the
+  existing `tamper_banken` rule, not the action itself (§9)
 
 ---
 
@@ -120,9 +146,9 @@ type Responder interface {
 func (d *Dispatcher) SetResponder(r Responder)
 ```
 
-`Dispatch` calls the responder before the sinks and collects its error alongside the sinks'
-errors; a responder failure never suppresses an alert. That contract is kept as-is. No sink, parser
-or matcher changes.
+`Dispatch` calls the responder before the sinks and collects its error alongside the sinks' errors.
+A responder failure never suppresses an alert. That contract is kept as-is. No sink, parser or
+matcher changes.
 
 ```
  event ─► engine.Match ─► alert ─► Dispatcher ─┬─► Responder  = response.Responder
@@ -139,7 +165,7 @@ or matcher changes.
                                                └─► sinks (journal / jsonl / webhook) as today
 ```
 
-Two processes, one binary. The scan (`banken`) decides and *asks*; the executor (`banken respond
+Two processes, one binary. The scan (`banken`) decides and *asks*. The executor (`banken respond
 drain`, a second systemd unit) verifies and *acts*. The scan keeps its current sandbox to the byte.
 
 ---
@@ -155,13 +181,13 @@ drain`, a second systemd unit) verifies and *acts*. The scan keeps its current s
 | `main.go` + `respond.go` | `banken respond drain|list|thaw|restore|explain` subcommands | - |
 
 `internal/response` must not import `internal/response/exec`. The decision layer cannot reach a
-primitive even by accident; the dependency arrow only points the other way (the executor imports
-the decision types to re-validate).
+primitive even by accident. The dependency arrow only points the other way: the executor imports
+the decision types to re-validate.
 
 ### 3.2 The decision layer (pure)
 
-Everything the decision needs is passed in as plain data. No clock, no filesystem, no `/proc`, no
-globals. Same input, same output, forever - that is what makes it fixture-testable.
+Everything the decision needs is passed in as plain data. It reads no clock, no filesystem, no
+`/proc` and no globals. Same input, same output, forever. That is what makes it fixture-testable.
 
 ```go
 package response
@@ -275,9 +301,9 @@ func Decide(in Input) Decision
 8. **Kill-switch** - `KillSwitch` true → rail.
 9. **Mode** - `observe` → rail `observe-mode`, `Action = none`. `enforce` → `Action = Intended`.
 
-Rails 2-8 run *before* the mode check deliberately: an observe-mode ledger shows exactly which rail
-would have stopped an enforce-mode action, so an operator can tune the policy for a week on real
-traffic before flipping the switch and get no surprises when they do.
+Rails 2-8 run *before* the mode check deliberately. An observe-mode ledger then shows exactly which
+rail would have stopped an enforce-mode action. So an operator can tune the policy for a week on
+real traffic before flipping the switch, and get no surprises when they do.
 
 ### 3.3 The execution layer
 
@@ -334,8 +360,9 @@ var (
 func New(cfg Config) (Executor, error)
 ```
 
-`Fake` (in `exec/fake.go`, not behind a build tag so every package can use it) records every call in
-order, can be scripted to return a given error per method, and never touches the OS.
+`Fake` lives in `exec/fake.go`. It is not behind a build tag, so every package can use it. It
+records every call in order. It can be scripted to return a given error per method. It never touches
+the OS.
 
 ### 3.4 The responder (scan side)
 
@@ -375,10 +402,10 @@ filename (= ULID = time) order:
 
 ## 4. Policy: the operator config
 
-Lives in the existing YAML config under a new `response:` key, same camelCase style as `alerts:`,
-rendered by the NixOS module from options like everything else. Loaded by `config.Load`; validated by
-`response.Validate` with the Sigma loader's discipline: an unknown key, action, mode or target is a
-**load error naming the key**, never a silent default.
+The policy lives in the existing YAML config under a new `response:` key. It uses the same camelCase
+style as `alerts:` and is rendered by the NixOS module from options, like everything else.
+`config.Load` loads it. `response.Validate` validates it with the Sigma loader's discipline: any
+unknown key, action, mode or target is a **load error naming the key**, never a silent default.
 
 ```yaml
 # /etc/banken/banken.yml  (excerpt)
@@ -417,30 +444,35 @@ response:
       scope: tree
 ```
 
-**Selectors.** `rules:` (exact names), `tag:` (a Sigma `tags:` entry), or both (AND). A rule only
-*emits* tags; the mapping to an action is here and only here, so the action set is a local,
-auditable file a remote rule can never carry.
+**Selectors.** A selector is `rules:` (exact names), `tag:` (a Sigma `tags:` entry), or both
+together (AND). A rule only *emits* tags. The mapping to an action is here and only here. So the
+action set is a local, auditable file that a remote rule can never carry.
 
 **The one asymmetry, stated plainly.** A remote rule can tag itself `attack.command-and-control`.
 If the operator mapped that tag to `kill`, a rogue rule could earn itself a kill on any process it
-matches. So: **a tag-only selector may map to a reversible action (`freeze`, `quarantine`, later
-`isolate`/`collect`); `kill` requires `rules:`.** `Validate` rejects a tag-only `kill` entry with
-the reason in the message. A remote rule can at worst earn a freeze, which thaws.
+matches. The rule that prevents this: **a tag-only selector may map to a reversible action
+(`freeze`, `quarantine`, later `isolate`/`collect`), but `kill` requires `rules:`.** `Validate`
+rejects a tag-only `kill` entry with the reason in the message. A remote rule can at worst earn a
+freeze, which thaws.
 
-**Validation rules** (all load errors): mode ∉ {observe, enforce}; action ∉ implemented set
-(`isolate`/`collect` say "reserved, not implemented in this version"); `kill` without `rules:`;
-`quarantine` with `target: process` or freeze/kill with `target: targetFilename`; an `allowPaths`
-entry that is not absolute, or that lies under a built-in never-quarantine prefix; `rateLimit`
-≤ 0; a `rules:` name that no loaded rule has (warning, not error - rule trees are loaded on top of
-each other, and a typo in a kill pin should be loud).
+**Validation rules.** These all fail at load:
+
+- mode ∉ {observe, enforce}
+- action ∉ implemented set (`isolate`/`collect` say "reserved, not implemented in this version")
+- `kill` without `rules:`
+- `quarantine` with `target: process`, or freeze/kill with `target: targetFilename`
+- an `allowPaths` entry that is not absolute, or that lies under a built-in never-quarantine prefix
+- `rateLimit` ≤ 0
+- a `rules:` name that no loaded rule has (a warning, not an error - rule trees are loaded on top of
+  each other, and a typo in a kill pin should be loud)
 
 **Policy hash.** `sha256` of the canonical `response:` block is computed at load and written on every
 ledger line, so each decision is tied to the exact policy text that produced it.
 
 ### 4.1 Dependency: rule tags into the alert
 
-`sigma.Rule` has no `Tags` field today; `tags:` in a rule file (e.g. `tamper_banken.yml`) is parsed
-by `yaml.v3` into nothing. Needed:
+`sigma.Rule` has no `Tags` field today. So `tags:` in a rule file (e.g. `tamper_banken.yml`) is
+parsed by `yaml.v3` into nothing. Two things are needed:
 
 - `sigma.Rule.Tags []string` populated from `tags:` (strings only; anything else is a load error).
 - `alert.Alert.Tags []string \`json:"tags,omitempty"\`` copied in `engine.Match`. It rides along to
@@ -452,8 +484,8 @@ by `yaml.v3` into nothing. Needed:
 
 ### 5.1 Targeting a process without the pid-reuse race (shared by freeze and kill)
 
-`kill(pid)` is forbidden in this codebase. The pid in an alert is minutes old; it may belong to a
-different process by now. The executor:
+`kill(pid)` is forbidden in this codebase. The pid in an alert is minutes old. It may belong to a
+different process by now. So the executor does this:
 
 1. `pidfd_open(pid, 0)` → fd. From here on the fd names *one* process for its lifetime, whatever
    happens to the pid number. `ESRCH` → `ErrGone`.
@@ -498,32 +530,32 @@ different process by now. The executor:
    cgroup. uid that cannot be read is refused when `allowRoot` is false (fail closed).
 6. Act **through the fd**: `pidfd_send_signal(pidfd, SIGKILL, NULL, 0)`. Never `kill(2)`.
 
-This identity-and-rails procedure is shared by `kill`, `freeze` AND `collect`: `collect` binds to
-the same confirmed process before it snapshots `/proc`, so evidence is of the process the alert
-named, not of whoever holds the pid at collection time (a mismatch returns `ErrStaleTarget`/
-`ErrGone` rather than a snapshot of the wrong process). `Verify` runs the whole procedure read-only
+This identity-and-rails procedure is shared by `kill`, `freeze` AND `collect`. `collect` binds to
+the same confirmed process before it snapshots `/proc`. So the evidence is of the process the alert
+named, not of whoever holds the pid at collection time. On a mismatch it returns `ErrStaleTarget` or
+`ErrGone`, rather than a snapshot of the wrong process. `Verify` runs the whole procedure read-only,
 so `respond explain` can show the target, the masquerade flag and the refusal reason without acting.
 
-Newer kernels expose `PIDFD_GET_INFO` (an ioctl on the pidfd returning pid/ppid/exit info) which can
-replace the `/proc` read; treat it as an optimisation to verify on the target kernel, not a
+Newer kernels expose `PIDFD_GET_INFO`, an ioctl on the pidfd that returns pid/ppid/exit info. It can
+replace the `/proc` read. Treat it as an optimisation to verify on the target kernel, not a
 dependency.
 
 A `ProcessRef` with `PID == 0` is *untargetable* at the decision stage and never reaches here.
 
 ### 5.2 `freeze` - reversible containment (the recommended default)
 
-**Primitive.** cgroup v2 freezer: write `1` to `cgroup.freeze`; `cgroup.events` reports `frozen 1`
-when done. Frozen tasks keep their memory, fds, sockets and credentials; an analyst can read
-`/proc/<pid>/{maps,environ,fd,cmdline}` and dump memory at leisure; `thaw` writes `0` and the
-process continues as if nothing happened. It cannot be undone by the process, its parent or a
-`SIGCONT` from a watchdog, and it freezes the whole tree.
+**Primitive.** The cgroup v2 freezer. Write `1` to `cgroup.freeze`, and `cgroup.events` reports
+`frozen 1` when done. Frozen tasks keep their memory, fds, sockets and credentials. An analyst can
+read `/proc/<pid>/{maps,environ,fd,cmdline}` and dump memory at leisure. `thaw` writes `0` and the
+process continues as if nothing happened. The freeze cannot be undone by the process, its parent or
+a `SIGCONT` from a watchdog, and it freezes the whole tree.
 
 **The honest complication.** Freezing is per-cgroup, and the target's cgroup is almost never its
-own: an interactive shell's reverse shell lives in `session-N.scope` next to the user's sshd
-session leader, a service's child lives in its unit's cgroup. Freezing in place would freeze the
-operator's own session. So freeze means **move, then freeze** - or rather, freeze an empty cgroup
-first and move into it (a task migrated into a frozen cgroup is frozen on arrival, closing the
-fork-while-migrating gap):
+own. A reverse shell in an interactive shell lives in `session-N.scope`, next to the user's sshd
+session leader. A service's child lives in its unit's cgroup. Freezing in place would freeze the
+operator's own session. So freeze means **move, then freeze**. More precisely: freeze an empty
+cgroup first and move into it. A task migrated into a frozen cgroup is frozen on arrival, which
+closes the fork-while-migrating gap. The steps:
 
 1. `mkdir /sys/fs/cgroup/banken.quarantine/<handle-id>`; write `1` to its `cgroup.freeze`.
 2. Collect the target's descendant set from `/proc/<pid>/task/*/children` (`CONFIG_PROC_CHILDREN`)
@@ -535,30 +567,30 @@ fork-while-migrating gap):
    `Handle` so `thaw` can move them back, then unfreeze (order matters: move back first, so a
    thawed process never spends an instant running in the quarantine cgroup).
 
-`scope: process` moves only the target pid; `scope: tree` (default for freeze) moves descendants
+`scope: process` moves only the target pid. `scope: tree` (default for freeze) moves descendants
 too.
 
 **Where the cgroup lives.** `banken.quarantine/` is a plain directory under the cgroup v2 root,
 outside systemd's slice tree. systemd manages only cgroups it created and leaves foreign root-level
-subtrees alone; this is the same arrangement container runtimes use. The alternative - asking
+subtrees alone. This is the same arrangement container runtimes use. The alternative is to ask
 systemd for a transient scope over D-Bus (`StartTransientUnit` with `PIDs=`, then
-`systemctl freeze <scope>`) - is more "blessed" but adds a D-Bus client dependency and makes
-migrating late-forked children awkward. **Open question §10.1.** Either way the executor's own
-service cgroup is *never* used to hold frozen processes: a oneshot unit's cgroup is torn down when
+`systemctl freeze <scope>`). That is more "blessed", but it adds a D-Bus client dependency and makes
+migrating late-forked children awkward. **Open question §10.1.** Either way, the executor's own
+service cgroup is *never* used to hold frozen processes. A oneshot unit's cgroup is torn down when
 it exits, and frozen tasks are still killable by SIGKILL.
 
 **systemd bookkeeping, stated.** A process moved out of its unit's cgroup is no longer accounted to
 that unit: `systemctl stop that.service` will not reach it, and `systemctl status` will not list
 it. `banken respond list` does. `thaw` puts it back. This is a real, documented edge, not hidden.
 
-**Fallback when there is no v2 freezer** (cgroup v1 host, or no write access): `SIGSTOP` via
-`pidfd_send_signal`, per process, with `scope: tree` applied by stopping each descendant found in
-the same bounded walk. Weaker - a parent can `SIGCONT` it and a child forked between the walk and
-the stop escapes - and the ledger line says `method: sigstop` so nobody mistakes it for the real
+**Fallback when there is no v2 freezer** (a cgroup v1 host, or no write access): `SIGSTOP` via
+`pidfd_send_signal`, per process. `scope: tree` is applied by stopping each descendant found in the
+same bounded walk. This is weaker: a parent can `SIGCONT` it, and a child forked between the walk
+and the stop escapes. The ledger line says `method: sigstop` so nobody mistakes it for the real
 thing. Thaw is `SIGCONT`.
 
-**Reboot.** Frozen processes do not survive a reboot; the handle becomes `thaw: not-applicable`
-(the drain notices `/proc/sys/kernel/random/boot_id` changed since the ledger line was written).
+**Reboot.** Frozen processes do not survive a reboot. The handle becomes `thaw: not-applicable`: the
+drain notices that `/proc/sys/kernel/random/boot_id` changed since the ledger line was written.
 
 ### 5.3 `kill` - destructive
 
@@ -566,10 +598,10 @@ thing. Thaw is `SIGCONT`.
   process handles SIGTERM, and a half-measure that "usually works" is a rough edge. If an
   operator wants a graceful stop they want a freeze and a human.
 - `scope: tree`: the §5.2 move into a frozen `banken.quarantine/<id>` cgroup, then write `1` to
-  `cgroup.kill` (Linux 5.14+), which kills every task in the cgroup atomically, including any
-  that would have forked. Without `cgroup.kill`, fall back to per-pid pidfd kills over the frozen
-  set (frozen tasks still die to SIGKILL). Then `rmdir` the cgroup.
-- The `Handle` for a kill has no undo; the ledger says so explicitly rather than leaving the field
+  `cgroup.kill` (Linux 5.14+). That kills every task in the cgroup atomically, including any that
+  would have forked. Without `cgroup.kill`, fall back to per-pid pidfd kills over the frozen set
+  (frozen tasks still die to SIGKILL). Then `rmdir` the cgroup.
+- The `Handle` for a kill has no undo. The ledger says so explicitly rather than leaving the field
   empty.
 
 **Recommendation written into the example policy:** map detections to `freeze` first. Graduate a
@@ -613,16 +645,16 @@ there; the operator picks a name) - or, for neuter, clear the immutable bit and 
 recorded mode. Idempotent: restoring a restored handle is a no-op with a ledger note.
 
 **What quarantine is not.** Renaming a running executable does not stop it (Linux allows it; no
-`ETXTBSY`), so pair it with a freeze in policy if that is the intent. `Image` for a script is the
-interpreter (`/usr/bin/python3`), which the allowlist blocks; "the dropped script in argv" is a
+`ETXTBSY`). So pair it with a freeze in policy if that is the intent. `Image` for a script is the
+interpreter (`/usr/bin/python3`), which the allowlist blocks. "The dropped script in argv" is a
 future enrichment, not something this version pretends to find.
 
 ### 5.5 fanotify access-blocking - deferred to `--watch`, and why
 
 `FAN_OPEN_EXEC_PERM` / `FAN_OPEN_PERM` need a resident process to answer each permission event.
-banken is one-shot: there is nobody to answer, and an unanswered permission event stalls the
-opener until the fanotify fd closes. It is therefore **not an option in the timer model**, and
-saying otherwise would be the kind of rough edge this project does not ship. The seam is reserved:
+banken is one-shot, so there is nobody to answer. An unanswered permission event stalls the opener
+until the fanotify fd closes. This is therefore **not an option in the timer model**, and saying
+otherwise would be the kind of rough edge this project does not ship. The seam is still reserved:
 `Executor` gains `Block(ctx, FileRef)` when `--watch` mode is the deployment, and the decision
 layer's `Target.File` already carries what it needs.
 
@@ -631,11 +663,11 @@ layer's `Target.File` already carries what it needs.
 Both are action names the policy loader *rejects* today with "reserved, not implemented in this
 version", so a config cannot silently ask for something that does nothing.
 
-- `isolate` (process-level network isolation) composes naturally with freeze: once a tree sits in
+- `isolate` (process-level network isolation) composes naturally with freeze. Once a tree sits in
   `banken.quarantine/<id>`, one nftables rule `socket cgroupv2 level 2 "banken.quarantine/<id>"
-  drop` cuts its egress - reversible, scoped, no host-wide impact. Host isolation (allowlist-only
-  egress) is a separate, larger decision and interacts with the containment flake's wall; not
-  designed here.
+  drop` cuts its egress. It is reversible, scoped and has no host-wide impact. Host isolation
+  (allowlist-only egress) is a separate, larger decision that interacts with the containment flake's
+  wall. It is not designed here.
 - `collect` snapshots evidence before any other action: `/proc/<pid>/{cmdline,environ,maps,status,
   cgroup}`, `fd/` targets, a hard link or copy of `exe` with its hash, and - for a frozen process
   - memory via `process_vm_readv` or `/proc/<pid>/mem`. Output under `/var/lib/banken/evidence/<id>/`
@@ -645,7 +677,7 @@ version", so a config cannot silently ask for something that does nothing.
 
 ### 5.7 Other OSes, briefly
 
-The interfaces above are deliberately OS-neutral (`ProcessRef`, `FileRef`, `Handle`); only
+The interfaces above are deliberately OS-neutral (`ProcessRef`, `FileRef`, `Handle`). Only
 `exec/linux.go` knows a pidfd from a cgroup.
 
 | | Linux (this spec) | macOS | Windows |
@@ -663,10 +695,10 @@ The interfaces above are deliberately OS-neutral (`ProcessRef`, `FileRef`, `Hand
 This is the real blocker for anything process-targeted, and it is small.
 
 **Today.** `event.Event` has `Image/CommandLine/ParentImage/TargetFilename/User/CurrentDirectory`,
-`Time`, `Source`, `Raw`. Both parsers already *see* the numbers and drop them: the auditd parser keeps
-every `key=value` of the `SYSCALL` record in `rec.fields` (so `pid` and `ppid` are there); the Laurel
-parser reads `SYSCALL.exe` and `SYSCALL.uid` and ignores `SYSCALL.pid`/`SYSCALL.ppid`. **Neither
-source carries a process start time** - audit records have none. The event's own timestamp
+`Time`, `Source`, `Raw`. Both parsers already *see* the numbers and drop them. The auditd parser
+keeps every `key=value` of the `SYSCALL` record in `rec.fields`, so `pid` and `ppid` are there. The
+Laurel parser reads `SYSCALL.exe` and `SYSCALL.uid` and ignores `SYSCALL.pid`/`SYSCALL.ppid`.
+**Neither source carries a process start time** - audit records have none. The event's own timestamp
 (`msg=audit(TS:SEQ)` / Laurel `ID`) is already parsed into `Event.Time`, and §5.1 shows that is
 enough for a sound reuse check.
 
@@ -683,8 +715,8 @@ ProcessStart time.Time `json:"processStart,omitempty"`
 ```
 
 - `Field()` additionally resolves Sigma's `ProcessId` / `ParentProcessId` to these (as decimal
-  strings), which also lets SigmaHQ rules that reference them match; `AllText` keeps excluding
-  them (numbers are not keyword text).
+  strings), which also lets SigmaHQ rules that reference them match. `AllText` keeps excluding them,
+  since numbers are not keyword text.
 - auditd: `pid`/`ppid` from the `SYSCALL` record's fields. Laurel: `SYSCALL.pid`/`.ppid`. Generic
   JSONL: already verbatim once the fields exist.
 - Golden files for both parsers gain the two fields; fixtures under `tests/fixtures` may add `pid`
@@ -692,10 +724,10 @@ ProcessStart time.Time `json:"processStart,omitempty"`
 - Additive only: an old fixture or collector without the fields still parses, and a `PID == 0`
   alert is simply untargetable (rail, logged), never an error.
 
-**Honest limit:** a pid from auditd is the host pid namespace's. A process inside a container with
-its own pid namespace is still addressed correctly (auditd records host pids), but the generic-JSONL
-source's pids mean whatever the collector meant, which is one more reason it is observe-only by
-default.
+**Honest limit.** A pid from auditd is the host pid namespace's. A process inside a container with
+its own pid namespace is still addressed correctly, since auditd records host pids. But the
+generic-JSONL source's pids mean whatever the collector meant. That is one more reason it is
+observe-only by default.
 
 ---
 
@@ -707,9 +739,10 @@ default.
   decision is made, logged with `Intended` and the rail, and nothing is executed. The journal line
   reads `banken: would FREEZE pid 4242 (/tmp/.x/sh) for reverse_shell [observe]` so the operator
   sees enforce-mode behaviour before enabling it.
-- `killSwitchPath` (default `/run/banken/disable`): existence disables execution everywhere, checked
-  on every decision and by the drain before every action. `touch` it in an incident; no rebuild, no
-  restart. On `/run` so a reboot clears it, which is itself logged ("kill-switch cleared by boot").
+- `killSwitchPath` (default `/run/banken/disable`): if the file exists, execution is disabled
+  everywhere. It is checked on every decision and by the drain before every action. `touch` it in an
+  incident - no rebuild, no restart. It is on `/run`, so a reboot clears it, and that clearing is
+  itself logged ("kill-switch cleared by boot").
 - `enforceSources`: an alert from a source not listed is observe-only regardless of mode.
 
 ### 7.2 Denylist (built in; policy can only add)
@@ -727,22 +760,22 @@ File targets are refused when the path is not under `quarantine.allowPaths`, or 
 never-touch prefix (§5.4), or resolves to a symlink / non-regular file at execution time.
 
 The denylist is evaluated in `Decide` (pure, from the alert's fields) **and again** in the executor
-against the live process (its real exe, real cgroup, real uid) - the alert's `Image` is what the
-log said, the executor checks what is true now.
+against the live process (its real exe, real cgroup, real uid). The alert's `Image` is what the log
+said; the executor checks what is true now.
 
 ### 7.3 Rate limit and dedupe
 
-`rateLimit.perRun` bounds what one scan may *request*; `rateLimit.perHour` bounds what the drain
+`rateLimit.perRun` bounds what one scan may *request*. `rateLimit.perHour` bounds what the drain
 may *perform* (counted from today's ledger). A target already decided this run is a duplicate. A
-burst of 500 alerts from one noisy rule produces 3 actions and 497 `rate-limit` ledger lines, which
+burst of 500 alerts from one noisy rule produces 3 actions and 497 `rate-limit` ledger lines. That
 is also the signal that the rule needs tuning.
 
 ### 7.4 Never-die
 
-`Responder.Respond` runs under a recover (like `safeMatch`); a panic is returned as an error and the
+`Responder.Respond` runs under a recover, like `safeMatch`. A panic is returned as an error, and the
 alert still reaches every sink. The drain recovers per work order. A ledger write failure is
-reported, never fatal, but a work order is **not** written if its `decided` line could not be -
-an action without a record is worse than no action.
+reported, never fatal. But a work order is **not** written if its `decided` line could not be: an
+action without a record is worse than no action.
 
 ---
 
@@ -751,13 +784,14 @@ an action without a record is worse than no action.
 The scan unit (`banken.service`) stays exactly as it is today - `CapabilityBoundingSet=CAP_DAC_READ_SEARCH`,
 `ProtectControlGroups=true`, `ProtectProc=invisible`, `@system-service`. It already has
 `StateDirectory=banken`, which covers the spool and ledger under `/var/lib/banken`. **It cannot
-signal, freeze or rename anything, by construction**, and that is the point: the process that
-parses untrusted bytes keeps no capability worth exploiting.
+signal, freeze or rename anything, by construction.** That is the point: the process that parses
+untrusted bytes keeps no capability worth exploiting.
 
-`banken-respond.service` (new, `Type=oneshot`, `ExecStart=banken respond drain`), started by
-`banken-respond.path` (`DirectoryNotEmpty=/var/lib/banken/spool`), is the only privileged piece. It
-runs the same binary, one code path (`respond.go` + `exec/`), with its own hardened unit copied from
-the scan's and relaxed only where an action needs it:
+`banken-respond.service` is the only privileged piece. It is new, `Type=oneshot`,
+`ExecStart=banken respond drain`, and started by `banken-respond.path`
+(`DirectoryNotEmpty=/var/lib/banken/spool`). It runs the same binary and one code path
+(`respond.go` + `exec/`). Its hardened unit is copied from the scan's and relaxed only where an
+action needs it:
 
 | Need | Why |
 | --- | --- |
@@ -771,13 +805,15 @@ the scan's and relaxed only where an action needs it:
 | syscall filter | `@system-service` plus `pidfd_open`, `pidfd_send_signal`, `renameat2` - verify against the target systemd's group definitions rather than assuming |
 | `CAP_NET_ADMIN` | reserved for `isolate` (v2); not granted until then |
 
-Only the capabilities for *enabled* actions need granting; the NixOS module can derive the set from
-the policy (a policy with no `quarantine` entry gets no `CAP_LINUX_IMMUTABLE`). The unit is still
+Only the capabilities for *enabled* actions need granting. The NixOS module can derive the set from
+the policy: a policy with no `quarantine` entry gets no `CAP_LINUX_IMMUTABLE`. The unit is still
 `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, `MemoryDenyWriteExecute`.
 
-Two processes is one more moving part than one. It buys: the scan's sandbox untouched; a 300-line
-executor whose entire input is a JSON work order it re-validates; and an audit trail where the
-*requesting* and the *acting* identity are different units in the journal.
+Two processes is one more moving part than one. It buys three things:
+
+- the scan's sandbox untouched
+- a 300-line executor whose entire input is a JSON work order it re-validates
+- an audit trail where the *requesting* and the *acting* identity are different units in the journal
 
 ---
 
@@ -825,7 +861,7 @@ banken respond explain <alert.json|ledger-id>   # print Decide's verdict and the
 banken check … --policy /etc/banken/banken.yml  # the existing REPL gains: rules fired → decision → rail
 ```
 
-`explain` and `check --policy` are the dry-run; they call `Decide` and, at most, `Executor.Verify`.
+`explain` and `check --policy` are the dry-run. They call `Decide` and, at most, `Executor.Verify`.
 
 ---
 
@@ -893,8 +929,8 @@ string. `expect-invalid` fixtures assert the policy *fails validation* with a me
 | `revshell_observe.expect-none.json` | `observe.yml` | `action=none intended=freeze rail=observe-mode` |
 | `revshell_sshd.expect-none.json` | `enforce.yml`, event `image: /run/current-system/sw/bin/sshd` | `action=none intended=freeze rail=denylist` |
 
-The second one is the important shape: observe mode is asserted to have *reached the right
-intention* and been stopped by the right rail, so the corpus proves the policy, not just the mode.
+The second one is the important shape. Observe mode is asserted to have *reached the right
+intention* and been stopped by the right rail. So the corpus proves the policy, not just the mode.
 
 **Harness** (`internal/response/fixtures_test.go`, mirroring `engine/fixtures_test.go`):
 
@@ -910,11 +946,14 @@ intention* and been stopped by the right rail, so the corpus proves the policy, 
   is `none`. The default install is proven inert end to end.
 - `TestDetectionFixturesNeverTargetDenylisted`: same replay with `enforce.yml` and the event's image
   rewritten to each built-in denylisted exe in turn: never anything but `none`/`denylist`.
-- `FuzzDecideNeverCrossesRails` (rapid property, `just property-deep` style): random alerts, random
-  policies that validate, random `Self`: `Decide` never panics; never returns `kill` for a
-  tag-only entry; never returns a non-`none` action for pid ∈ {1,2}, ppid ∈ {0,2}, the self exe,
-  a `generic` source, a `PID == 0` target, or a path under `/nix/store`; `observe` always yields
-  `none`; and `Decide` is a pure function (calling twice gives equal output).
+- `FuzzDecideNeverCrossesRails` (rapid property, `just property-deep` style): over random alerts,
+  random policies that validate, and random `Self`, `Decide` must hold these invariants:
+    - it never panics
+    - it never returns `kill` for a tag-only entry
+    - it never returns a non-`none` action for pid ∈ {1,2}, ppid ∈ {0,2}, the self exe, a `generic`
+      source, a `PID == 0` target, or a path under `/nix/store`
+    - `observe` always yields `none`
+    - it is a pure function (calling twice gives equal output)
 
 ### 10.2 Executor: the fake
 
@@ -933,15 +972,15 @@ results. Tests on `Responder` + drain use it to assert the *protocol*:
 - Kill-switch present at drain time stops everything even if the order was decided before it was
   touched.
 
-None of this runs on anything but a `t.TempDir()` spool and ledger; it passes on the Mac.
+None of this runs on anything but a `t.TempDir()` spool and ledger. It passes on the Mac.
 
 ### 10.3 Executor: the real thing, sandboxed
 
-`exec/linux_integration_test.go`, build tag `integration`, and additionally skipped unless
+This is `exec/linux_integration_test.go`, build tag `integration`. It is additionally skipped unless
 `BANKEN_EXEC_SANDBOX=1` *and* the test is root *and* `/sys/fs/cgroup/cgroup.controllers` exists. It
 is meant to run in the NixOS VM test (`tests/vm.nix`, KVM on hokkaido) and nowhere else by accident.
-Every victim is a child the test spawns itself (`sleep 300` in its own cgroup under a
-test-specific `banken.quarantine/test-<pid>/`), never a pre-existing process:
+Every victim is a child the test spawns itself (`sleep 300` in its own cgroup under a test-specific
+`banken.quarantine/test-<pid>/`), never a pre-existing process:
 
 - `Verify` on the live child returns its starttime and exe; `Verify` with `EventTime` set *before*
   the child's starttime returns `ErrStaleTarget` (this is the reuse check, exercised without
@@ -965,9 +1004,9 @@ The `justfile` gains `test-exec-sandbox` that refuses to run outside a VM (check
 
 ### 10.4 Coverage gate
 
-`TestEveryActionIsFixtured`: the set of `Action` constants the loader accepts must each have at
-least one `expect-<action>` fixture; a reserved action must have one `expect-invalid`. Adding
-`isolate` later means adding its fixtures first, or the build fails - the same forcing function
+`TestEveryActionIsFixtured`: every `Action` constant the loader accepts must have at least one
+`expect-<action>` fixture, and a reserved action must have one `expect-invalid`. Adding `isolate`
+later means adding its fixtures first, or the build fails. This is the same forcing function
 `TestEveryRuleHasAFixture` provides for rules.
 
 ---
