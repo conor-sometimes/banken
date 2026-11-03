@@ -1,13 +1,15 @@
 # Own rule -> emulation script map
 
-Every one of banken's **own** Sigma rules (under `rules/`, each `status: experimental` with a
-`falsepositives:` block) has a benign emulation script here that trips it - a "here's how to set it
-off" script. The ~211 vendored SigmaHQ upstream rules are deliberately **not** covered.
+Every one of banken's **own** Sigma rules has a benign emulation script here that trips it - a
+"here's how to set it off" script. Those rules live under `rules/`, each with `status:
+experimental` and a `falsepositives:` block. The ~211 vendored SigmaHQ upstream rules are
+deliberately **not** covered.
 
-Each script name matches the fixture family prefix in `tests/fixtures/<name>.expect-<rule>.json`, so
-`tests/vm.nix` discovers the script, runs it, and asserts exactly the listed rule(s) fire. The safety
-contract (dummy data, TEST-NET addresses, `/tmp` scratch, `trap  EXIT` cleanup, unprivileged-only for
-anything that would touch the live host) is documented in `./README.md` and in each script header.
+Each script name matches the fixture family prefix in `tests/fixtures/<name>.expect-<rule>.json`.
+So `tests/vm.nix` discovers the script, runs it, and asserts exactly the listed rule(s) fire. The
+safety contract is documented in `./README.md` and in each script header. In short: dummy data,
+TEST-NET addresses, `/tmp` scratch, `trap EXIT` cleanup, and unprivileged-only for anything that
+would touch the live host.
 
 | Rule (file) | Emulation script | ATT&CK | How it sets the rule off (benign) |
 | --- | --- | --- | --- |
@@ -76,29 +78,37 @@ anything that would touch the live host) is documented in `./README.md` and in e
 
 ## Caveats (dependencies outside `tests/emulations/`)
 
-- **Agent-account scoping.** The `agent_*` scripts (`agentdecode`, `agentssh`, `destructive`,
-  `exfil`, `gitpersist`, `proxybypass`, `selfconfig`, `sshout`, `aiexfil`, `aidefense`,
-  `antiautomation`, `appasswd`) only fire
-  when run **as an agent account** - their rules key on `User` in `{claude,redteam,lab}`. The
-  commands themselves match the selections; the `User` comes from the runner. `tests/vm.nix` runs
-  emulations as `alice`, so it drops every `agent_*` family from the live expectation and proves
-  them with the engine golden/replay tests (`internal/engine` TestFixtures) instead.
-- **`honeytoken.sh`** matches only on `TargetFilename` (the exact decoy paths), so it fires only where
-  the decoy files are planted at those paths **and** a read watch is set on each
-  (`-w <path> -p r -k honeytoken`). On a stock box it finds nothing and fires nothing - by design.
+- **Agent-account scoping.** The `agent_*` scripts only fire when run **as an agent account** -
+  their rules key on `User` in `{claude,redteam,lab}`. Those scripts are `agentdecode`, `agentssh`,
+  `destructive`, `exfil`, `gitpersist`, `proxybypass`, `selfconfig`, `sshout`, `aiexfil`,
+  `aidefense`, `antiautomation`, and `appasswd`. The commands themselves match the selections; the
+  `User` comes from the runner. `tests/vm.nix` runs emulations as `alice`, so it drops every
+  `agent_*` family from the live expectation and proves them with the engine golden/replay tests
+  (`internal/engine` TestFixtures) instead.
+- **`honeytoken.sh`** matches only on `TargetFilename` (the exact decoy paths). So it fires only
+  where two things are true: the decoy files are planted at those paths, **and** a read watch is
+  set on each (`-w <path> -p r -k honeytoken`). On a stock box it finds nothing and fires nothing -
+  by design.
 - **Tool availability.** Some scripts invoke tools that must be in the test VM's
-  `environment.systemPackages` to fire: `openssh` (`agentssh` tee / `sshout` / `remotecopy` / `tunnel`),
-  `openssl` + `zip` (`stage`), `tcpdump`/`tshark` (`sniff`), `john`/`hashcat` (`johncrack`),
-  `cloudflared`/`ngrok` (`tunnel`), `git` (`destructive`/`exfil`/`gitpersist`), `shadow`'s `useradd`
-  (`newuser`), `nmap` or another scanner (`portscan`), `e2fsprogs`'s `mkfs.ext4` and `kmod`'s
-  `modprobe`/`insmod` (`diskwipe` / `insmodload`). Each is `command -v`-guarded and no-ops harmlessly
-  when absent.
-- **`nc -z` trips two rules.** The new `network_service_scan` rule matches `nc -z` / `ncat -z`, the same
-  as the optional `netcat` rule. So `netcat.sh` deliberately uses a plain `nc` connect (no `-z`) to
-  fire only `netcat`, and `portscan.sh` uses scanner binaries (not `nc`) to fire only
-  `network_service_scan`. If both the `netcat` optional rule and `network_service_scan` are active, a
-  single `nc -z` would fire both; keep the two scripts off that overlap.
+  `environment.systemPackages` to fire. The pairings are:
+  - `openssh` for `agentssh` tee / `sshout` / `remotecopy` / `tunnel`
+  - `openssl` + `zip` for `stage`
+  - `tcpdump`/`tshark` for `sniff`
+  - `john`/`hashcat` for `johncrack`
+  - `cloudflared`/`ngrok` for `tunnel`
+  - `git` for `destructive`/`exfil`/`gitpersist`
+  - `shadow`'s `useradd` for `newuser`
+  - `nmap` or another scanner for `portscan`
+  - `e2fsprogs`'s `mkfs.ext4` and `kmod`'s `modprobe`/`insmod` for `diskwipe` / `insmodload`
+
+  Each is `command -v`-guarded and no-ops harmlessly when absent.
+- **`nc -z` trips two rules.** The new `network_service_scan` rule matches `nc -z` / `ncat -z`, the
+  same as the optional `netcat` rule. So the two scripts stay off that overlap: `netcat.sh`
+  deliberately uses a plain `nc` connect (no `-z`) to fire only `netcat`, and `portscan.sh` uses
+  scanner binaries (not `nc`) to fire only `network_service_scan`. If both the `netcat` optional
+  rule and `network_service_scan` are active, a single `nc -z` would fire both.
 - **Unprivileged-only scripts.** `killfw`, `newuser`, `diskwipe`, and the `setenforce` branch of
-  `setenforce0` run their dangerous verb only when `id -u != 0` (and against nonexistent targets where
-  possible), so the exec is logged but nothing real is changed. Run as root they would do real harm, so
-  they self-skip - the VM runs emulations unprivileged (`alice`), which is exactly where they fire.
+  `setenforce0` run their dangerous verb only when `id -u != 0`, and against nonexistent targets
+  where possible. So the exec is logged but nothing real is changed. Run as root they would do real
+  harm, so they self-skip. The VM runs emulations unprivileged (`alice`), which is exactly where
+  they fire.

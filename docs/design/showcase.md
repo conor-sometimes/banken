@@ -1,28 +1,29 @@
 # Repo showcase: the 5-minute pitch
 
-A design, not a build. The goal: give a prospective sysadmin a crisp, honest, reproducible
-way to pitch banken to management in about five minutes, grounded only in what the repo proves
-today. Every number below is cited to its source in this repo; nothing is invented. Where the
-brief that seeded this doc carried a looser figure, the repo's measured figure wins and the
+This is a design, not a build. The goal is to give a prospective sysadmin a crisp, honest,
+reproducible way to pitch banken to management in about five minutes. It is grounded only in what
+the repo proves today. Every number below is cited to its source in this repo. Nothing is invented.
+
+Where the brief that seeded this doc carried a looser figure, the repo's measured figure wins. The
 discrepancy is called out.
 
 ## 1. The 5-minute narrative
 
-The person giving this pitch is a working sysadmin or security engineer who already runs a SIEM
-and is tired of either paying for a heavyweight commercial EDR or squinting at raw auditd. The
+The person giving this pitch is a working sysadmin or security engineer. They already run a SIEM.
+They are tired of either paying for a heavyweight commercial EDR or squinting at raw auditd. The
 pitch has four beats.
 
 ### Beat 1 - the problem (about 45 seconds)
 
-- Commercial host EDR is expensive and heavy: licensed per endpoint, a multi-hundred-MB agent
-  with its own runtime and, often, a kernel driver that can take the host down with it. (The
-  2024 CrowdStrike channel-file outage is the cautionary tale: a bad content update to a kernel
-  component blue-screened machines worldwide.)
-- auditd on its own is the opposite failure: it is free and already on the box, but it is a
-  firehose of multi-line records with no detections, no mapping to ATT&CK, and nothing a SIEM
+- Commercial host EDR is expensive and heavy. It is licensed per endpoint. The agent is
+  multi-hundred-MB, with its own runtime and often a kernel driver that can take the host down with
+  it. (The 2024 CrowdStrike channel-file outage is the cautionary tale: a bad content update to a
+  kernel component blue-screened machines worldwide.)
+- auditd on its own is the opposite failure. It is free and already on the box. But it is a
+  firehose of multi-line records. It has no detections, no mapping to ATT&CK, and nothing a SIEM
   can read without glue.
-- So the honest middle - "catch the obvious attacks, map them to ATT&CK, hand my SIEM clean
-  findings, and do not cost a fortune or risk the kernel" - is unfilled for most shops.
+- So the honest middle is unfilled for most shops. That middle is: catch the obvious attacks, map
+  them to ATT&CK, hand my SIEM clean findings, and do not cost a fortune or risk the kernel.
 
 banken's framing, from the README: "SentinelOne for the masses - install in one line, no
 fiddling." (README.md, lines 10-16.)
@@ -31,16 +32,16 @@ fiddling." (README.md, lines 10-16.)
 
 This is the live demo (section 2). On screen, in order:
 
-1. One line of config turns it on. On NixOS: `services.banken.enable = true;` - that pulls in
+1. One line of config turns it on. On NixOS it is `services.banken.enable = true;`. That pulls in
    auditd with the rules banken reads, a hardened one-shot unit, and a timer, alerting to the
    journal. (README.md "Use (NixOS)", lines 364-382; docs/deployment.md lines 5-9.) On any other
    systemd Linux it is a four-stage path of three-to-five commands (docs/install-and-onboarding.md
    Part A).
-2. A benign reverse-shell-shaped command runs as an ordinary unprivileged user (the repo's own
-   `tests/emulations/revshell.sh` analogue: `bash -c 'exec 3<>/dev/tcp/192.0.2.1/PORT'`, where
-   192.0.2.1 is TEST-NET-1 and routes nowhere, so nothing leaves the box - the command *shape*
-   is what fires the rule). (tests/emulations/revshell.sh; tests/switch.nix lines 50-60.)
-3. The alert appears, fast, and it is already a standards finding, not a log line: an OCSF 1.3.0
+2. A benign reverse-shell-shaped command runs as an ordinary unprivileged user. This is the repo's
+   own `tests/emulations/revshell.sh` analogue: `bash -c 'exec 3<>/dev/tcp/192.0.2.1/PORT'`, where
+   192.0.2.1 is TEST-NET-1 and routes nowhere. Nothing leaves the box. The command *shape* is what
+   fires the rule. (tests/emulations/revshell.sh; tests/switch.nix lines 50-60.)
+3. The alert appears, fast. It is already a standards finding, not a log line: an OCSF 1.3.0
    Detection Finding (class_uid 2004), analytic name `reverse_shell`, ATT&CK tactic/technique
    attached. (tests/switch.nix lines 74-81.) Point at the exec-to-alert latency the demo prints.
 
@@ -48,69 +49,75 @@ This is the live demo (section 2). On screen, in order:
 
 Show the one-page scorecard (section 2d). Each claim with its source:
 
-- **Fast.** With banken's eBPF sensor mimi as a live push stream, the end-to-end switch test
-  measures exec-to-alert latency and prints it on each run. Measured: 267 ms in the VM switch
-  proof of the 2026-11-02 full test battery; 83 ms on the deployed hokkaido host after re-arming
-  the follow; 28-33 ms on the first live hardware load. All sub-second. (tests/switch.nix lines
-  71, 83-84; ~/notes/hokkaido-log.md entries 2026-11-01 "DEPLOYED ONE-SWITCH PROOF" and 2026-11-02
-  "testing swarm lane".) On the auditd floor without mimi, the *match itself* is about 10 us per
-  threat event (README Performance, `BenchmarkDetectionLatency`, line 307-311); end-to-end there
-  is that compute plus at most one timer interval (default two minutes, tunable, or `--watch` for
-  a push stream), so the interval is the latency knob, not the matching. Be precise about which
-  path is being shown: the sub-second number is the mimi stream path.
+- **Fast.** banken's eBPF sensor mimi runs as a live push stream. In that mode the end-to-end
+  switch test measures exec-to-alert latency and prints it on each run. Measured figures, all
+  sub-second:
+  - 267 ms in the VM switch proof of the 2026-11-02 full test battery
+  - 83 ms on the deployed hokkaido host after re-arming the follow
+  - 28-33 ms on the first live hardware load
+
+  (tests/switch.nix lines 71, 83-84; ~/notes/hokkaido-log.md entries 2026-11-01 "DEPLOYED
+  ONE-SWITCH PROOF" and 2026-11-02 "testing swarm lane".) On the auditd floor without mimi, the
+  *match itself* is about 10 us per threat event (README Performance, `BenchmarkDetectionLatency`,
+  line 307-311). End-to-end there is that compute plus at most one timer interval (default two
+  minutes, tunable, or `--watch` for a push stream), so the interval is the latency knob, not the
+  matching. Be precise about which path is being shown. The sub-second number is the mimi stream
+  path.
 - **Drops into your SIEM with no glue.** Alerts emit as OCSF 1.3.0 Detection Findings, validated
-  in CI by the OCSF project's own validator (ocsf-toolkit) against the compiled 1.3.0 schema;
-  also ECS 8.11.0 and OTLP/HTTP log records. (README Standards, lines 156-166; docs/design/ocsf-output.md.)
-  So Security Lake, Splunk, Datadog, Elastic or any OCSF/ECS/OTLP backend ingests findings with
-  no per-product mapping. OCSF is the schema, OTLP is the pipe.
-- **Proven on real distros, on their own kernels.** The live distro matrix boots each vendor's
-  own cloud image under KVM, installs banken exactly as the docs say, runs benign malware
-  look-alikes against that distro's own kernel and auditd, and scores objectives. Green on
-  8 distros plus NixOS as of 2026-10-31/11-01: Rocky 9, AlmaLinux 10, Fedora 44, Amazon Linux
-  2023, Debian 13, Ubuntu 24.04, openSUSE Leap 16, Arch. The matrix also loads mimi's eBPF probe
-  via CO-RE on each distro's own kernel and detects a reverse shell off the mimi stream (M1-M5);
-  the full run was 16/16. (README "Supported platforms", lines 123-144; tests/distros/README.md;
+  in CI by the OCSF project's own validator (ocsf-toolkit) against the compiled 1.3.0 schema. They
+  also emit as ECS 8.11.0 and OTLP/HTTP log records. (README Standards, lines 156-166;
+  docs/design/ocsf-output.md.) So Security Lake, Splunk, Datadog, Elastic or any OCSF/ECS/OTLP
+  backend ingests findings with no per-product mapping. OCSF is the schema, OTLP is the pipe.
+- **Proven on real distros, on their own kernels.** The live distro matrix boots each vendor's own
+  cloud image under KVM. It installs banken exactly as the docs say, runs benign malware
+  look-alikes against that distro's own kernel and auditd, and scores objectives. Green on 8
+  distros plus NixOS as of 2026-10-31/11-01: Rocky 9, AlmaLinux 10, Fedora 44, Amazon Linux 2023,
+  Debian 13, Ubuntu 24.04, openSUSE Leap 16, Arch. The matrix also loads mimi's eBPF probe via
+  CO-RE on each distro's own kernel and detects a reverse shell off the mimi stream (M1-M5). The
+  full run was 16/16. (README "Supported platforms", lines 123-144; tests/distros/README.md;
   ~/notes/hokkaido-log.md 2026-11-01 "per-distro matrix" = 16/16.)
 - **ATT&CK coverage is measured, not self-reported.** A live Atomic Red Team range runs every
   Linux atomic of a pinned ART commit in a throwaway VM and scores detection per technique.
-  Measured 2026-11-01 (ART e8cfc41): **24 of 115 techniques detected on merit** (a rule about
-  the technique fired), 71 of 409 atomics; 40 of 115 if sudo-only incidental hits are counted,
-  which the scorecard deliberately discounts. (README Standards line 163; attackrange/README.md
-  lines 42-47.) NOTE: this corrects the seeding brief's "41/115 on merit" - the honest on-merit
-  figure is 24/115; 40/115 is the looser sudo-inclusive count. Frame it as "measured and
-  improving, with a published rule roadmap for the misses", not as a finished number.
-- **Open and auditable, and it cannot take your kernel down.** One static `CGO_ENABLED=0` Go
-  binary - no runtime, no Python, no kernel module, no driver - so, unlike the agents it takes
-  after, a banken bug is a missed or wrong detection in userspace, never a kernel panic or a
-  blue screen. Pure Go, no cgo, no `unsafe`, so whole EDR bug classes (buffer overflow,
-  use-after-free, OOB read of untrusted bytes) are structurally impossible; rules and logs are
-  inert data with no eval path (the log4j lesson). (README "Security model", lines 314-362;
-  docs/install-and-onboarding.md lines 22-38.) The hardened systemd unit scores exposure 2.1
-  "OK" under `systemd-analyze security` on every distro in the matrix. (README Standards line
-  165; tests/distros objective D1.) MIT licensed; the rules are plain Sigma you can read and
-  lift out. (README Licence.)
+  Measured 2026-11-01 (ART e8cfc41): **24 of 115 techniques detected on merit** (a rule about the
+  technique fired), 71 of 409 atomics. The count is 40 of 115 if sudo-only incidental hits are
+  counted, which the scorecard deliberately discounts. (README Standards line 163;
+  attackrange/README.md lines 42-47.) NOTE: this corrects the seeding brief's "41/115 on merit".
+  The honest on-merit figure is 24/115; 40/115 is the looser sudo-inclusive count. Frame it as
+  "measured and improving, with a published rule roadmap for the misses", not as a finished number.
+- **Open and auditable, and it cannot take your kernel down.** banken is one static
+  `CGO_ENABLED=0` Go binary. There is no runtime, no Python, no kernel module, no driver. So,
+  unlike the agents it takes after, a banken bug is a missed or wrong detection in userspace, never
+  a kernel panic or a blue screen. It is pure Go, with no cgo and no `unsafe`, so whole EDR bug
+  classes are structurally impossible: buffer overflow, use-after-free, and OOB read of untrusted
+  bytes. Rules and logs are inert data with no eval path (the log4j lesson). (README "Security
+  model", lines 314-362; docs/install-and-onboarding.md lines 22-38.) The hardened systemd unit
+  scores exposure 2.1 "OK" under `systemd-analyze security` on every distro in the matrix. (README
+  Standards line 165; tests/distros objective D1.) It is MIT licensed, and the rules are plain
+  Sigma you can read and lift out. (README Licence.)
 
-Honesty note to keep in the pitch: banken is early. There is no prebuilt binary or native
-package yet (non-NixOS users build the one static binary themselves), a per-host memory/CPU
-footprint budget is specified but not yet measured (matrix objective D4 "to build"), and Sysmon
-end-to-end and the journald/syslog parsers are in progress or stubbed. The pitch should not
-claim a footprint in MB - the repo does not measure one yet, so no number is given.
+Keep this honesty note in the pitch. banken is early. There is no prebuilt binary or native
+package yet, so non-NixOS users build the one static binary themselves. A per-host memory/CPU
+footprint budget is specified but not yet measured (matrix objective D4 "to build"). Sysmon
+end-to-end and the journald/syslog parsers are in progress or stubbed. The pitch should not claim a
+footprint in MB. The repo does not measure one yet, so no number is given.
 
 ### Beat 4 - the close: what to ask management for (about 30 seconds)
 
-- "Let me run banken on one representative fleet segment for two weeks, in observe mode, feeding
-  our existing SIEM as OCSF. Zero licence cost, no kernel driver, one static binary under a
-  hardened systemd sandbox. I will bring back the false-positive rate on our real traffic and
-  the ATT&CK techniques it caught."
-- The ask is small because the risk is small: no per-endpoint licence to negotiate, nothing that
-  can blue-screen a host, and it rides the SIEM already in place. The decision management is
-  being asked for is a two-week pilot, not a procurement.
+- The ask: "Let me run banken on one representative fleet segment for two weeks, in observe mode,
+  feeding our existing SIEM as OCSF. Zero licence cost, no kernel driver, one static binary under a
+  hardened systemd sandbox. I will bring back the false-positive rate on our real traffic and the
+  ATT&CK techniques it caught."
+- The ask is small because the risk is small. There is no per-endpoint licence to negotiate,
+  nothing that can blue-screen a host, and it rides the SIEM already in place. Management is being
+  asked for a two-week pilot, not a procurement.
 
 ## 2. Format options and recommendation
 
-Four candidate formats, scored on the three axes that matter: how **compelling** it is in the
-room, how **honest** (hard to fake, grounded in the repo), and how **reproducible** from this
-repo by the sysadmin themselves.
+Four candidate formats, scored on the three axes that matter:
+
+- how **compelling** it is in the room
+- how **honest** it is (hard to fake, grounded in the repo)
+- how **reproducible** it is from this repo by the sysadmin themselves
 
 | Option | Compelling | Honest | Reproducible | Notes |
 | --- | --- | --- | --- | --- |
@@ -121,37 +128,40 @@ repo by the sysadmin themselves.
 
 ### Recommendation: a hybrid, (a) as the spine, with (b) and (c) as the fallbacks
 
-Build **(a) a reproducible scripted VM demo** as the primary artifact, and derive **(b) a checked-in
-asciinema recording of it** and **(c) a one-page cited scorecard** from the same source. This is
-the most compelling, the most honest, and the most reproducible combination, because:
+Build **(a) a reproducible scripted VM demo** as the primary artifact. Derive the other two from
+the same source: **(b) a checked-in asciinema recording of it** and **(c) a one-page cited
+scorecard**. This is the most compelling, the most honest, and the most reproducible combination,
+because:
 
 - It is the only option where the sysadmin's boss (or their own skeptical security lead) can
-  **re-run the exact thing they just watched** - `nix run github:conor-sometimes/banken#demo` -
-  and get the same result on their own hardware. That reproducibility is the honesty win a bare
-  GIF can never have, and it matches banken's whole "measured, not self-reported" ethos.
+  **re-run the exact thing they just watched** - `nix run github:conor-sometimes/banken#demo` - and
+  get the same result on their own hardware. That reproducibility is the honesty win a bare GIF can
+  never have. It matches banken's whole "measured, not self-reported" ethos.
 - It reuses infrastructure that already exists and is already green, so it invents almost no new
-  code and cannot drift from the truth: `tests/switch.nix` (the one-switch end-to-end proof that
-  already runs the benign revshell and asserts the OCSF `reverse_shell` finding, printing the
-  measured exec-to-alert latency) and `tests/vm.nix` (the module's auditd-floor end-to-end test).
+  code and cannot drift from the truth. Those pieces are `tests/switch.nix` (the one-switch
+  end-to-end proof that already runs the benign revshell and asserts the OCSF `reverse_shell`
+  finding, printing the measured exec-to-alert latency) and `tests/vm.nix` (the module's
+  auditd-floor end-to-end test).
 - `nix run` IS option (d)'s self-contained artifact, without needing a release pipeline that does
   not exist yet.
 
 Two tiers, mirroring the existing `distro-matrix` / `distro-matrix-mimi` split, so the demo is
 runnable by everyone, not just those with mimi:
 
-- **`nix run .#demo` (auditd floor, the universal tier).** `services.banken.enable = true;` only,
-  no mimi, no private access. Boots a NixOS VM, runs the benign revshell as an unprivileged user,
-  and shows the OCSF `reverse_shell` finding land in the journal and the jsonl sink within a short
-  (demo-set) interval. Reproducible by anyone with KVM. This is the floor everybody can re-run.
-- **`nix run .#demo-mimi` (the eBPF switch, the "wow" tier).** The exact `tests/switch.nix` setup:
-  `services.banken.mimi.enable = true;`, audit off so mimi is the only source, so the alert proves
-  the full eBPF path, and the printed exec-to-alert latency is the sub-second number. Needs KVM
-  and mimi access. This is the one that gets recorded as the asciinema cast in the README (so the
-  sub-second catch is visible to the 90% who will not boot a VM), with a caption pointing at the
-  universally runnable `nix run .#demo`.
+- **`nix run .#demo` (auditd floor, the universal tier).** It uses `services.banken.enable = true;`
+  only, no mimi, no private access. It boots a NixOS VM, runs the benign revshell as an
+  unprivileged user, and shows the OCSF `reverse_shell` finding land in the journal and the jsonl
+  sink within a short (demo-set) interval. Reproducible by anyone with KVM. This is the floor
+  everybody can re-run.
+- **`nix run .#demo-mimi` (the eBPF switch, the "wow" tier).** It is the exact `tests/switch.nix`
+  setup: `services.banken.mimi.enable = true;`, audit off so mimi is the only source, so the alert
+  proves the full eBPF path. The printed exec-to-alert latency is the sub-second number. It needs
+  KVM and mimi access. This is the one that gets recorded as the asciinema cast in the README (so
+  the sub-second catch is visible to the 90% who will not boot a VM), with a caption pointing at
+  the universally runnable `nix run .#demo`.
 
-The one-page scorecard (c) is checked in as `demo/pitch.md`, every figure cited exactly as
-section 1 does, and is the artifact the sysadmin prints and hands to management.
+The one-page scorecard (c) is checked in as `demo/pitch.md`, with every figure cited exactly as
+section 1 does. It is the artifact the sysadmin prints and hands to management.
 
 ### What the demo shows on screen, second by second
 
@@ -183,15 +193,15 @@ The `demo-mimi` run (the recorded one), narrated transcript:
 10. `0:28` Freeze on the scorecard card: 8 distros green, OCSF validated in CI, ATT&CK 24/115
     measured and rising, sub-second off the eBPF stream. Each with its source. End.
 
-The `demo` (auditd-floor) run is the same storyboard minus mimi: step 2 shows only
-`services.banken.enable = true;`, step 3 notes "auditd floor, no eBPF", step 6's latency is "within
+The `demo` (auditd-floor) run is the same storyboard minus mimi. Step 2 shows only
+`services.banken.enable = true;`. Step 3 notes "auditd floor, no eBPF". Step 6's latency is "within
 the scan interval" with the demo interval set short (e.g. `interval = "5s"`) so the wait is a few
 seconds on camera, and `data_sources` is the auditd source. It asserts the same OCSF `reverse_shell`
 finding.
 
 ## 3. What to build (concrete spec)
 
-Reuse the existing harness; add a thin, honest narration layer. New/changed files:
+Reuse the existing harness. Add a thin, honest narration layer. New/changed files:
 
 ```
 demo/
@@ -207,9 +217,9 @@ README.md         # embed banken-demo.gif near the top, link `nix run .#demo`, l
 ### `demo/demo.nix`
 
 - Build on `pkgs.testers.runNixOSTest`, imported from and modelled on `tests/switch.nix` (mimi
-  flavour) and `tests/vm.nix` (auditd flavour). Do **not** fork the assertion logic - import or
-  factor out the shared testScript steps so the demo can never assert something the real test
-  does not.
+  flavour) and `tests/vm.nix` (auditd flavour). Do **not** fork the assertion logic. Import or
+  factor out the shared testScript steps so the demo can never assert something the real test does
+  not.
 - Parameterise by flavour:
   - `auditd`: `imports = [ ../module.nix ]`; `services.banken = { enable = true; interval = "5s";
     alerts.jsonl = { enable = true; format = "ocsf"; }; }`. No mimi, no KVM-beyond-nixos-test needs.
