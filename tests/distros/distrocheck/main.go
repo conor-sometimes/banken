@@ -33,9 +33,12 @@ const (
 	journalDir = "/var/log/banken"
 	configPath = "/etc/banken/banken.yml"
 	auditLog   = "/var/log/audit/audit.log"
-	// scanSettle is how long a family's drain waits for auditd to flush the previous family's
-	// tail before the second drain, so a straggler exec is attributed to its own family (B1).
+	// scanSettle is how long a drain waits for auditd to flush the previous family's tail before
+	// re-scanning, so a straggler exec is attributed to its own family (B1).
 	scanSettle = 2 * time.Second
+	// maxDrain bounds the quiescence loop so a genuinely chatty host cannot hang the matrix; a
+	// quiet VM settles in one iteration.
+	maxDrain = 8
 )
 
 // auditRules are banken's documented rules (docs/deployment.md, Log source)
@@ -643,15 +646,22 @@ func (c *checker) detection() {
 	host, _ := os.Hostname()
 	var badOCSF, unjournalled []string
 	for _, family := range c.families() {
-		// Settle before opening this family's window: the previous family's last exec can still be
-		// in auditd's write buffer when its own scan ran, so without a pause it is read on THIS
-		// family's drain and counted against it (exec_from_tmp from the staging family bled into
-		// stomp this way). Scan, let auditd flush, scan again -- both drains land the straggler in
-		// `before`, not in this family's fired set.
-		c.scan()
-		time.Sleep(scanSettle)
-		c.scan()                                                    // drain any inter-family or concurrent-service activity so only this family's own
-		before, beforeJ := len(alertLines()), len(c.journal("err")) // events count toward it
+		// Drain to quiescence before opening this family's window: a prior family's exec can still
+		// be in auditd's write buffer -- or completing out of order -- when its own scan ran, so
+		// without this it is read on THIS family's drain and counted against it (exec_from_tmp from
+		// an earlier /tmp-staging family bled into stomp this way; a single fixed settle raced the
+		// flush on a loaded VM). Keep scanning until a full settle passes with no new alert
+		// surfacing, so the straggler lands in `before`, not in this family's fired set.
+		for i := 0; i < maxDrain; i++ {
+			c.scan()
+			n := len(alertLines())
+			time.Sleep(scanSettle)
+			c.scan()
+			if len(alertLines()) == n {
+				break
+			}
+		}
+		before, beforeJ := len(alertLines()), len(c.journal("err"))
 		auditBefore := auditLineN()
 		out := c.runFamily(family)
 		if strings.Contains(out, emulSkip) {
@@ -662,6 +672,7 @@ func (c *checker) detection() {
 		}
 		c.scan()
 		fired := map[string]bool{}
+		offending := map[string]string{} // rule -> first raw alert line, for diagnosing an unexpected fire
 		journalled := from(c.journal("err"), beforeJ)
 		for _, line := range from(alertLines(), before) {
 			rule, sev, problem := ocsfRule(line, host)
@@ -669,6 +680,9 @@ func (c *checker) detection() {
 				badOCSF = append(badOCSF, family+": "+problem)
 			}
 			fired[rule] = true
+			if _, seen := offending[rule]; !seen {
+				offending[rule] = line
+			}
 			if sev >= 4 && !containsRule(journalled, rule) {
 				unjournalled = append(unjournalled, family+": "+rule)
 			}
@@ -682,6 +696,17 @@ func (c *checker) detection() {
 			// (tool/PATH), where "execs: [useradd]" would point at the rule or the parser instead.
 			if execs := auditExecsSince(auditBefore); execs != "" {
 				msg += "; execs: " + execs
+			}
+			// Name the record behind any unexpected rule: its Image/CommandLine says whether this is
+			// a straggler from another family or a genuine fire, which the basename exec list can't.
+			wantSet := map[string]bool{}
+			for _, r := range want {
+				wantSet[r] = true
+			}
+			for _, r := range got {
+				if !wantSet[r] {
+					msg += "\n  extra " + r + ": " + firstLine(offending[r])
+				}
 			}
 		}
 		c.check("B1/"+family, equal(got, want), msg)
