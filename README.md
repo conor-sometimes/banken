@@ -47,7 +47,15 @@ nix run github:conor-sometimes/banken#demo        # auditd floor (needs only KVM
 nix run github:conor-sometimes/banken#demo-mimi    # the eBPF switch: the sub-second catch
 ```
 
-Each boots a NixOS VM. It runs the repo's own benign [`revshell.sh`](tests/emulations/revshell.sh) as an unprivileged user. It prints the finding, the exec-to-alert latency, delivery to a mock SIEM, an admin workload raising zero alerts, and the sandbox score. The demos reuse the real end-to-end tests, so they cannot claim a detection the suite does not gate.
+Each boots a NixOS VM. It runs the repo's own benign [`revshell.sh`](tests/emulations/revshell.sh) as an unprivileged user. Then it prints:
+
+- the OCSF finding
+- the exec-to-alert latency
+- the finding delivered to a mock SIEM
+- an ordinary admin workload raising zero alerts
+- the static-binary sandbox score
+
+The demos reuse the real end-to-end tests. They cannot claim a detection the suite does not gate.
 
 ## Highlights
 
@@ -97,7 +105,14 @@ One parser per source, all behind one interface. Each normalises to the event th
 | **generic JSONL** | One pre-normalised event per line | Implemented |
 | journald, syslog/auth | systemd journal, RFC 3164/5424 auth logs | Stub |
 
-Outputs are pluggable sinks, any combination. The system journal. jsonl, one file per day, in native / OCSF / ECS. webhook: generic, Slack, Discord, ntfy, OCSF. OTLP/HTTP. Alerts flow through one dispatch point, so response actions slot in without a redesign.
+Outputs are pluggable sinks. Use any combination:
+
+- **journal** - the system journal
+- **jsonl** - one file per day, in native / OCSF / ECS
+- **webhook** - generic, Slack, Discord, ntfy, or OCSF
+- **OTLP/HTTP** - to an OpenTelemetry collector
+
+Every alert flows through one dispatch point.
 
 ## Install
 
@@ -134,7 +149,13 @@ Portable [Sigma](https://github.com/SigmaHQ/sigma) YAML, filed so a rule's home 
       optional/                                            # opt-in policy rules, shipped but off
       ioc/*.txt                                            # bulk IOC lists
 
-banken evaluates the common Sigma modifiers, wildcards, keyword selections, and `and`/`or`/`not` with `N of` / `all of`. A rule it cannot evaluate is reported at load with the file and reason, never dropped in silence. Optional rules have an **observe** mode: it records without paging, so you can measure a rule's noise first. IOC lists come from disk or a threat-intel feed (STIX 2.1 / MISP / TAXII 2.1). Full detail: [docs/writing-rules.md](docs/writing-rules.md).
+banken evaluates the common Sigma modifiers, wildcards, keyword selections, and `and`/`or`/`not` with `N of` / `all of`.
+
+- A rule it can't evaluate is reported at load, with the file and reason. Never dropped in silence.
+- Optional rules have an **observe** mode. It records without paging, so you can measure a rule's noise first.
+- IOC lists come from disk or a threat-intel feed (STIX 2.1 / MISP / TAXII 2.1).
+
+Full detail: [docs/writing-rules.md](docs/writing-rules.md).
 
 ## Standards
 
@@ -154,7 +175,11 @@ The [live distro matrix](tests/distros/README.md) boots each vendor's own cloud 
 
 banken runs as root. It may one day pull rules from a remote repo. So the rule channel must never become a way to run code as root.
 
-The guarantee is layered. Rules and logs are inert data: no eval, no shell-out, no `${...}` expansion, RE2 regex only. banken is pure Go, no cgo, no `unsafe`, no kernel module, so overflow and use-after-free are structurally impossible. Response actions are operator policy, never rule-embedded.
+The guarantee is layered:
+
+- **Inert data.** Rules and logs never execute. No eval, no shell-out, no `${...}` expansion, RE2 regex only.
+- **No native footguns.** Pure Go, no cgo, no `unsafe`, no kernel module. Overflow and use-after-free are structurally impossible.
+- **Policy, not rules.** Response actions are operator policy, never rule-embedded.
 
 Enforcement is a two-process split. The daemon parses untrusted bytes and decides, but holds only `CAP_DAC_READ_SEARCH` and cannot act. A tiny `banken-respond` helper re-judges each work order against its own policy and the live target before acting. Full threat model: [docs/security-model.md](docs/security-model.md).
 
