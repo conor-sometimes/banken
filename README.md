@@ -38,7 +38,12 @@ banken is the brain of a small sensor family. Each sensor is listener-only. Each
 
 ## Proof
 
-banken catches a live reverse shell end-to-end in under **300 ms**. That is off the mimi eBPF sensor: 267 ms in the VM switch test, ~30 ms on real hardware. It emits a standard OCSF 1.3.0 Detection Finding, ATT&CK technique attached.
+banken catches a live reverse shell end-to-end in under **300 ms**, off its mimi eBPF sensor:
+
+- 267 ms in the VM switch test
+- ~30 ms on real hardware
+
+The alert comes out as a standard OCSF 1.3.0 Detection Finding, with the ATT&CK technique attached.
 
 Boot it yourself:
 
