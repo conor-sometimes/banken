@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/cp",
+  "commandLine": "cp /etc/ld.so.preload /tmp/tmp.Zc4m8d/ld.so.preload",
+  "user": "1000",
+  "pid": 12312,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

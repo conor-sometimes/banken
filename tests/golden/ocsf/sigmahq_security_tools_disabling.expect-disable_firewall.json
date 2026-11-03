@@ -1,0 +1,118 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"disable_firewall\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "fbd6a62830c7ae054ec11e7c044d4b96",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "fbd6a62830c7ae054ec11e7c044d4b96",
+    "title": "Host firewall disabled or flushed",
+    "desc": "A program disabled or flushed the host firewall - ufw disable, systemctl stop/disable of ufw/firewalld/nftables, a pf stop, or iptables flushing its rules or setting the default policy to ACCEPT. Taking the firewall down opens the host to inbound access and clears the egress controls that would otherwise contain an implant (MITRE T1562.004). agent_tamper_wall_or_proxy catches an agent flushing iptables; this is the host-wide view.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "disable_firewall",
+      "uid": "4786adf7-22bb-496e-8250-2a8e1b53aaf0"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0005",
+          "name": "Defense Evasion"
+        },
+        "technique": {
+          "uid": "T1562"
+        },
+        "sub_technique": {
+          "uid": "T1562.004"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 12332,
+        "name": "systemctl",
+        "cmd_line": "systemctl --no-ask-password stop firewalld.service",
+        "file": {
+          "name": "systemctl",
+          "path": "/usr/bin/systemctl",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 12200
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "systemctl --no-ask-password stop firewalld.service"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "systemctl"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/systemctl"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/systemctl\",\"commandLine\":\"systemctl --no-ask-password stop firewalld.service\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"/home/alice\",\"pid\":12332,\"ppid\":12200}",
+  "unmapped": {
+    "current_directory": "/home/alice",
+    "kind": "sigma",
+    "rule": "disable_firewall",
+    "source": "auditd"
+  }
+}

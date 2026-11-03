@@ -1,0 +1,127 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"deobfuscate_and_run\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "f34f809fabc0a3414941f52a7a21e887",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "f34f809fabc0a3414941f52a7a21e887",
+    "title": "Encoded payload decoded and piped to a shell",
+    "desc": "Encoded data was decoded and fed straight into a shell - a decoder (base64 -d, base32 -d, xxd -r, uudecode, openssl ... -d) piped into sh/bash/zsh/dash, or wrapped in eval / a $(...) substitution. This is the deobfuscate-and-run pattern (MITRE T1140 into T1059): the next stage is carried as base64/hex so it slips past anything reading the command line, then decoded and executed in one breath. It is rarely anything but malicious - a human or a script with a real payload runs the file, it does not pipe a decode into a shell - so this fires host-wide, whoever runs it. agent_decode catches an agent account merely decoding (a softer, account-scoped signal); this is the run.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "deobfuscate_and_run",
+      "uid": "f2a0c5a1-8683-4a3a-b551-770491f8b7d5"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0005",
+          "name": "Defense Evasion"
+        },
+        "technique": {
+          "uid": "T1140"
+        }
+      },
+      {
+        "tactic": {
+          "uid": "TA0005",
+          "name": "Defense Evasion"
+        },
+        "technique": {
+          "uid": "T1059"
+        },
+        "sub_technique": {
+          "uid": "T1059.004"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 12315,
+        "name": "bash",
+        "cmd_line": "bash -c echo dHJ1ZQ== | base64 -d | bash",
+        "file": {
+          "name": "bash",
+          "path": "/usr/bin/bash",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 12200
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "bash -c echo dHJ1ZQ== | base64 -d | bash"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "bash"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/bash"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/bash\",\"commandLine\":\"bash -c echo dHJ1ZQ== | base64 -d | bash\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"/home/alice\",\"pid\":12315,\"ppid\":12200}",
+  "unmapped": {
+    "current_directory": "/home/alice",
+    "kind": "sigma",
+    "rule": "deobfuscate_and_run",
+    "source": "auditd"
+  }
+}
