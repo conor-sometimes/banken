@@ -86,6 +86,7 @@ func fatal(err error) {
 // for the guest's own journal. The disk is raw: the JSON, a newline, and the
 // host stops reading at the first NUL.
 func emit(r report.Report) {
+	r = fitReport(r, report.DiskSize)
 	data, err := json.Marshal(r)
 	if err != nil {
 		data = []byte(`{"checks":[{"id":"A1","detail":"distrocheck: cannot encode report"}]}`)
@@ -97,6 +98,40 @@ func emit(r report.Report) {
 		_ = f.Close()
 	}
 	_, _ = os.Stdout.Write(data)
+}
+
+// fitReport returns a report whose JSON (plus emit's trailing newline) fits in
+// capBytes, so it never overruns the report disk and gets truncated into an
+// unparseable blob. It preserves every check's ID and Pass verdict -- the result
+// the host actually needs -- and sheds bulk only: first Info (recorded, not
+// judged), then Detail strings (shortened, then dropped). Verdicts alone are
+// tiny and always fit, so the host never loses a distro's pass/fail.
+func fitReport(r report.Report, capBytes int) report.Report {
+	fits := func(x report.Report) bool {
+		b, err := json.Marshal(x)
+		return err == nil && len(b)+1 <= capBytes // +1 for the newline emit appends
+	}
+	if fits(r) {
+		return r
+	}
+	r.Info = map[string]string{"report_truncated": "detail dropped to fit the report disk"}
+	if fits(r) {
+		return r
+	}
+	for _, lim := range []int{200, 80, 20} {
+		for i := range r.Checks {
+			if len(r.Checks[i].Detail) > lim {
+				r.Checks[i].Detail = r.Checks[i].Detail[:lim]
+			}
+		}
+		if fits(r) {
+			return r
+		}
+	}
+	for i := range r.Checks {
+		r.Checks[i].Detail = ""
+	}
+	return r
 }
 
 // reportDisk finds the report disk by its virtio serial in sysfs, which needs
