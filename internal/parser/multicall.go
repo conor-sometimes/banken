@@ -5,13 +5,18 @@ import "path"
 // multicallBinaries are programs that hold many tools in one binary and pick
 // which one to run from argv[0]: GNU coreutils as NixOS builds it (cat, rm,
 // base64, chmod, ... are all symlinks to bin/coreutils), busybox (Alpine,
-// containers, embedded) and toybox (Android). The kernel, and so auditd, only
-// ever sees the multicall binary as exe=, so without this a rule written for
-// /cat or /rm would never see cat or rm run on those systems.
+// containers, embedded), toybox (Android) and kmod (the Linux module tools --
+// lsmod, insmod, rmmod, modprobe, depmod are all symlinks to /bin/kmod on every
+// modern distro). The kernel, and so auditd, only ever sees the multicall binary
+// as exe=, so without this a rule written for /cat or /rm would never see cat or
+// rm run on those systems -- and, just as important, a rule written for the
+// LOADING tools (/insmod, /modprobe) must not fire on the read-only /lsmod, which
+// resolving argv[0] keeps distinct where a bare exe=/.../kmod could not.
 var multicallBinaries = map[string]bool{
 	"coreutils": true,
 	"busybox":   true,
 	"toybox":    true,
+	"kmod":      true,
 }
 
 // resolveMulticall returns the path of the tool a multicall binary actually
