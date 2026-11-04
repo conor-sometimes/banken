@@ -29,6 +29,7 @@ import (
 func quarantineFixture(t *testing.T, content []byte, mode os.FileMode) (Executor, string, string, string) {
 	t.Helper()
 	base := t.TempDir()
+	clearImmutableTree(t, base)
 	work := filepath.Join(base, "work")
 	qdir := filepath.Join(base, "quarantine")
 	if err := os.MkdirAll(work, 0o755); err != nil {
@@ -53,6 +54,25 @@ func lstatMode(t *testing.T, path string) (os.FileMode, bool) {
 		return 0, false
 	}
 	return os.FileMode(st.Mode & 0o7777), true
+}
+
+// clearImmutableTree makes a quarantine test's t.TempDir removable again. When
+// the store neuters a file as root it sets FS_IMMUTABLE_FL (Q7), and Go's
+// t.TempDir cleanup (RemoveAll) then cannot unlink it -- "operation not
+// permitted" -- which is why the quarantine suite only failed E1 in-guest (as
+// root), never on the non-root hokkaido gate. Registered AFTER t.TempDir so it
+// runs BEFORE RemoveAll (t.Cleanup is LIFO); a no-op when nothing was made
+// immutable (non-root, or a filesystem that ignores the bit).
+func clearImmutableTree(t *testing.T, dir string) {
+	t.Helper()
+	t.Cleanup(func() {
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err == nil && d.Type().IsRegular() {
+				_ = clearImmutable(path)
+			}
+			return nil
+		})
+	})
 }
 
 // TestQuarantineManifestFirst is Q2: when the store cannot be written, NOTHING
@@ -98,6 +118,7 @@ func TestQuarantineManifestFirst(t *testing.T) {
 // operation completes well under a second (the file is never read).
 func TestQuarantineUnhashedOverCap(t *testing.T) {
 	base := t.TempDir()
+	clearImmutableTree(t, base)
 	work := filepath.Join(base, "work")
 	qdir := filepath.Join(base, "quarantine")
 	if err := os.MkdirAll(work, 0o755); err != nil {
@@ -266,6 +287,7 @@ func TestQuarantineSwapRaceNeuter(t *testing.T) {
 // already-applied. No root.
 func TestQuarantineRecoverPending(t *testing.T) {
 	base := t.TempDir()
+	clearImmutableTree(t, base)
 	qdir := filepath.Join(base, "quarantine")
 	id := newHandleID()
 	entryDir := filepath.Join(qdir, id)
@@ -342,6 +364,7 @@ func TestQuarantineRecoverPending(t *testing.T) {
 // so the order reprocesses normally.
 func TestQuarantineRecoverRollsBack(t *testing.T) {
 	base := t.TempDir()
+	clearImmutableTree(t, base)
 	qdir := filepath.Join(base, "quarantine")
 	work := filepath.Join(base, "work")
 	if err := os.MkdirAll(work, 0o755); err != nil {

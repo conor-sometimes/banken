@@ -1,0 +1,142 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"gtfobin_file_write_sink\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "e62d308851a9417bcd6bdcff74b321fa",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "e62d308851a9417bcd6bdcff74b321fa",
+    "title": "File-write tool writing a code-execution sink (GTFOBin)",
+    "desc": "A file-write utility (dd, tee, cp, install) wrote - or any process's file access touched - a sink that grants code execution or persistence: the dynamic-loader preload list (/etc/ld.so.preload, /etc/ld.so.conf.d/), a login profile script (/etc/profile.d/, /etc/profile, /etc/bash.bashrc, /etc/environment), or an rc/init drop-in. Writing arbitrary content into one of these through a trusted tool is the GTFOBins file-write abuse (MITRE T1565.001 Stored Data Manipulation), and the sink itself is the persistence/escalation payload - a preloaded library runs in every dynamically linked process (T1574.006), a profile script runs for every login shell (T1546.004). sudoers, cron, PAM and authorized_keys have their own dedicated rules; this adds the loader/profile sinks that were a gap.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "gtfobin_file_write_sink",
+      "uid": "ebb729ed-ddc8-45a9-a95e-055884d997d8"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0040",
+          "name": "Impact"
+        },
+        "technique": {
+          "uid": "T1565"
+        },
+        "sub_technique": {
+          "uid": "T1565.001"
+        }
+      },
+      {
+        "tactic": {
+          "uid": "TA0040",
+          "name": "Impact"
+        },
+        "technique": {
+          "uid": "T1574"
+        },
+        "sub_technique": {
+          "uid": "T1574.006"
+        }
+      },
+      {
+        "tactic": {
+          "uid": "TA0040",
+          "name": "Impact"
+        },
+        "technique": {
+          "uid": "T1546"
+        },
+        "sub_technique": {
+          "uid": "T1546.004"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 12312,
+        "name": "cp",
+        "cmd_line": "cp /etc/ld.so.preload /tmp/tmp.Zc4m8d/ld.so.preload",
+        "file": {
+          "name": "cp",
+          "path": "/usr/bin/cp",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 12200
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "cp /etc/ld.so.preload /tmp/tmp.Zc4m8d/ld.so.preload"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "cp"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/cp"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/cp\",\"commandLine\":\"cp /etc/ld.so.preload /tmp/tmp.Zc4m8d/ld.so.preload\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"/home/alice\",\"pid\":12312,\"ppid\":12200}",
+  "unmapped": {
+    "current_directory": "/home/alice",
+    "kind": "sigma",
+    "rule": "gtfobin_file_write_sink",
+    "source": "auditd"
+  }
+}

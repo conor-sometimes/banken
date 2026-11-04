@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/dev/shm/bk-shm.12345",
+  "commandLine": "/dev/shm/bk-shm.12345",
+  "user": "1000",
+  "pid": 12334,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

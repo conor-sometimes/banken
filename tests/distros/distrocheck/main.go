@@ -33,6 +33,12 @@ const (
 	journalDir = "/var/log/banken"
 	configPath = "/etc/banken/banken.yml"
 	auditLog   = "/var/log/audit/audit.log"
+	// scanSettle is how long a drain waits for auditd to flush the previous family's tail before
+	// re-scanning, so a straggler exec is attributed to its own family (B1).
+	scanSettle = 2 * time.Second
+	// maxDrain bounds the quiescence loop so a genuinely chatty host cannot hang the matrix; a
+	// quiet VM settles in one iteration.
+	maxDrain = 8
 )
 
 // auditRules are banken's documented rules (docs/deployment.md, Log source)
@@ -80,6 +86,7 @@ func fatal(err error) {
 // for the guest's own journal. The disk is raw: the JSON, a newline, and the
 // host stops reading at the first NUL.
 func emit(r report.Report) {
+	r = fitReport(r, report.DiskSize)
 	data, err := json.Marshal(r)
 	if err != nil {
 		data = []byte(`{"checks":[{"id":"A1","detail":"distrocheck: cannot encode report"}]}`)
@@ -91,6 +98,40 @@ func emit(r report.Report) {
 		_ = f.Close()
 	}
 	_, _ = os.Stdout.Write(data)
+}
+
+// fitReport returns a report whose JSON (plus emit's trailing newline) fits in
+// capBytes, so it never overruns the report disk and gets truncated into an
+// unparseable blob. It preserves every check's ID and Pass verdict -- the result
+// the host actually needs -- and sheds bulk only: first Info (recorded, not
+// judged), then Detail strings (shortened, then dropped). Verdicts alone are
+// tiny and always fit, so the host never loses a distro's pass/fail.
+func fitReport(r report.Report, capBytes int) report.Report {
+	fits := func(x report.Report) bool {
+		b, err := json.Marshal(x)
+		return err == nil && len(b)+1 <= capBytes // +1 for the newline emit appends
+	}
+	if fits(r) {
+		return r
+	}
+	r.Info = map[string]string{"report_truncated": "detail dropped to fit the report disk"}
+	if fits(r) {
+		return r
+	}
+	for _, lim := range []int{200, 80, 20} {
+		for i := range r.Checks {
+			if len(r.Checks[i].Detail) > lim {
+				r.Checks[i].Detail = r.Checks[i].Detail[:lim]
+			}
+		}
+		if fits(r) {
+			return r
+		}
+	}
+	for i := range r.Checks {
+		r.Checks[i].Detail = ""
+	}
+	return r
 }
 
 // reportDisk finds the report disk by its virtio serial in sysfs, which needs
@@ -232,6 +273,14 @@ func (c *checker) run() {
 // is killed (an emulation's curl or nc would otherwise outlive its shell),
 // and WaitDelay stops the wait for output a straggler still holds open.
 func (c *checker) sh(timeout time.Duration, name string, args ...string) (string, error) {
+	out, _, err := c.shPID(timeout, name, args...)
+	return out, err
+}
+
+// shPID is sh that also returns the launched process's pid (valid after the
+// process has exited). B1's identity-based attribution roots a family's process
+// subtree at the pid of its launcher, so the family runner needs this.
+func (c *checker) shPID(timeout time.Duration, name string, args ...string) (string, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- running the distro's tools is this program's job, in a throwaway VM
@@ -246,10 +295,14 @@ func (c *checker) sh(timeout time.Duration, name string, args ...string) (string
 		}
 	}
 	out, err := cmd.CombinedOutput()
-	if ctx.Err() != nil {
-		return string(out), fmt.Errorf("%s: timed out after %s", name, timeout)
+	pid := 0
+	if cmd.Process != nil {
+		pid = cmd.Process.Pid
 	}
-	return string(out), err
+	if ctx.Err() != nil {
+		return string(out), pid, fmt.Errorf("%s: timed out after %s", name, timeout)
+	}
+	return string(out), pid, err
 }
 
 // shIn is sh in a working directory.
@@ -266,10 +319,17 @@ func (c *checker) shIn(dir string, timeout time.Duration, name string, args ...s
 // bare runuser PATH omits on openSUSE and Fedora, so the exec never happens and the rule
 // never fires. Finding the binary is part of faithfully emulating the act.
 func (c *checker) asUser(command string) string {
-	const loginPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-	out, _ := c.sh(time.Minute, "runuser", "-u", testUser, "--", "bash", "-c",
-		"export PATH="+loginPath+":$PATH; "+command)
+	out, _ := c.asUserPID(command)
 	return out
+}
+
+// asUserPID is asUser that also returns the runuser process's pid. A family's
+// emulation runs under this pid, so B1 roots the family's audit subtree here.
+func (c *checker) asUserPID(command string) (string, int) {
+	const loginPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	out, pid, _ := c.shPID(time.Minute, "runuser", "-u", testUser, "--", "bash", "-c",
+		"export PATH="+loginPath+":$PATH; "+command)
+	return out, pid
 }
 
 func have(cmd string) bool {
@@ -282,6 +342,23 @@ func (c *checker) scan() {
 	if out, err := c.sh(2*time.Minute, "systemctl", "start", "banken.service"); err != nil {
 		tail, _ := c.sh(time.Minute, "journalctl", "-u", "banken.service", "-n", "8", "--no-pager", "-o", "cat")
 		c.unitFailures = append(c.unitFailures, strings.TrimSpace(out+" "+tail))
+	}
+}
+
+// drainQuiescent scans until a full settle passes with no new alert surfacing, so every exec is
+// read and attributed before a count is taken -- a prior family's tail before a window, or this
+// family's own late-flushing exec after it. auditd flush latency (and out-of-order record
+// completion) otherwise races a single fixed settle on a loaded VM. Bounded by maxDrain so a
+// genuinely chatty host cannot hang the matrix; a quiet VM settles in one iteration.
+func (c *checker) drainQuiescent() {
+	for i := 0; i < maxDrain; i++ {
+		c.scan()
+		n := len(alertLines())
+		time.Sleep(scanSettle)
+		c.scan()
+		if len(alertLines()) == n {
+			return
+		}
 	}
 }
 
@@ -315,6 +392,21 @@ func auditLineN() int {
 	return len(nonEmpty(string(data)))
 }
 
+// auditSince returns the audit log text from line n onward, the window a
+// family's process subtree is built from (auditProcTree reads its SYSCALL
+// records for pid/ppid).
+func auditSince(n int) string {
+	data, err := os.ReadFile(auditLog) //nolint:gosec // the audit log, inside the test VM
+	if err != nil {
+		return ""
+	}
+	lines := nonEmpty(string(data))
+	if n > len(lines) {
+		n = len(lines)
+	}
+	return strings.Join(lines[n:], "\n")
+}
+
 // auditExecsSince names the distinct programs exec'd since line n (from SYSCALL records' exe=...),
 // a diagnostic for a B1 miss: it distinguishes "the emulation's tool never ran" (the program is
 // absent from the list) from "it ran but no rule matched" (it is present).
@@ -330,18 +422,7 @@ func auditExecsSince(n int) string {
 	seen := map[string]bool{}
 	var exes []string
 	for _, line := range lines[n:] {
-		i := strings.Index(line, " exe=")
-		if i < 0 {
-			continue
-		}
-		v := line[i+5:]
-		v = strings.TrimPrefix(v, "\"")
-		if j := strings.IndexByte(v, '"'); j >= 0 {
-			v = v[:j]
-		} else if j := strings.IndexByte(v, ' '); j >= 0 {
-			v = v[:j]
-		}
-		base := v[strings.LastIndexByte(v, '/')+1:]
+		base := auditExe(line)
 		if base != "" && !seen[base] {
 			seen[base] = true
 			exes = append(exes, base)
@@ -607,10 +688,10 @@ func (c *checker) timerFires() {
 // its replay fixture).
 const emulSkip = "BANKEN-EMUL-SKIP"
 
-func (c *checker) runFamily(family string) string {
-	out := c.asUser("bash " + filepath.Join(c.seed, "emulations", family+".sh"))
+func (c *checker) runFamily(family string) (string, int) {
+	out, launcher := c.asUserPID("bash " + filepath.Join(c.seed, "emulations", family+".sh"))
 	time.Sleep(time.Second) // let auditd write the family's records
-	return out
+	return out, launcher
 }
 
 // detection (B1, C1, C2): with the jsonl sink on (config at the default path,
@@ -623,35 +704,63 @@ func (c *checker) detection() {
 			c.unitFailures = append(c.unitFailures, "write config: "+err.Error())
 		}
 	}
-	// Quiet background services that trip detections on their own schedule: fwupd loads kernel
-	// modules via modprobe, which fires kernel_module_load and, landing in whatever family's scan
-	// window it happens to, gets misattributed (seen on Ubuntu). A test VM needs no firmware updates.
-	for _, unit := range []string{"fwupd.service", "fwupd-refresh.service", "fwupd-refresh.timer"} {
+	// Quiet background services that trip detections on their own schedule: a daemon that acts
+	// inside a family's scan window gets its alert misattributed to that family. fwupd loads kernel
+	// modules via modprobe (kernel_module_load, seen on Ubuntu); the cron/at family runs jobs that
+	// read credential paths through PAM and exec helpers from temp dirs (credential_file_read bled
+	// into killlog, an unrelated log-tamper family, via a cron-spawned dash; exec_from_tmp likewise).
+	// A test VM needs no firmware updates and no periodic jobs, so mask them all (a mask of an absent
+	// unit is a harmless no-op on this distro).
+	for _, unit := range []string{
+		"fwupd.service", "fwupd-refresh.service", "fwupd-refresh.timer",
+		"cron.service", "crond.service", "anacron.service", "anacron.timer", "atd.service",
+	} {
 		_, _ = c.sh(time.Minute, "systemctl", "mask", "--now", unit)
 	}
 	c.scan() // drain the A2/A3 activity
 	host, _ := os.Hostname()
 	var badOCSF, unjournalled []string
 	for _, family := range c.families() {
-		c.scan()                                                    // drain any inter-family or concurrent-service activity so only this family's own
-		before, beforeJ := len(alertLines()), len(c.journal("err")) // events count toward it
+		// Drain to quiescence before opening this family's window so a prior family's late-flushing
+		// exec lands in `before`, not in this family's fired set (a /tmp-staging family bled into
+		// stomp this way; a single fixed settle raced auditd's flush on a loaded VM).
+		c.drainQuiescent()
+		before, beforeJ := len(alertLines()), len(c.journal("err"))
 		auditBefore := auditLineN()
-		out := c.runFamily(family)
+		out, launcher := c.runFamily(family)
 		if strings.Contains(out, emulSkip) {
 			// The emulation could not run (its tool is not installable on this image); skip rather
 			// than count a miss. Recorded so the skip is visible in the report, not silent.
 			c.rep.Info["B1_skipped/"+family] = firstLine(strings.TrimSpace(out))
 			continue
 		}
-		c.scan()
+		// Drain to quiescence again so this family's OWN late-flushing exec is counted: masqdaemon
+		// copies a daemon-named binary into /tmp and only then execs it, and that exec's record can
+		// land after a single post-scan -- dropping exec_from_tmp and failing set-equality. Symmetric
+		// with the pre-drain: before excludes the prior family's tail, fired includes this one's.
+		c.drainQuiescent()
+		// Attribute by identity, not by the scan window. Build this family's process subtree from the
+		// audit records produced since the window opened, rooted at the family launcher's pid. An alert
+		// counts for this family only if its evidence process is in that subtree. A prior family's
+		// late-flushing exec and a background daemon both run under a different subtree, so neither can
+		// bleed in -- no timing, no masking. The drains above only bound how much we read; the subtree
+		// is what decides.
+		subtree := descendants(auditProcTree(auditSince(auditBefore)), launcher)
 		fired := map[string]bool{}
+		offending := map[string]string{} // rule -> first raw alert line, for diagnosing an unexpected fire
 		journalled := from(c.journal("err"), beforeJ)
 		for _, line := range from(alertLines(), before) {
+			if pid, ppid := alertProcess(line); !inSubtree(subtree, pid, ppid) {
+				continue // another family's straggler or a background daemon, not this family
+			}
 			rule, sev, problem := ocsfRule(line, host)
 			if problem != "" {
 				badOCSF = append(badOCSF, family+": "+problem)
 			}
 			fired[rule] = true
+			if _, seen := offending[rule]; !seen {
+				offending[rule] = line
+			}
 			if sev >= 4 && !containsRule(journalled, rule) {
 				unjournalled = append(unjournalled, family+": "+rule)
 			}
@@ -665,6 +774,21 @@ func (c *checker) detection() {
 			// (tool/PATH), where "execs: [useradd]" would point at the rule or the parser instead.
 			if execs := auditExecsSince(auditBefore); execs != "" {
 				msg += "; execs: " + execs
+			}
+			// Name the record behind any unexpected rule: its Image/CommandLine says whether this is
+			// a straggler from another family or a genuine fire, which the basename exec list can't.
+			wantSet := map[string]bool{}
+			for _, r := range want {
+				wantSet[r] = true
+			}
+			var extras []string
+			for _, r := range got {
+				if !wantSet[r] {
+					extras = append(extras, "extra "+r+": "+firstLine(offending[r]))
+				}
+			}
+			if len(extras) > 0 {
+				msg += "\n  " + strings.Join(extras, "\n  ")
 			}
 		}
 		c.check("B1/"+family, equal(got, want), msg)

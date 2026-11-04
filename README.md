@@ -66,6 +66,7 @@ The demos reuse the real end-to-end tests. They cannot claim a detection the sui
 
 - **100% SigmaHQ Linux coverage.** All 210/210 rules of `rules/linux` (`r2026-07-01`) load and evaluate. banken agrees with pySigma on 182/182.
 - **Own detections.** ~59 rules by ATT&CK tactic. 11 of them are account-scoped rules for autonomous AI agents (`rules/agent/`), a niche SigmaHQ does not cover.
+- **Deception, built in.** One switch (`services.banken.honeytokens`) plants decoy credentials and ransomware-canary documents. Reading a decoy or writing a canary fires critical, no false positives. Proven in a KVM VM test (9/9).
 - **Standards out, no glue.** OCSF 1.3.0 (CI-validated), ECS 8.11.0, or OTLP/HTTP. Any such backend ingests them with no per-product mapping.
 - **Proven on real distros.** Green on 8 distros plus NixOS, on their own kernels and auditd.
 - **Tiny and safe.** One static CGO-free binary, ~7 MiB, ~14 MiB RAM. No kernel module. A bug is a missed detection, never a kernel panic.

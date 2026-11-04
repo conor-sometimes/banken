@@ -1,0 +1,118 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 3,
+  "severity": "Medium",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"security_software_discovery\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "dd6a3dee19ccc903d7fc191fbb37d293",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "dd6a3dee19ccc903d7fc191fbb37d293",
+    "title": "Security software discovery",
+    "desc": "A process searched the process list or filesystem for security tooling by name - grepping ps output or using pgrep/pidof for EDR, AV, audit and monitoring agents (CrowdStrike/falcond, osquery, Wazuh, SentinelOne, Sysmon, auditbeat/filebeat, ClamAV ...). Enumerating which defender is watching is a standard pre-attack step (MITRE T1518.001): the attacker learns what to evade or disable before acting. Grepping for these specific product names is not something routine automation does, so it is a clean signal.",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "security_software_discovery",
+      "uid": "8a4d1e73-5c92-4b60-a7f3-9e0b2c6d4f18"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0007",
+          "name": "Discovery"
+        },
+        "technique": {
+          "uid": "T1518"
+        },
+        "sub_technique": {
+          "uid": "T1518.001"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 12331,
+        "name": "grep",
+        "cmd_line": "grep falcond /dev/null",
+        "file": {
+          "name": "grep",
+          "path": "/usr/bin/grep",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 12200
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "grep falcond /dev/null"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "grep"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/usr/bin/grep"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/usr/bin/grep\",\"commandLine\":\"grep falcond /dev/null\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"/home/alice\",\"pid\":12331,\"ppid\":12200}",
+  "unmapped": {
+    "current_directory": "/home/alice",
+    "kind": "sigma",
+    "rule": "security_software_discovery",
+    "source": "auditd"
+  }
+}

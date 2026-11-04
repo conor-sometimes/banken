@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/python3",
+  "commandLine": "python3 -c import os; os.system(\"/bin/sh -c true\")",
+  "user": "1000",
+  "pid": 12329,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

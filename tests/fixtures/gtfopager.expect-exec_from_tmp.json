@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/tmp/tmp.Xk3n9a/vim",
+  "commandLine": "/tmp/tmp.Xk3n9a/vim -c :!true -c :q! /tmp/tmp.Xk3n9a/f",
+  "user": "1000",
+  "pid": 12310,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

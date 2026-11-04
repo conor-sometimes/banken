@@ -1,0 +1,115 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2004,
+  "class_name": "Detection Finding",
+  "type_uid": 200401,
+  "type_name": "Detection Finding: Create",
+  "time": 1793448000000,
+  "timezone_offset": 0,
+  "severity_id": 4,
+  "severity": "High",
+  "status_id": 1,
+  "status": "New",
+  "message": "rule \"exec_from_tmp\" matched",
+  "metadata": {
+    "version": "1.3.0",
+    "profiles": [
+      "host"
+    ],
+    "product": {
+      "name": "banken",
+      "vendor_name": "conor-sometimes",
+      "version": "test",
+      "url_string": "https://github.com/conor-sometimes/banken"
+    },
+    "uid": "81120db119c7386c41aad1326169273a",
+    "log_provider": "auditd"
+  },
+  "finding_info": {
+    "uid": "81120db119c7386c41aad1326169273a",
+    "title": "Executable or script run from a world-writable temp dir",
+    "desc": "A process executed out of a world-writable scratch dir - either its own image lives under /tmp, /dev/shm, /var/tmp or /run/user (a dropped payload run directly, or through its shebang), or an interpreter (bash, sh, python, perl ...) was handed a script PATH under one of those dirs. Legitimate programs are installed under /usr, /bin or the nix store and run from there; staging a payload in a scratch dir and executing it is a classic post-download step. The executable LOCATION is the signal - this deliberately does NOT fire on an interpreter that merely mentions a temp path inside inline `-c` code (only a temp script-file argument counts).",
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "exec_from_tmp",
+      "uid": "eff4d539-815c-4cde-af26-c9f5a8f61ac9"
+    },
+    "attacks": [
+      {
+        "tactic": {
+          "uid": "TA0002",
+          "name": "Execution"
+        },
+        "technique": {
+          "uid": "T1059"
+        }
+      }
+    ],
+    "data_sources": [
+      "auditd"
+    ]
+  },
+  "evidences": [
+    {
+      "process": {
+        "pid": 12335,
+        "name": "bk-tmp-exec.12345",
+        "cmd_line": "/tmp/bk-tmp-exec.12345",
+        "file": {
+          "name": "bk-tmp-exec.12345",
+          "path": "/tmp/bk-tmp-exec.12345",
+          "type_id": 1,
+          "type": "Regular File"
+        },
+        "user": {
+          "uid": "1000"
+        },
+        "parent_process": {
+          "pid": 12200
+        }
+      }
+    }
+  ],
+  "device": {
+    "type_id": 0,
+    "type": "Unknown",
+    "hostname": "golden-host"
+  },
+  "observables": [
+    {
+      "name": "evidences.process.cmd_line",
+      "type_id": 13,
+      "type": "Command Line",
+      "value": "/tmp/bk-tmp-exec.12345"
+    },
+    {
+      "name": "evidences.process.name",
+      "type_id": 9,
+      "type": "Process Name",
+      "value": "bk-tmp-exec.12345"
+    },
+    {
+      "name": "evidences.process.file.path",
+      "type_id": 7,
+      "type": "File Name",
+      "value": "/tmp/bk-tmp-exec.12345"
+    },
+    {
+      "name": "device.hostname",
+      "type_id": 1,
+      "type": "Hostname",
+      "value": "golden-host"
+    }
+  ],
+  "raw_data": "{\"time\":\"0001-01-01T00:00:00Z\",\"source\":\"auditd\",\"image\":\"/tmp/bk-tmp-exec.12345\",\"commandLine\":\"/tmp/bk-tmp-exec.12345\",\"parentImage\":\"\",\"targetFilename\":\"\",\"user\":\"1000\",\"currentDirectory\":\"/home/alice\",\"pid\":12335,\"ppid\":12200}",
+  "unmapped": {
+    "current_directory": "/home/alice",
+    "kind": "sigma",
+    "rule": "exec_from_tmp",
+    "source": "auditd"
+  }
+}

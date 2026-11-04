@@ -17,7 +17,11 @@ set -u
 work=$(mktemp -d /tmp/tmpexec.XXXXXX) || exit 0
 trap 'rm -rf "$work" 2>/dev/null' EXIT
 
-true_bin=$(command -v true 2>/dev/null) || exit 0
+# type -P (not `command -v`): `true` is a shell builtin, so `command -v true` prints "true", not a
+# filesystem path -- `cp true ...` would then fail and TTP (a) below (the bare-ELF drop) would
+# silently never run. type -P forces a PATH search for the real binary to copy and exec.
+true_bin=$(type -P true 2>/dev/null) || exit 0
+[ -n "$true_bin" ] || exit 0
 
 # --- TTP (a): a binary whose own image is under /tmp, run directly -> exec_from_tmp (image_in_tmp).
 # An ordinary name (not a daemon name, not a "..." dir), so this is the generic location signal and
