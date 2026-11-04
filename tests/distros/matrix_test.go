@@ -101,7 +101,7 @@ func boot(t *testing.T, d distro, image string, expected map[string][]string) re
 	seed := writeSeed(t, dir, d, expected)
 	serial := filepath.Join(dir, "serial.log")
 	reportFile := filepath.Join(dir, "report.img")
-	must(t, os.WriteFile(reportFile, make([]byte, 1<<20), 0o600))
+	must(t, os.WriteFile(reportFile, make([]byte, report.DiskSize), 0o600))
 
 	ctx, cancel := context.WithTimeout(context.Background(), *bootTimeout)
 	defer cancel()

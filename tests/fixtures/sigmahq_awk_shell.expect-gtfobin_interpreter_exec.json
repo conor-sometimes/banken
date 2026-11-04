@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/gawk",
+  "commandLine": "awk BEGIN {system(\"/bin/sh -c true\")}",
+  "user": "1000",
+  "pid": 12314,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

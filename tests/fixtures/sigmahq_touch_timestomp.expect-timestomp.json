@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/touch",
+  "commandLine": "touch -t 202601010000 /home/alice/.sigmaemul.service",
+  "user": "1000",
+  "pid": 12337,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

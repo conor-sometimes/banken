@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/dd",
+  "commandLine": "dd if=/dev/null of=/proc/0/mem count=0",
+  "user": "1000",
+  "pid": 12322,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

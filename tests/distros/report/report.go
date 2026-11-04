@@ -9,6 +9,13 @@ package report
 // no driver, console setting or udev rule the root disk does not already need.
 const Disk = "banken-report"
 
+// DiskSize is the raw report disk's size in bytes. The guest's JSON report must
+// fit in it: a report that overruns is written without a trailing NUL, so the
+// host reads a truncated, unparseable blob and loses the whole distro's result.
+// The host allocates the disk at this size; the guest shrinks a too-large report
+// to fit (keeping every verdict). Both sides use this one constant.
+const DiskSize = 1 << 20
+
 // Report is one distro's result.
 type Report struct {
 	Distro string            `json:"distro"`

@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/tmp/bk-tmp-exec.12345",
+  "commandLine": "/tmp/bk-tmp-exec.12345",
+  "user": "1000",
+  "pid": 12335,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]

@@ -1,0 +1,11 @@
+[
+ {
+  "source": "auditd",
+  "image": "/usr/bin/wget",
+  "commandLine": "wget -O /tmp/bk-wget-dl.12345 --timeout=1 --tries=1 http://192.0.2.1/",
+  "user": "1000",
+  "pid": 12340,
+  "ppid": 12200,
+  "currentDirectory": "/home/alice"
+ }
+]
