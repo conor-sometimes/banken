@@ -178,6 +178,8 @@ let
   '';
 in
 {
+  imports = [ ./honeytokens.nix ];
+
   options.services.banken = {
     enable = lib.mkEnableOption "banken, a host EDR over the audit log";
 

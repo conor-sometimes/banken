@@ -40,6 +40,9 @@ how each is checked.
   evaluations.
 - **banken's own detections.** ~59 rules organised by ATT&CK tactic, including **11 account-scoped
   rules for autonomous AI agents** (`rules/agent/`) - a niche the SigmaHQ set does not cover.
+- **Deception, built in.** One switch (`services.banken.honeytokens`) plants decoy credentials and
+  ransomware-canary documents. A read of a decoy, or a write to a canary, fires critical with no
+  false-positive story. Proven end-to-end in a KVM VM test (9/9 subtests).
 - **Standards out, no glue.** Findings as **OCSF 1.3.0** Detection Findings (validated in CI by the
   OCSF project's own validator), **ECS 8.11.0**, or **OTLP/HTTP** log records - Security Lake,
   Splunk, Datadog, Elastic or any OCSF/ECS/OTLP backend ingests them with no per-product mapping.
