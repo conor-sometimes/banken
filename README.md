@@ -233,8 +233,8 @@ Pre-alpha, past the floor. Enforcement is off by default.
 | Sigma + IOC engine, 210/210 SigmaHQ | ✅ |
 | OCSF / ECS / OTLP output | ✅ |
 | Enforcement: freeze / quarantine / kill | ✅ off by default |
-| Sysmon for Linux | 🚧 validating |
-| hitomi, the YARA sensor | 🚧 building |
+| Sysmon for Linux | ✅ |
+| hitomi, the YARA sensor | 🚧 built, banken integration pending |
 | journald / syslog-auth input | ❌ |
 | Threat-intel feeds as a NixOS option | ❌ config-file only |
 | Prebuilt binary / native packages | ❌ |

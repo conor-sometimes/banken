@@ -131,7 +131,8 @@ func RenderList(w io.Writer, rows []Row) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fprintln(tw, "ID\tKIND\tSTATE\tTARGET\tUSER\tRULE\tWHEN")
 	for _, row := range rows {
-		fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fprintf(
+			tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			shortID(row.ID),
 			row.Kind,
 			row.State,
