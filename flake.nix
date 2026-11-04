@@ -10,7 +10,15 @@
   # package and the NixOS module never reference mimi, so importing banken drags in nothing of it.
   inputs.mimi.url = "github:conor-sometimes/mimi";
 
-  outputs = { self, nixpkgs, mimi }:
+  # mayfly: the distro matrix, extracted to its own repo
+  # (docs/design/distro-matrix.md). banken consumes it as a flake input: it
+  # passes its static binary and its checks, and the engine boots the vendor
+  # images under KVM and attributes the findings. Its nixpkgs follows banken's,
+  # so there is one package set.
+  inputs.mayfly.url = "github:conor-sometimes/mayfly";
+  inputs.mayfly.inputs.nixpkgs.follows = "nixpkgs";
+
+  outputs = { self, nixpkgs, mimi, mayfly }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
@@ -72,6 +80,20 @@
           inherit mimiBundle;
         });
       };
+
+      # nix run .#matrix: the same live distro matrix, through the extracted
+      # distro-matrix engine (tests/distros/matrix.nix). banken passes its static
+      # binary and its fixture-derived detect checks; the engine boots, installs,
+      # attributes by process subtree, and tears down. `nix run .#matrix -- -distro
+      # ubuntu-2404` runs one distro. The distro set starts at the proven Ubuntu
+      # skeleton and grows one catalog attr at a time; the old distro-matrix app
+      # above is the prototype, kept until the extraction is signed off on all
+      # eight distros.
+      apps.x86_64-linux.matrix = (import ./tests/distros/matrix.nix {
+        inherit pkgs mayfly;
+        lib = nixpkgs.lib;
+        banken = bankenPkg;
+      }).apps.matrix;
 
       # nix run .#demo / .#demo-mimi: the repo showcase (docs/design/showcase.md, demo/demo.nix).
       # Each boots a throwaway NixOS VM, runs the repo's own benign revshell as an unprivileged

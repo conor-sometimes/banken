@@ -1,0 +1,4 @@
+-a always,exit -F arch=b64 -S execve,execveat -k banken-exec
+-a always,exit -F arch=b32 -S execve -k banken-exec
+-w /etc/shadow -p rwa -k banken-watch
+-w /etc/gshadow -p rwa -k banken-watch
