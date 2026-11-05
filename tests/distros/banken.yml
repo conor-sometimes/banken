@@ -1,0 +1,3 @@
+alerts:
+  journal: {enable: true}
+  jsonl: {enable: true, dir: /var/log/banken, retentionDays: 30, format: ocsf}
