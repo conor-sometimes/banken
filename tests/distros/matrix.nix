@@ -6,7 +6,7 @@
 # Returns the mkMatrix result (apps, checks, readme) for flake.nix to splice in.
 # `distros` starts at the proven Ubuntu skeleton; the other vendor distros are
 # one catalog attr each as they are signed off against the extracted engine.
-{ pkgs, lib, mayfly, banken }:
+{ pkgs, lib, mayfly, banken, mimi }:
 mayfly.lib.mkMatrix {
   inherit pkgs;
 
@@ -28,6 +28,15 @@ mayfly.lib.mkMatrix {
     packages = [ "auditd" "auditctl" "runuser" "tar" "curl" "python3" "pkill" "bash" "sudo" ];
   };
 
+  # The second telemetry source: mimi's fully-static musl binary (the eBPF probe
+  # embedded), installed like any other subject. mimicheck.sh runs it and proves
+  # banken detects off the mimi stream -- no unit, no scan; the sensor is a plain
+  # binary the test drives.
+  installs.mimi = {
+    binary = "${mimi.packages.${pkgs.stdenv.hostPlatform.system}.mimi-musl}/bin/mimi";
+    installPath = "/usr/local/bin/mimi";
+  };
+
   checks =
     (import ./checks.nix { inherit lib; emulationsDir = ../emulations; fixturesDir = ../fixtures; })
     // {
@@ -43,6 +52,14 @@ mayfly.lib.mkMatrix {
         ids = [ "S1" "S2" "S3" "S4" "S5" ];
         tools = [ ];
         when = d: d.pm == "apt" || d.family == "rhel";
+      };
+      # Test B: banken + mimi (the eBPF sensor) -- detection off a second source.
+      # x86_64 only; M2 SKIPs on a kernel without BTF (CO-RE needs it).
+      mimi = {
+        kind = "script";
+        run = ./mimicheck.sh;
+        ids = [ "M1" "M2" "M3" "M4" "M5" ];
+        tools = [ ];
       };
     };
 }
