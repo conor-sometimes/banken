@@ -14,7 +14,7 @@ mayfly.lib.mkMatrix {
     ubuntu-2404.enable = true;
   };
 
-  subjects.banken = {
+  installs.banken = {
     binary = lib.getExe banken;
     installPath = "/usr/bin/banken";
     units = [ ../../packaging/systemd/banken.service ../../packaging/systemd/banken.timer ];
