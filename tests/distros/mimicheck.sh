@@ -1,33 +1,26 @@
 #!/usr/bin/env bash
-# Test B, run in-guest as root on each vendor distro: the banken + mimi half of the matrix. It
-# deploys the portable mimi bundle (the loader + glibc shipped alongside the binary, so it runs with
-# no /nix in the guest), loads the eBPF sensor on THIS distro's own shipped kernel (CO-RE resolves
-# task_struct offsets from that kernel's BTF), and checks banken detects a reverse shell on the
-# MIMI-sourced event -- the integration, proven per distro.
+# Test B (banken + mimi), run in-guest as root on each vendor distro: the eBPF half of the
+# multi-source matrix. mimi ships one fully-static musl binary (the probe embedded), so the mayfly
+# engine installs it like any other subject at /usr/local/bin/mimi -- no bundle, no loader. This
+# loads the eBPF sensor on THIS distro's own shipped kernel (CO-RE resolves task_struct offsets from
+# that kernel's BTF) and checks banken detects a reverse shell on the MIMI-sourced event: the same
+# attack banken catches off auditd, proven off a second, independent telemetry source.
 #
-# It prints one "<id> PASS|FAIL <detail>" line per objective; distrocheck parses these into the
-# report. BTF absent (B2 FAIL) is a clean skip of B3-B5: CO-RE needs it, and recording which distro
-# kernels ship BTF is itself a result.
+# One "<id> PASS|FAIL|SKIP <detail>" line per objective; distrocheck parses these. BTF absent
+# (M2 SKIP) cleanly skips M3-M5: CO-RE needs it, and which distro kernels ship BTF is itself a result.
 set -uo pipefail
-SEED=${1:-/mnt/seed}
-D=/opt/mimi
+MIMI=/usr/local/bin/mimi
 log(){ echo "$1 $2 ${3:-}"; }
 
-# M1: deploy the bundle (mimi + its interpreter + libc + libgcc) from the seed.
-mkdir -p "$D" /etc/banken
-if cp "$SEED"/mimi-bundle/mimi "$SEED"/mimi-bundle/ld.so "$SEED"/mimi-bundle/libc.so.6 "$SEED"/mimi-bundle/libgcc_s.so.1 "$D"/ 2>/dev/null && chmod +x "$D"/mimi "$D"/ld.so; then
-  log M1 PASS "bundle deployed"
-else
-  log M1 FAIL "could not deploy mimi bundle from seed"; exit 0
-fi
+# M1: the static binary the engine installed is present and runnable.
+if [ -x "$MIMI" ]; then log M1 PASS "static mimi at $MIMI"; else log M1 FAIL "mimi not installed at $MIMI"; exit 0; fi
 
-# M2: BTF -- CO-RE prerequisite.
-if [ -r /sys/kernel/btf/vmlinux ]; then log M2 PASS "has /sys/kernel/btf/vmlinux"; else log M2 FAIL "no kernel BTF"; log M3 FAIL "not reached: no BTF"; log M4 FAIL "not reached: no BTF"; log M5 FAIL "not reached: no BTF"; exit 0; fi
+# M2: BTF -- the CO-RE prerequisite.
+if [ -r /sys/kernel/btf/vmlinux ]; then log M2 PASS "has /sys/kernel/btf/vmlinux"; else log M2 SKIP "no kernel BTF"; log M3 SKIP "no BTF"; log M4 SKIP "no BTF"; log M5 SKIP "no BTF"; exit 0; fi
 
-run_mimi(){ "$D/ld.so" --library-path "$D" "$D/mimi" --sink /var/log/mimi.jsonl; }
-
+mkdir -p /etc/banken /var/log/bmimi
 # M3: load the probe (CO-RE off this kernel's BTF) and start streaming.
-run_mimi >/var/log/mimi.err 2>&1 &
+"$MIMI" --sink /var/log/mimi.jsonl >/var/log/mimi.err 2>&1 &
 MPID=$!
 for _ in $(seq 1 60); do [ -s /var/log/mimi.jsonl ] && break; sleep 0.25; done
 if kill -0 "$MPID" 2>/dev/null && [ -s /var/log/mimi.jsonl ]; then
@@ -44,7 +37,6 @@ if grep -q '"name":"mimicanary"' /var/log/mimi.jsonl 2>/dev/null; then log M4 PA
 
 # M5: banken --watch on the mimi stream detects a reverse shell on the mimi-sourced event.
 printf 'sources:\n  - {type: mimi, path: /var/log/mimi.jsonl}\nalerts:\n  jsonl: {enable: true, dir: /var/log/bmimi, format: ocsf}\n' > /etc/banken/mimi.yml
-mkdir -p /var/log/bmimi
 banken --watch -config /etc/banken/mimi.yml -state /tmp/bmimi.state >/var/log/bmimi.err 2>&1 &
 BPID=$!
 sleep 1

@@ -57,18 +57,40 @@
         "type": "github"
       }
     },
+    "mayfly_2": {
+      "inputs": {
+        "nixpkgs": [
+          "mimi",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793840959,
+        "narHash": "sha256-DoscItC73FhPbPNoFMhUejRQ29fWXU9avJBLeLjK3e8=",
+        "owner": "conor-sometimes",
+        "repo": "mayfly",
+        "rev": "55e25316530c362d080d2a95806d0612d1e946ac",
+        "type": "github"
+      },
+      "original": {
+        "owner": "conor-sometimes",
+        "repo": "mayfly",
+        "type": "github"
+      }
+    },
     "mimi": {
       "inputs": {
         "crane": "crane",
         "fenix": "fenix",
+        "mayfly": "mayfly_2",
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1793818103,
-        "narHash": "sha256-qAVZKVPNRwA6vTLEVw8VuxB5HCgpGyGpf5055mH1ywg=",
+        "lastModified": 1793841508,
+        "narHash": "sha256-0FUfXmoGTHxUP46LKIdkEVygZohn7nRkqMB08dxIZRc=",
         "owner": "conor-sometimes",
         "repo": "mimi",
-        "rev": "b67d486b82c6892da56ba7b3a21a3ceff15ca55f",
+        "rev": "9cfcd85736ab74c8147979e2e9a7fccf8c95fb78",
         "type": "github"
       },
       "original": {

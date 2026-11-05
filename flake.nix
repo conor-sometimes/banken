@@ -90,7 +90,7 @@
       # above is the prototype, kept until the extraction is signed off on all
       # eight distros.
       apps.x86_64-linux.matrix = (import ./tests/distros/matrix.nix {
-        inherit pkgs mayfly;
+        inherit pkgs mayfly mimi;
         lib = nixpkgs.lib;
         banken = bankenPkg;
       }).apps.matrix;
