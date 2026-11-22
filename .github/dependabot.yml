@@ -18,3 +18,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # every github/codeql-action step must be on the same version (init, autobuild, analyze and
+    # upload-sarif); bumped one at a time, each PR fails CodeQL with a version mismatch.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
